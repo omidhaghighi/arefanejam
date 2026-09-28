@@ -1,0 +1,14 @@
+{
+  "appId": "com.arefanejam.quran",
+  "appName": "عارفان جام",
+  "webDir": "app",
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_azan",
+      "iconColor": "#143C36"
+    }
+  }
+}
