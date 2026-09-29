@@ -448,6 +448,11 @@ const ANNOUNCEMENT_AUDIO_META_KEY = 'arefanejam_announcement_audio_meta';
 const APP_SHELL_CACHE_NAME = 'arefanejam-app-shell-v4';
 // کش صوت تلاوت‌های ذخیره‌شدهٔ قرآن برای پخش آفلاین؛ باید از پاک‌سازی کش‌های قدیمی مستثنا باشد.
 const QURAN_AUDIO_CACHE_NAME = 'arefanejam-quran-audio-v1';
+// ذخیرهٔ آفلاینِ محتوای بخش «کمک‌های مردمی»: متن/کارت‌ها/لینک‌ها در localStorage و تصاویر در این کش.
+// اسم کش باید دقیقاً با CHARITY_MEDIA_CACHE در push-worker.js یکی باشد و از پاک‌سازی کش‌های قدیمی مستثنا بماند.
+const CHARITY_CACHE_KEY = 'arefanejam_charity_cache';
+const FOOD_ITEMS_CACHE_KEY = 'arefanejam_food_items_cache';
+const CHARITY_MEDIA_CACHE_NAME = 'arefanejam-charity-media-v1';
 
 // فایل صوتی اذان را کامل (یک‌بار) دانلود و در حافظهٔ خودِ گوشی ذخیره می‌کند و آماده نگه می‌دارد؛
 // وقت اذان صدا از همین نسخهٔ محلی پخش می‌شود، پس بدون اینترنت هم کار می‌کند.
@@ -5171,25 +5176,101 @@ function renderRamadanContent(r) {
   }
 }
 /* ---------- جلسه خیرین ---------- */
-async function loadCharitySettings() {
-  let hasFoodItems = false;
+// این بخش باید بدون اینترنت هم دیده شود؛ پس هر بار که اطلاعاتش با موفقیت از سایت گرفته شد
+// در گوشی ذخیره می‌شود (متن‌ها در localStorage و تصاویر در کش مخصوص) و وقتی اینترنت نبود
+// یا کند بود، همان نسخهٔ ذخیره‌شده نمایش داده می‌شود. ویدیوها به‌خاطر حجم بالا ذخیره نمی‌شوند.
+function charityReadCache(key) {
+  try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { return null; }
+}
+function charityWriteCache(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* حافظه پر بود؛ مهم نیست */ }
+}
+// بدون مهلت، وقتی اینترنت «وصل ولی بی‌جان» است درخواست می‌تواند مدت‌ها معلق بماند و بخش هیچ‌وقت نمایش داده نشود
+function charityFetchWithTimeout(path, ms) {
+  return Promise.race([
+    apiFetch(path),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms || 10000)),
+  ]);
+}
+function charityNetworkMessage(err, fallback) {
+  const offline = !navigator.onLine || (err && (err instanceof TypeError || err.message === 'timeout' || /failed to fetch|networkerror|load failed/i.test(err.message || '')));
+  return offline ? 'این کار به اینترنت نیاز دارد. لطفاً اتصال اینترنت را بررسی کنید و دوباره تلاش کنید.' : ((err && err.message) || fallback);
+}
+function hasCharityContent(c) {
+  return !!(c && (c.text || c.image_url || c.video_url || c.gateway_url || (c.cards || []).length || (c.media_items || []).length));
+}
+function applyFoodItemsVisibility(items) {
+  const block = document.getElementById('charity-food-block');
+  if (block) block.classList.toggle('hidden', !(Array.isArray(items) && items.length > 0));
+}
+async function prefetchCharityMediaForOffline(c) {
+  if (!window.caches || !c) return;
+  const urls = [];
+  if (c.image_url) urls.push(c.image_url);
+  (c.media_items || []).forEach((it) => { if (it && it.url && it.type !== 'video') urls.push(it.url); });
+  const unique = Array.from(new Set(urls.map((u) => { try { return new URL(u, location.href).href; } catch (e) { return ''; } }).filter(Boolean))).slice(0, 40);
   try {
-    const foodItems = await apiFetch('/food-items');
-    hasFoodItems = Array.isArray(foodItems) && foodItems.length > 0;
-    document.getElementById('charity-food-block').classList.toggle('hidden', !hasFoodItems);
-  } catch (e) { /* ignore */ }
-  try {
-    const c = await apiFetch('/charity');
-    document.getElementById('charity-tile').classList.remove('hidden'); // همیشه فعال است
-    window.__charityData = c;
-  } catch (e) {
-    document.getElementById('charity-tile').classList.remove('hidden'); // همیشه فعال است، حتی اگر دریافت اطلاعات ناموفق بود
-  }
+    const cache = await caches.open(CHARITY_MEDIA_CACHE_NAME);
+    // تصاویری که دیگر در صفحه نیستند از کش حذف شوند تا حافظه بی‌جهت پر نشود
+    const existing = await cache.keys();
+    await Promise.all(existing.filter((r) => unique.indexOf(r.url) === -1).map((r) => cache.delete(r)));
+    for (const u of unique) {
+      if (await cache.match(u)) continue;
+      try {
+        let res;
+        try {
+          res = await fetch(u, { mode: 'cors' });
+          if (!res.ok) throw new Error('bad');
+        } catch (e1) {
+          res = await fetch(u, { mode: 'no-cors' }); // سرور هدر CORS نداد؛ پاسخ مبهم هم برای نمایش تصویر کافی است
+        }
+        if (res && (res.ok || res.type === 'opaque')) await cache.put(u, res);
+      } catch (e2) { /* این تصویر ذخیره نشد؛ بقیه ادامه پیدا کنند */ }
+    }
+  } catch (e) { /* کش در دسترس نبود */ }
+}
+let charityRefreshing = null;
+function loadCharitySettings() {
+  const tile = document.getElementById('charity-tile');
+  if (tile) tile.classList.remove('hidden'); // همیشه فعال است، حتی آفلاین
+  // ۱) فوراً از نسخهٔ ذخیره‌شدهٔ گوشی (بدون منتظر ماندن برای شبکه)
+  const cachedCharity = charityReadCache(CHARITY_CACHE_KEY);
+  if (cachedCharity && !window.__charityData) window.__charityData = cachedCharity;
+  applyFoodItemsVisibility(charityReadCache(FOOD_ITEMS_CACHE_KEY));
+  if (currentTab === 'charity') renderCharityPage();
+  // ۲) تازه‌سازی از سایت (اگر اینترنت باشد)
+  if (charityRefreshing) return charityRefreshing;
+  charityRefreshing = (async () => {
+    try {
+      const foodItems = await charityFetchWithTimeout('/food-items');
+      charityWriteCache(FOOD_ITEMS_CACHE_KEY, foodItems);
+      applyFoodItemsVisibility(foodItems);
+    } catch (e) { /* آفلاین: همان نسخهٔ ذخیره‌شده می‌ماند */ }
+    try {
+      const c = await charityFetchWithTimeout('/charity');
+      window.__charityData = c;
+      charityWriteCache(CHARITY_CACHE_KEY, c);
+      prefetchCharityMediaForOffline(c);
+    } catch (e) { /* آفلاین: همان نسخهٔ ذخیره‌شده می‌ماند */ }
+    // فقط اگر محتوا واقعاً تغییر کرده، صفحه دوباره ساخته شود (تا پخش ویدیو یا اسکرول کاربر به‌هم نخورد)
+    if (currentTab === 'charity' && window.__charityRenderedSig !== JSON.stringify(window.__charityData || null)) renderCharityPage();
+  })().then(() => { charityRefreshing = null; }, () => { charityRefreshing = null; });
+  return charityRefreshing;
 }
 function renderCharityPage() {
   const c = window.__charityData || {};
   const el = document.getElementById('charity-content');
+  window.__charityRenderedSig = JSON.stringify(window.__charityData || null);
   el.innerHTML = '';
+  if (!hasCharityContent(c)) {
+    const empty = document.createElement('p');
+    empty.className = 'note-empty';
+    empty.textContent = window.__charityData
+      ? 'فعلاً موردی برای نمایش ثبت نشده است.'
+      : 'اطلاعات این بخش هنوز دریافت نشده است. یک‌بار با اینترنت وارد این صفحه شوید؛ از آن پس بدون اینترنت هم نمایش داده می‌شود.';
+    el.appendChild(empty);
+    return;
+  }
   const card = document.createElement('div');
   card.className = 'charity-card';
   let html = '';
@@ -5242,9 +5323,28 @@ function renderCharityPage() {
   el.querySelectorAll('.charity-media-grid video.charity-media-el').forEach((v) => {
     v.addEventListener('play', () => trackClick('charity_video'), { once: true });
   });
+  // ویدیو ذخیرهٔ آفلاین ندارد؛ اگر بدون اینترنت باز نشد، به‌جای کادر خالی یک توضیح کوتاه نشان بده
+  el.querySelectorAll('video').forEach((v) => {
+    v.addEventListener('error', () => {
+      if (v.dataset.errNoted) return;
+      v.dataset.errNoted = '1';
+      const note = document.createElement('p');
+      note.className = 'muted-text small';
+      note.style.textAlign = 'center';
+      note.textContent = 'پخش این ویدیو به اینترنت نیاز دارد.';
+      v.insertAdjacentElement('afterend', note);
+    });
+  });
+  // تصویری که نه در کش بود و نه با اینترنت گرفته شد، کادر خراب نشان ندهد
+  el.querySelectorAll('img').forEach((img) => {
+    img.addEventListener('error', () => { img.style.display = 'none'; });
+  });
 }
 document.querySelector('[data-goto="ramadan-countdown"]').addEventListener('click', loadRamadanPage);
-document.querySelector('[data-goto="charity"]').addEventListener('click', renderCharityPage);
+document.querySelector('[data-goto="charity"]').addEventListener('click', () => {
+  renderCharityPage(); // فوری، از نسخهٔ موجود/ذخیره‌شده
+  if (navigator.onLine) loadCharitySettings(); // اگر اینترنت هست، تازه‌ترین اطلاعات را هم بگیر
+});
 
 /* ---------- اقلام غذایی: ورود سوپرمارکت با کد و تیک‌زدن اقلام اهدایی ---------- */
 (function () {
@@ -5351,7 +5451,7 @@ document.querySelector('[data-goto="charity"]').addEventListener('click', render
         itemsStep.classList.remove('hidden');
         saveMsg.classList.add('hidden');
       })
-      .catch((err) => showCodeError(err.message || 'کد وارد شده معتبر نیست.'));
+      .catch((err) => showCodeError(charityNetworkMessage(err, 'کد وارد شده معتبر نیست.')));
   }
 
   document.getElementById('charity-food-code-submit').addEventListener('click', () => {
@@ -5391,7 +5491,7 @@ document.querySelector('[data-goto="charity"]').addEventListener('click', render
       .catch((err) => {
         saveMsg.classList.remove('hidden');
         saveMsg.style.color = 'var(--danger)';
-        saveMsg.textContent = err.message || 'خطا در ذخیره‌سازی. دوباره تلاش کنید.';
+        saveMsg.textContent = charityNetworkMessage(err, 'خطا در ذخیره‌سازی. دوباره تلاش کنید.');
       });
   });
 
@@ -6785,7 +6885,7 @@ if ('serviceWorker' in navigator) {
     // کش‌های «پخش آفلاین اذان» و «پوستهٔ اصلی اپ» حذف نشوند؛ قبلاً این خط با هر بار
     // باز شدن اپ همهٔ کش‌ها را پاک می‌کرد و در نتیجه چیزی برای کارکرد آفلاین باقی نمی‌ماند.
     caches.keys().then((keys) => keys.forEach((k) => {
-      if (k !== AZAN_OFFLINE_CACHE_NAME && k !== APP_SHELL_CACHE_NAME && k !== QURAN_AUDIO_CACHE_NAME && k !== ANNOUNCEMENT_AUDIO_CACHE_NAME) caches.delete(k);
+      if (k !== AZAN_OFFLINE_CACHE_NAME && k !== APP_SHELL_CACHE_NAME && k !== QURAN_AUDIO_CACHE_NAME && k !== ANNOUNCEMENT_AUDIO_CACHE_NAME && k !== CHARITY_MEDIA_CACHE_NAME) caches.delete(k);
     }));
   }
 }

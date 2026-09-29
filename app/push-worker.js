@@ -14,6 +14,9 @@ const ANNOUNCEMENT_AUDIO_CACHE = 'arefanejam-announcement-audio-v1';
 // این اسم دقیقاً باید با APP_SHELL_CACHE_NAME در js/app.js یکی باشد تا موقع
 // پاک‌سازی کش‌های قدیمی، این یکی به‌اشتباه پاک نشود.
 const APP_SHELL_CACHE = 'arefanejam-app-shell-v4';
+// کش تصاویر بخش «کمک‌های مردمی» برای نمایش آفلاین؛ این اسم دقیقاً باید با CHARITY_MEDIA_CACHE_NAME
+// در js/app.js یکی باشد. خودِ اپ تصاویر را در آن ذخیره می‌کند و این سرویس‌ورکر فقط از آن می‌خواند.
+const CHARITY_MEDIA_CACHE = 'arefanejam-charity-media-v1';
 
 // دو جایگاه ثابت و جدا در نوار اعلانات:
 // ۱) STICKY_TAG: تاریخ امروز + اذان بعدی — همیشه به‌روزرسانی می‌شود، بی‌صدا
@@ -163,6 +166,19 @@ function isAzanAudioRequest(url) {
 function isSettingsRequest(url) {
   return url.indexOf('/wp-json/arefanejam/v1/settings') !== -1;
 }
+// اطلاعات بخش «کمک‌های مردمی» و فهرست اقلام غذایی (عمداً /charity-food/... شامل نمی‌شود چون آن‌ها ورود و ثبت‌اند)
+function isCharityDataRequest(url) {
+  return /\/wp-json\/arefanejam\/v1\/(charity|food-items)(\?|$)/.test(url);
+}
+// اگر تصویر (از سایتی غیر از خود اپ) در کش «کمک‌های مردمی» بود از همان می‌دهد؛ وگرنه مستقیم از شبکه
+async function charityMediaResponse(request) {
+  try {
+    const cache = await caches.open(CHARITY_MEDIA_CACHE);
+    const cached = await cache.match(request.url);
+    if (cached) return cached;
+  } catch (e) { /* کش در دسترس نبود */ }
+  return fetch(request);
+}
 
 // پوستهٔ اصلی اپ: خودِ صفحه (index.html، چه با آدرس کامل و چه با ناوبری مرورگر)
 // و فایل‌های ثابتِ ضروری برای نمایش آن. عمداً بر اساس نام فایل تشخیص داده
@@ -259,6 +275,16 @@ self.addEventListener('fetch', (event) => {
 
   if (isAppShellRequest(request)) {
     event.respondWith(networkFirstThenCache(request, APP_SHELL_CACHE, true));
+    return;
+  }
+
+  if (isCharityDataRequest(url)) {
+    event.respondWith(networkFirstThenCache(request, AZAN_OFFLINE_CACHE, false));
+    return;
+  }
+
+  if (request.destination === 'image' && new URL(url).origin !== self.location.origin) {
+    event.respondWith(charityMediaResponse(request));
     return;
   }
 
