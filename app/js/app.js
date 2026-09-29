@@ -5180,10 +5180,10 @@ async function loadCharitySettings() {
   } catch (e) { /* ignore */ }
   try {
     const c = await apiFetch('/charity');
-    document.getElementById('charity-tile').classList.toggle('hidden', c.active !== '1' && !hasFoodItems);
+    document.getElementById('charity-tile').classList.remove('hidden'); // همیشه فعال است
     window.__charityData = c;
   } catch (e) {
-    document.getElementById('charity-tile').classList.toggle('hidden', !hasFoodItems);
+    document.getElementById('charity-tile').classList.remove('hidden'); // همیشه فعال است، حتی اگر دریافت اطلاعات ناموفق بود
   }
 }
 function renderCharityPage() {
