@@ -232,12 +232,15 @@
     if (checking) return;
     checking = true;
     fetchInfo().then(function (info) {
-      var available = info && info.enabled && info.version && info.apk_url && isNewer(info.version, CURRENT);
+      var announced = !!(info && info.enabled && info.version && info.apk_url);
+      var available = announced && isNewer(info.version, CURRENT);
       if (!available) {
         if (manual) openModal({
-          title: 'برنامه به‌روز است ✅',
-          versionLine: 'نسخهٔ شما: ' + CURRENT,
-          message: 'شما از آخرین نسخه استفاده می‌کنید.',
+          title: announced ? 'برنامه به‌روز است ✅' : 'نسخهٔ جدیدی اعلام نشده',
+          versionLine: 'نسخهٔ شما: ' + CURRENT + (announced ? '   |   آخرین نسخهٔ سایت: ' + info.version : ''),
+          message: announced
+            ? 'شما از آخرین نسخه استفاده می‌کنید.'
+            : 'فعلاً نسخهٔ جدیدی برای اپ اعلام نشده است.',
           buttons: [{ label: 'باشه', primary: true }]
         });
         return;
@@ -264,6 +267,7 @@
       if (manual) openModal({
         title: 'بررسی انجام نشد',
         message: 'اتصال اینترنت را بررسی کنید و دوباره تلاش کنید.',
+        hint: 'جزئیات فنی: ' + String((e && e.message) || e),
         buttons: [{ label: 'باشه', primary: true }]
       });
     }).then(function () { checking = false; });
