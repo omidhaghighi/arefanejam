@@ -7,7 +7,8 @@
   var LN = Cap.Plugins && Cap.Plugins.LocalNotifications;
   if (!LN) return;
 
-  var CH_AZAN = 'azan-v1';
+  var CH_AZAN = 'azan-v2'; // کانال جدید، چون صدای کانال اندروید بعد از ساخت قابل تغییر نیست
+  var CH_AZAN_OLD = 'azan-v1';
   var CH_NOTES = 'notes-v1';
   var SMALL_ICON = 'ic_stat_azan';
   var ready = false;
@@ -109,6 +110,7 @@
         { id: CH_NOTES, name: 'یادآوری یادداشت‌ها', description: 'یادآورهای یادداشت شخصی', importance: 4, visibility: 1, vibration: true }
       ];
       if (window.NATIVE_AZAN_SOUND) ch[0].sound = 'azan.mp3';
+      try { if (typeof LN.deleteChannel === 'function') LN.deleteChannel({ id: CH_AZAN_OLD }); } catch (e) {}
       return Promise.all(ch.map(function (c) { return LN.createChannel(c); }));
     }).then(askExactAlarmIfNeeded).then(function () {
       ready = true;
