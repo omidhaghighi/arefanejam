@@ -145,3 +145,140 @@
 
   init();
 })();
+
+
+/* بروزرسانی داخل اپ (فقط اپ اندرویدی Capacitor).
+   نسخهٔ نصب‌شده با آخرین نسخهٔ اعلام‌شده در سایت مقایسه می‌شود؛ اگر جدیدتر بود پنجره‌ای با دو گزینهٔ
+   «بروزرسانی» و «بعداً» نشان داده می‌شود. «بروزرسانی» فایل APK را دانلود می‌کند و بعد از نصب، روی نسخهٔ قبلی
+   جایگزین می‌شود (نیازی به حذف اپ قبلی نیست، چون هر دو نسخه با یک کلید امضا ساخته می‌شوند). */
+(function () {
+  var Cap = window.Capacitor;
+  if (!Cap || typeof Cap.isNativePlatform !== 'function' || !Cap.isNativePlatform()) return;
+
+  var CURRENT = String(window.NATIVE_APP_VERSION || '0.0.0');
+  var DEFAULT_API = 'https://arefanejam.com/wp-json/arefanejam/v1';
+  var LATER_KEY = 'arefanejam_update_later';
+  var LATER_MS = 24 * 3600 * 1000; // بعد از «بعداً»، تا ۲۴ ساعت خودکار دوباره نمی‌پرسد
+  var checking = false;
+
+  function log(e) { try { console.log('[AppUpdate]', e); } catch (x) {} }
+
+  function apiBase() {
+    var b = '';
+    try { b = localStorage.getItem('arefanejam_api_url') || ''; } catch (e) {}
+    return (b || DEFAULT_API).replace(/\/$/, '');
+  }
+
+  // مقایسهٔ نسخه‌ها مثل 1.10.0 و 1.9.3 (عددی، نه رشته‌ای)
+  function isNewer(remote, local) {
+    var a = String(remote).split('.').map(function (n) { return parseInt(n, 10) || 0; });
+    var b = String(local).split('.').map(function (n) { return parseInt(n, 10) || 0; });
+    for (var i = 0; i < Math.max(a.length, b.length); i++) {
+      var x = a[i] || 0, y = b[i] || 0;
+      if (x > y) return true;
+      if (x < y) return false;
+    }
+    return false;
+  }
+
+  function closeModal() {
+    var m = document.getElementById('app-update-modal');
+    if (m) m.remove();
+  }
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  function openModal(o) {
+    closeModal();
+    var modal = el('div', 'modal');
+    modal.id = 'app-update-modal';
+    var box = el('div', 'modal-box app-update-box');
+    box.appendChild(el('h3', '', o.title));
+    if (o.versionLine) box.appendChild(el('p', 'app-update-ver', o.versionLine));
+    if (o.message) box.appendChild(el('p', 'muted-text', o.message));
+    if (o.notes) box.appendChild(el('div', 'app-update-notes', o.notes));
+    if (o.hint) box.appendChild(el('p', 'muted-text app-update-hint', o.hint));
+    var actions = el('div', 'modal-actions');
+    (o.buttons || []).forEach(function (b) {
+      var btn = el('button', b.primary ? 'secondary-btn small-btn' : 'ghost-btn small-btn', b.label);
+      btn.type = 'button';
+      btn.addEventListener('click', function () { closeModal(); if (b.onClick) b.onClick(); });
+      actions.appendChild(btn);
+    });
+    box.appendChild(actions);
+    modal.appendChild(box);
+    document.body.appendChild(modal);
+  }
+
+  function startDownload(url) {
+    var B = Cap.Plugins && Cap.Plugins.Browser;
+    try {
+      if (B && typeof B.open === 'function') { B.open({ url: url }); return; }
+    } catch (e) { log(e); }
+    try { window.open(url, '_blank'); } catch (e2) { location.href = url; }
+  }
+
+  function fetchInfo() {
+    return fetch(apiBase() + '/app-update?t=' + Date.now(), { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); });
+  }
+
+  function check(manual) {
+    if (checking) return;
+    checking = true;
+    fetchInfo().then(function (info) {
+      var available = info && info.enabled && info.version && info.apk_url && isNewer(info.version, CURRENT);
+      if (!available) {
+        if (manual) openModal({
+          title: 'برنامه به‌روز است ✅',
+          versionLine: 'نسخهٔ شما: ' + CURRENT,
+          message: 'شما از آخرین نسخه استفاده می‌کنید.',
+          buttons: [{ label: 'باشه', primary: true }]
+        });
+        return;
+      }
+      if (!manual) {
+        var last = 0, lastV = '';
+        try { last = Number(localStorage.getItem(LATER_KEY + '_ts') || 0); lastV = localStorage.getItem(LATER_KEY + '_v') || ''; } catch (e) {}
+        if (lastV === String(info.version) && Date.now() - last < LATER_MS) return;
+      }
+      openModal({
+        title: 'نسخهٔ جدید آماده است 🎉',
+        versionLine: CURRENT + '  ←  ' + info.version,
+        notes: info.notes || '',
+        hint: 'با زدن «بروزرسانی»، فایل نسخهٔ جدید دانلود می‌شود. بعد از پایان دانلود روی آن بزنید و «نصب» را انتخاب کنید. نیازی به حذف نسخهٔ قبلی نیست و اطلاعات شما حفظ می‌شود.',
+        buttons: [
+          { label: 'بروزرسانی', primary: true, onClick: function () { startDownload(info.apk_url); } },
+          { label: 'بعداً', onClick: function () {
+              try { localStorage.setItem(LATER_KEY + '_v', String(info.version)); localStorage.setItem(LATER_KEY + '_ts', String(Date.now())); } catch (e) {}
+            } }
+        ]
+      });
+    }).catch(function (e) {
+      log(e);
+      if (manual) openModal({
+        title: 'بررسی انجام نشد',
+        message: 'اتصال اینترنت را بررسی کنید و دوباره تلاش کنید.',
+        buttons: [{ label: 'باشه', primary: true }]
+      });
+    }).then(function () { checking = false; });
+  }
+
+  function wire() {
+    var tile = document.getElementById('app-update-tile');
+    if (tile) {
+      tile.classList.remove('hidden');
+      tile.addEventListener('click', function () { check(true); });
+    }
+    // بررسی خودکار چند ثانیه بعد از باز شدن اپ (اگر آنلاین باشد)
+    setTimeout(function () { if (navigator.onLine !== false) check(false); }, 5000);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire);
+  else wire();
+})();

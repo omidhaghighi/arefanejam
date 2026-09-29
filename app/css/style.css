@@ -440,6 +440,7 @@ button:active, .nav-btn:active, .note-card:active, .menu-row:active {
 .tile-lesson   { --tile-c: #2FB894; --tile-cd: #0E7D62; }
 .tile-tasbih   { --tile-c: #E8745A; --tile-cd: #B84C34; }
 .tile-about    { --tile-c: #3E8FD9; --tile-cd: #1F5E9A; }
+.tile-update   { --tile-c: #2FA36B; --tile-cd: #1B7346; }
 .tile-quran    { --tile-c: #4CC26B; --tile-cd: #1F8F49; }
 .tile-checklist{ --tile-c: #B159D8; --tile-cd: #7B32A0; }
 .tile-deeds    { --tile-c: #3FA0E8; --tile-cd: #1D6FB8; }
@@ -2072,3 +2073,10 @@ button, .menu-tile, .nav-btn, .note-card, .calendar-card, .verse-card,
     transition: none !important;
   }
 }
+
+/* پنجرهٔ بروزرسانی داخل اپ اندروید */
+.app-update-box { text-align: center; max-height: 82vh; overflow-y: auto; }
+.app-update-ver { font-size: 13px; color: var(--muted, #6b7a75); margin: 0 0 10px; direction: ltr; }
+.app-update-notes { text-align: right; white-space: pre-wrap; font-size: 13px; background: var(--paper-alt, #f4efe4); border-radius: 10px; padding: 10px 12px; margin: 0 0 10px; }
+.app-update-hint { font-size: 12px; margin: 0 0 14px; }
+.app-update-box .modal-actions { justify-content: center; }
