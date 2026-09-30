@@ -370,7 +370,8 @@ function showStickyNotification(data) {
   const info = data.sticky_info || {};
   if (!info.jalali) return Promise.resolve();
 
-  const lines = [info.jalali, info.gregorian, info.hijri].filter(Boolean);
+  const custom = String(data.sticky_custom_text || '').trim(); // متن دلخواه مدیر (پیشخوان سایت)
+  const lines = [info.jalali, custom, info.gregorian, info.hijri].filter(Boolean);
   if (info.next_prayer_label) {
     lines.push('اذان بعدی: ' + info.next_prayer_label + ' — ساعت ' + info.next_prayer_time);
   }

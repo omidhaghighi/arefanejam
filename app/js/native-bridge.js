@@ -24,6 +24,9 @@
     return '';
   }
   var CH_NOTES = 'notes-v1';
+  var CH_STICKY = 'sticky-v1';   // نوتیفیکیشن ثابت (تاریخ + متن مدیر): بی‌صدا، ولی روی صفحهٔ قفل دیده می‌شود
+  var STICKY_ID = 777000001;
+  var queuedSticky = null;       // null = هنوز چیزی نیامده؛ {p: payload|null} = آخرین درخواست
   var SMALL_ICON = 'ic_stat_azan';
   var ready = false;
   var queuedSchedule = null;
@@ -92,6 +95,23 @@
     }).catch(log);
   }
 
+  // نوتیفیکیشن ثابت: نام اپ + تاریخ امروز (عنوان) و متن دلخواه مدیر (متن). همیشه با همان شناسه جایگزین می‌شود.
+  function applySticky(p) {
+    if (!p) return LN.cancel({ notifications: [{ id: STICKY_ID }] }).catch(log);
+    var n = {
+      id: STICKY_ID,
+      title: p.title || 'عارفان جام',
+      body: p.text || '',
+      channelId: CH_STICKY,
+      smallIcon: SMALL_ICON,
+      ongoing: true,
+      autoCancel: false,
+      extra: { kind: 'sticky' }
+    };
+    if (p.lines && p.lines.length > 1) n.largeBody = p.lines.join('\n');
+    return LN.schedule({ notifications: [n] }).catch(log);
+  }
+
   function enqueue(fn) { busy = busy.then(fn).catch(log); return busy; }
 
   window.NativeAlarms = {
@@ -102,6 +122,10 @@
     syncNotes: function (list) {
       queuedNotes = [list];
       if (ready) enqueue(function () { return applyNotes(list); });
+    },
+    syncSticky: function (payload) {
+      queuedSticky = { p: payload };
+      if (ready) enqueue(function () { return applySticky(payload); });
     }
   };
 
@@ -122,7 +146,8 @@
     return LN.requestPermissions().then(function () {
       var ch = [
         { id: CH_AZAN, name: 'اذان (صدای پیش‌فرض گوشی)', description: 'اعلان اذان', importance: 5, visibility: 1, vibration: true },
-        { id: CH_NOTES, name: 'یادآوری یادداشت‌ها', description: 'یادآورهای یادداشت شخصی', importance: 4, visibility: 1, vibration: true }
+        { id: CH_NOTES, name: 'یادآوری یادداشت‌ها', description: 'یادآورهای یادداشت شخصی', importance: 4, visibility: 1, vibration: true },
+        { id: CH_STICKY, name: 'تاریخ و پیام روز', description: 'نوتیفیکیشن ثابت تاریخ و پیام روز (بی‌صدا)', importance: 2, visibility: 1, vibration: false }
       ];
       VOICES.forEach(function (v) {
         ch.push({ id: voiceChannel(v.id), name: 'اذان — ' + (v.name || v.id), description: 'اعلان و صدای اذان', importance: 5, visibility: 1, vibration: true, sound: voiceFile(v.id) });
@@ -135,6 +160,7 @@
       ready = true;
       if (queuedSchedule) enqueue(function () { return applySchedule(queuedSchedule[0], queuedSchedule[1], queuedSchedule[2], queuedSchedule[3]); });
       if (queuedNotes) enqueue(function () { return applyNotes(queuedNotes[0]); });
+      if (queuedSticky) enqueue(function () { return applySticky(queuedSticky.p); });
     }).catch(log);
   }
 

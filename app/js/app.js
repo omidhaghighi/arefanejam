@@ -2178,21 +2178,43 @@ if ('serviceWorker' in navigator) {
    غیرقابل‌بستن کند؛ اگر کاربر آن را کنار بزند، سرور هم جداگانه هر نیم‌ساعت یک‌بار
    (و سر هر وقت اذان) آن را دوباره برای دستگاه‌های مشترک می‌فرستد. */
 let lastStickyBody = '';
+let lastStickyUpcoming = null;
 function updateStickyNotification(upcoming) {
   const s = state.settings || {};
-  if (s.sticky_notification_enabled === '') return;
-  if (!('serviceWorker' in navigator) || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  const hasNative = !!(window.NativeAlarms && typeof window.NativeAlarms.syncSticky === 'function');
+  if (s.sticky_notification_enabled === '') {
+    if (hasNative) window.NativeAlarms.syncSticky(null); // خاموش شد: نوتیفیکیشن ثابت را بردار
+    return;
+  }
+  if (upcoming) lastStickyUpcoming = upcoming;
 
   const cal = getCalendarStrings(new Date());
-  const lines = [cal.jalali, cal.gregorian, cal.hijri];
+  const brand = s.brand_name || 'عارفان جام';
+  const custom = String(s.sticky_custom_text || '').trim(); // متنی که مدیر در پیشخوان سایت نوشته
+  const lines = [cal.jalali];
+  if (custom) lines.push(custom);
+  lines.push(cal.gregorian, cal.hijri);
   if (upcoming) lines.push('اذان بعدی: ' + upcoming.label + ' — ساعت ' + formatTime(upcoming.time));
   const body = lines.join('\n');
   if (body === lastStickyBody) return; // چیزی تغییر نکرده، دوباره ننویس
   lastStickyBody = body;
 
+  // نسخهٔ اندروید (Capacitor): نوتیفیکیشن بومیِ ثابت که روی صفحهٔ قفل هم دیده می‌شود
+  if (hasNative) {
+    const extra = lines.filter((l) => l !== cal.jalali && l !== custom);
+    window.NativeAlarms.syncSticky({
+      title: brand + ' — ' + cal.jalali,       // نام اپ + تاریخ امروز
+      text: custom || extra[extra.length - 1] || cal.gregorian, // متن مدیر (اگر نبود، اذان بعدی)
+      lines: (custom ? [custom] : []).concat(extra),
+    });
+    return;
+  }
+
+  if (!('serviceWorker' in navigator) || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+
   navigator.serviceWorker.getRegistration('push-worker.js').then((reg) => {
     if (!reg) return;
-    reg.showNotification(s.brand_name || 'عارفان جام', {
+    reg.showNotification(brand, {
       body,
       icon: s.logo_url || undefined,
       badge: s.logo_url || undefined,
@@ -2205,6 +2227,10 @@ function updateStickyNotification(upcoming) {
     }).catch(() => {});
   }).catch(() => {});
 }
+// هر بار اپ دوباره باز/جلو آمد، تاریخ (و متن) نوتیفیکیشن ثابت دوباره تازه می‌شود (مثلاً بعد از تغییر روز)
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) { lastStickyBody = ''; updateStickyNotification(lastStickyUpcoming); }
+});
 
 function renderPrayerList(elId, list, currentKey) {
   const el = document.getElementById(elId);
