@@ -77,6 +77,21 @@ jobs:
           sed -i 's#</manifest>#    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />\n    <uses-permission android:name="android.permission.VIBRATE" />\n    <uses-permission android:name="android.permission.WAKE_LOCK" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n</manifest>#' "$M"
           cat "$M"
 
+      - name: Native in-app updater (download and install APK inside the app)
+        run: |
+          MAIN=$(find android/app/src/main/java -name MainActivity.java | head -n 1)
+          JDIR=$(dirname "$MAIN")
+          echo "java dir: $JDIR"
+          echo "$JDIR" | grep -q "com/arefanejam/quran" || { echo "ERROR: package folder is not com/arefanejam/quran"; exit 1; }
+          cp native-assets/android/MainActivity.java native-assets/android/AppUpdaterPlugin.java native-assets/android/UpdateFileProvider.java "$JDIR/"
+          mkdir -p android/app/src/main/res/xml
+          cp native-assets/android/update_file_paths.xml android/app/src/main/res/xml/update_file_paths.xml
+          M=android/app/src/main/AndroidManifest.xml
+          sed -i 's#</manifest>#    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />\n</manifest>#' "$M"
+          sed -i 's#</application>#        <provider android:name="com.arefanejam.quran.UpdateFileProvider" android:authorities="${applicationId}.updateprovider" android:exported="false" android:grantUriPermissions="true">\n            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_file_paths" />\n        </provider>\n    </application>#' "$M"
+          grep -q "updateprovider" "$M" || { echo "ERROR: provider was not added to manifest"; exit 1; }
+          cat "$M"
+
       - name: App icon and notification icon
         run: |
           sudo apt-get update -y
