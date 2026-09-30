@@ -5214,7 +5214,7 @@ async function prefetchCharityMediaForOffline(c) {
     const cache = await caches.open(CHARITY_MEDIA_CACHE_NAME);
     // تصاویری که دیگر در صفحه نیستند از کش حذف شوند تا حافظه بی‌جهت پر نشود
     const existing = await cache.keys();
-    await Promise.all(existing.filter((r) => unique.indexOf(r.url) === -1).map((r) => cache.delete(r)));
+    await Promise.all(existing.filter((r) => unique.indexOf(r.url) === -1 && (window.__socialIconUrls || []).indexOf(r.url) === -1).map((r) => cache.delete(r)));
     for (const u of unique) {
       if (await cache.match(u)) continue;
       try {
@@ -5623,22 +5623,116 @@ function openNewsDetail(index) {
 }
 
 /* ---------- فضای مجازی ---------- */
+// هر لینک: { label, url, icon? }. لوگو را مدیر از پیشخوان سایت (فضای مجازی) آپلود می‌کند.
+// فهرست در گوشی ذخیره می‌شود تا بدون اینترنت هم کارت‌ها دیده شوند؛ تصویر لوگوها هم در
+// همان کش تصاویرِ آفلاین می‌رود (و از پاک‌سازی کش «کمک‌های مردمی» مستثنا است).
+const SOCIAL_CACHE_KEY = 'arefanejam_social_cache';
+window.__socialIconUrls = [];
+const SOCIAL_BRANDS = [
+  { re: /instagram|اینستا/i, bg: 'linear-gradient(135deg,#F9CE34,#EE2A7B 50%,#6228D7)', glyph: '📷' },
+  { re: /telegram|t\.me|تلگرام/i, bg: 'linear-gradient(135deg,#37AEE2,#1E96C8)', glyph: '✈️' },
+  { re: /rubika|روبیکا/i, bg: 'linear-gradient(135deg,#B43EF0,#6A1FC2)', glyph: '💬' },
+  { re: /aparat|آپارات/i, bg: 'linear-gradient(135deg,#F0245E,#C2104A)', glyph: '▶️' },
+  { re: /youtube|youtu\.be|یوتیوب/i, bg: 'linear-gradient(135deg,#FF4B4B,#CC0000)', glyph: '▶️' },
+  { re: /twitter|x\.com|توییتر/i, bg: 'linear-gradient(135deg,#2B2B2B,#000)', glyph: '✖️' },
+  { re: /facebook|fb\.com|فیسبوک/i, bg: 'linear-gradient(135deg,#3B8BFF,#1459C9)', glyph: '👍' },
+  { re: /eitaa|ایتا/i, bg: 'linear-gradient(135deg,#F79A42,#E2601A)', glyph: '💬' },
+  { re: /bale|بله/i, bg: 'linear-gradient(135deg,#3CC5A8,#1C8F7A)', glyph: '💬' },
+  { re: /whatsapp|واتساپ|واتس/i, bg: 'linear-gradient(135deg,#3EE07C,#18A34A)', glyph: '📞' },
+  { re: /آپارات|سایت|site|www\.|\.com|\.ir/i, bg: 'linear-gradient(135deg,#1A6E78,#0B3440)', glyph: '🌐' },
+];
+function socialBrandFor(l) {
+  const hay = (l.label || '') + ' ' + (l.url || '');
+  for (const b of SOCIAL_BRANDS) if (b.re.test(hay)) return b;
+  return { bg: 'linear-gradient(135deg,#C9A45A,#8A6C36)', glyph: (l.label || '•').trim().charAt(0) };
+}
+function socialHost(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return ''; }
+}
+function renderSocialLinks(links) {
+  const el = document.getElementById('social-links-content');
+  if (!el) return;
+  el.innerHTML = '';
+  if (!Array.isArray(links) || !links.length) { el.innerHTML = '<p class="note-empty">لینکی ثبت نشده است.</p>'; return; }
+  const grid = document.createElement('div');
+  grid.className = 'social-grid';
+  links.forEach((l, i) => {
+    const a = document.createElement('a');
+    a.href = l.url; a.target = '_blank'; a.rel = 'noopener';
+    a.className = 'social-card';
+    const brand = socialBrandFor(l);
+    const logo = document.createElement('span');
+    logo.className = 'social-logo';
+    const fallback = () => {
+      logo.classList.remove('has-img');
+      logo.style.background = brand.bg;
+      logo.innerHTML = '';
+      const g = document.createElement('span');
+      g.className = 'social-glyph';
+      g.textContent = brand.glyph;
+      logo.appendChild(g);
+    };
+    if (l.icon) {
+      logo.classList.add('has-img');
+      const img = document.createElement('img');
+      img.alt = ''; img.loading = 'lazy'; img.decoding = 'async';
+      img.addEventListener('error', fallback);
+      img.src = l.icon;
+      logo.appendChild(img);
+    } else {
+      fallback();
+    }
+    const name = document.createElement('span');
+    name.className = 'social-name';
+    name.textContent = l.label;
+    const host = document.createElement('span');
+    host.className = 'social-host';
+    host.textContent = socialHost(l.url);
+    a.appendChild(logo); a.appendChild(name); a.appendChild(host);
+    a.addEventListener('click', () => trackClick('social_link_' + i));
+    grid.appendChild(a);
+  });
+  el.appendChild(grid);
+}
+async function prefetchSocialIconsForOffline(links) {
+  if (!window.caches || !Array.isArray(links)) return;
+  const urls = Array.from(new Set(links.map((l) => l && l.icon).filter(Boolean).map((u) => { try { return new URL(u, location.href).href; } catch (e) { return ''; } }).filter(Boolean))).slice(0, 30);
+  window.__socialIconUrls = urls;
+  try {
+    const cache = await caches.open(CHARITY_MEDIA_CACHE_NAME);
+    for (const u of urls) {
+      if (await cache.match(u)) continue;
+      try {
+        let res;
+        try { res = await fetch(u, { mode: 'cors' }); if (!res.ok) throw new Error('bad'); }
+        catch (e1) { res = await fetch(u, { mode: 'no-cors' }); }
+        if (res && (res.ok || res.type === 'opaque')) await cache.put(u, res);
+      } catch (e2) { /* این لوگو ذخیره نشد؛ بقیه ادامه پیدا کنند */ }
+    }
+  } catch (e) { /* کش در دسترس نبود */ }
+}
 async function loadSocialLinks() {
   const el = document.getElementById('social-links-content');
-  el.innerHTML = '<p class="muted-text small">در حال بارگذاری...</p>';
+  // ۱) فوراً از نسخهٔ ذخیره‌شده (آفلاین هم کار می‌کند)
+  let cached = null;
+  try { cached = JSON.parse(localStorage.getItem(SOCIAL_CACHE_KEY) || 'null'); } catch (e) {}
+  if (Array.isArray(cached) && cached.length) {
+    window.__socialIconUrls = cached.map((l) => l && l.icon).filter(Boolean);
+    renderSocialLinks(cached);
+  } else {
+    el.innerHTML = '<p class="muted-text small">در حال بارگذاری...</p>';
+  }
+  // ۲) تازه‌سازی از سایت
   try {
     const links = await apiFetch('/social-links');
-    el.innerHTML = '';
-    if (!links.length) { el.innerHTML = '<p class="note-empty">لینکی ثبت نشده است.</p>'; return; }
-    links.forEach((l, i) => {
-      const a = document.createElement('a');
-      a.href = l.url; a.target = '_blank'; a.rel = 'noopener';
-      a.className = 'about-link-btn'; a.style.marginBottom = '10px'; a.style.display = 'block';
-      a.textContent = l.label;
-      a.addEventListener('click', () => trackClick('social_link_' + i));
-      el.appendChild(a);
-    });
-  } catch (e) { el.innerHTML = '<p class="note-empty">در حال حاضر در دسترس نیست.</p>'; }
+    if (!Array.isArray(links)) throw new Error('bad');
+    const sig = JSON.stringify(links);
+    if (!cached || JSON.stringify(cached) !== sig) renderSocialLinks(links);
+    try { localStorage.setItem(SOCIAL_CACHE_KEY, sig); } catch (e) {}
+    prefetchSocialIconsForOffline(links);
+  } catch (e) {
+    if (!(Array.isArray(cached) && cached.length)) el.innerHTML = '<p class="note-empty">در حال حاضر در دسترس نیست.</p>';
+  }
 }
 
 /* ---------- گالری فرهنگی: حالت، کش تصاویر و صف بارگذاری ---------- */
