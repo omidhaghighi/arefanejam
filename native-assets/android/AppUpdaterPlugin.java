@@ -1,11 +1,16 @@
 package com.arefanejam.quran;
 
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.pm.PackageInstaller;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
 
+import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 
 import com.getcapacitor.JSObject;
@@ -167,15 +172,103 @@ public class AppUpdaterPlugin extends Plugin {
                 call.resolve(r);
                 return;
             }
-            Uri uri = FileProvider.getUriForFile(ctx, ctx.getPackageName() + ".updateprovider", f);
-            Intent i = new Intent(Intent.ACTION_VIEW);
-            i.setDataAndType(uri, "application/vnd.android.package-archive");
-            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-            ctx.startActivity(i);
+            boolean done = false;
+            if (Build.VERSION.SDK_INT >= 31) {
+                try {
+                    installViaSession(ctx, f);
+                    done = true;
+                } catch (Exception se) {
+                    done = false; // اگر روش جدید نشد، همان روش قبلی
+                }
+            }
+            if (!done) installViaIntent(ctx, f);
             r.put("status", "started");
             call.resolve(r);
         } catch (Exception e) {
             call.reject(String.valueOf(e.getMessage()));
+        }
+    }
+
+    private static final String ACTION_INSTALL_RESULT = "com.arefanejam.quran.INSTALL_RESULT";
+
+    /** روش قدیمی: باز کردن صفحهٔ نصب‌کنندهٔ اندروید (همیشه یک بار تأیید می‌خواهد). */
+    private void installViaIntent(Context ctx, File f) throws Exception {
+        Uri uri = FileProvider.getUriForFile(ctx, ctx.getPackageName() + ".updateprovider", f);
+        Intent i = new Intent(Intent.ACTION_VIEW);
+        i.setDataAndType(uri, "application/vnd.android.package-archive");
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+        ctx.startActivity(i);
+    }
+
+    /**
+     * روش جدید (اندروید ۱۲+): نصب با PackageInstaller و درخواست «بدون نیاز به اقدام کاربر».
+     * اگر اندروید اجازه بدهد بی‌صدا بروزرسانی می‌شود؛ اگر نه، صفحهٔ تأیید عادی را نشان می‌دهد.
+     * اگر هر مشکلی پیش بیاید، خودکار به روش قدیمی برمی‌گردد.
+     */
+    private void installViaSession(final Context appCtx, final File f) throws Exception {
+        final Context ctx = appCtx.getApplicationContext();
+        PackageInstaller pi = ctx.getPackageManager().getPackageInstaller();
+        PackageInstaller.SessionParams params =
+                new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+        params.setAppPackageName(ctx.getPackageName());
+        if (Build.VERSION.SDK_INT >= 31) {
+            params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
+        }
+        int id = pi.createSession(params);
+        PackageInstaller.Session session = pi.openSession(id);
+        try {
+            InputStream in = new java.io.FileInputStream(f);
+            OutputStream out = session.openWrite("arefanejam.apk", 0, f.length());
+            try {
+                byte[] buf = new byte[64 * 1024];
+                int n;
+                while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+                session.fsync(out);
+            } finally {
+                try { in.close(); } catch (Exception ignore) { }
+                try { out.close(); } catch (Exception ignore) { }
+            }
+
+            final BroadcastReceiver receiver = new BroadcastReceiver() {
+                @Override
+                @SuppressWarnings("deprecation")
+                public void onReceive(Context c, Intent intent) {
+                    int status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, -1);
+                    if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+                        // اندروید تأیید کاربر را لازم دانسته: همان صفحهٔ تأیید را نشان بده
+                        Intent confirm = (Intent) intent.getParcelableExtra(Intent.EXTRA_INTENT);
+                        if (confirm != null) {
+                            confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            try { c.startActivity(confirm); } catch (Exception ignore) { }
+                        }
+                        return; // منتظر نتیجهٔ نهایی می‌مانیم
+                    }
+                    try { ctx.unregisterReceiver(this); } catch (Exception ignore) { }
+                    if (status != PackageInstaller.STATUS_SUCCESS
+                            && status != PackageInstaller.STATUS_FAILURE_ABORTED) {
+                        // روش جدید شکست خورد (نه اینکه کاربر لغو کرده باشد) → روش قدیمی
+                        try { installViaIntent(ctx, f); } catch (Exception ignore) { }
+                    }
+                }
+            };
+            ContextCompat.registerReceiver(ctx, receiver, new IntentFilter(ACTION_INSTALL_RESULT),
+                    ContextCompat.RECEIVER_NOT_EXPORTED);
+
+            Intent cb = new Intent(ACTION_INSTALL_RESULT).setPackage(ctx.getPackageName());
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= 31) flags |= PendingIntent.FLAG_MUTABLE;
+            PendingIntent pending = PendingIntent.getBroadcast(ctx, id, cb, flags);
+            try {
+                session.commit(pending.getIntentSender());
+            } catch (Exception e) {
+                try { ctx.unregisterReceiver(receiver); } catch (Exception ignore) { }
+                throw e;
+            }
+        } catch (Exception e) {
+            try { session.abandon(); } catch (Exception ignore) { }
+            throw e;
+        } finally {
+            try { session.close(); } catch (Exception ignore) { }
         }
     }
 
