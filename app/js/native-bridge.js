@@ -486,7 +486,7 @@
     var vl = document.getElementById('app-version-line');
     if (vl) {
       var nv = (window.NATIVE_AZAN_VOICES && window.NATIVE_AZAN_VOICES.length) || 0;
-      vl.textContent = 'نسخهٔ برنامه: ' + CURRENT + '  ✅ بروزرسانی موفق  |  نصب هوشمند ✅' +
+      vl.textContent = 'نسخهٔ برنامه: ' + CURRENT + '  ✅ بروزرسانی موفق  |  نصب هوشمند ✅ (تست ۲)' +
         '  |  صدای اذان در پس‌زمینه: ' + (nv ? ('✅ ' + fa(nv) + ' صدا داخل اپ') : '⚠️ ندارد (صدای پیش‌فرض گوشی)');
       vl.classList.remove('hidden');
     }
