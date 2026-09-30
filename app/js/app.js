@@ -7014,3 +7014,6 @@ setInterval(clearStaleAzanNotifications, 5 * 60 * 1000);
     }
   }, 500);
 })();
+
+// نشانهٔ «اجرای کامل app.js» برای بروزرسانی ظاهر اپ از سایت (اگر تا اینجا نرسد، اپ به نسخهٔ داخلی برمی‌گردد)
+window.__arefBooted = true;

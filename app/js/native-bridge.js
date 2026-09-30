@@ -187,6 +187,18 @@
   var waitingPermission = false;
   var ui = null;
 
+  // ---- حالت «بروزرسانی خودکار» (وقتی در پیشخوان سایت روشن باشد) ----
+  var READY_KEY = 'arefanejam_auto_ready_v';     // نسخه‌ای که APK آن قبلاً دانلود شده
+  var ATTEMPT_KEY = 'arefanejam_auto_attempt_v'; // نسخه‌ای که یک بار نصب بی‌صدا برایش تلاش شده
+  var FAIL_KEY = 'arefanejam_auto_fail';         // {v, n, ts}
+  var RETRY_MS = 3 * 3600 * 1000;                // بعد از شکست، ۳ ساعت بعد دوباره
+  var RECHECK_MS = 6 * 3600 * 1000;              // بررسی دوره‌ای وقتی اپ باز مانده
+  var autoBusy = false;
+  var pendingSilent = null;
+  var lastCheckTs = 0;
+  var toastEl = null;
+  var toastTimer = null;
+
   function log(e) { try { console.log('[AppUpdate]', e); } catch (x) {} }
   function AU() { return Cap.Plugins && Cap.Plugins.AppUpdater; }
 
@@ -306,6 +318,106 @@
     var B = Cap.Plugins && Cap.Plugins.Browser;
     try { if (B && typeof B.open === 'function') { B.open({ url: url }); return; } } catch (e) { log(e); }
     try { window.open(url, '_blank'); } catch (e2) { location.href = url; }
+  }
+
+  function lsGet(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
+
+  // پیام کوچک پایین صفحه (بدون مزاحمت برای کاربر)
+  function toast(text, ms) {
+    try {
+      if (!toastEl) {
+        toastEl = el('div', 'upd-toast');
+        toastEl.style.cssText = 'position:fixed;left:12px;right:12px;bottom:18px;z-index:99999;margin:0 auto;max-width:420px;' +
+          'padding:11px 16px;border-radius:14px;background:#143C36;color:#fff;font-size:13px;line-height:1.8;text-align:center;' +
+          'box-shadow:0 8px 24px rgba(20,60,54,.35);direction:rtl;';
+        document.body.appendChild(toastEl);
+      }
+      toastEl.textContent = text;
+      toastEl.style.display = '';
+      if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
+      if (ms) toastTimer = setTimeout(hideToast, ms);
+    } catch (e) { log(e); }
+  }
+  function hideToast() { if (toastEl) toastEl.style.display = 'none'; }
+
+  function readFail(v) {
+    try { var o = JSON.parse(lsGet(FAIL_KEY) || '{}'); if (o && String(o.v) === String(v)) return o; } catch (e) {}
+    return { v: v, n: 0, ts: 0 };
+  }
+  function addFail(v) {
+    var o = readFail(v);
+    lsSet(FAIL_KEY, JSON.stringify({ v: String(v), n: (o.n || 0) + 1, ts: Date.now() }));
+  }
+
+  // نصب بی‌صدا: فقط وقتی کاربر از اپ خارج شد (اندروید بروزرسانی بی‌صدا را برای اپ در حال نمایش قبول نمی‌کند)
+  function installSilentNow() {
+    var info = pendingSilent;
+    if (!info) return;
+    pendingSilent = null;
+    var P = AU();
+    if (!P) return;
+    lsSet(ATTEMPT_KEY, String(info.version));
+    try { P.install().catch(function (e) { log(e); }); } catch (e) { log(e); }
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden' && pendingSilent) installSilentNow();
+  });
+
+  // بعد از دانلود: یا برای هنگام خروج از اپ نگه می‌داریم (بی‌صدا)، یا همین حالا نصب را نشان می‌دهیم
+  function afterAutoDownload(info, st, forceForeground) {
+    lsSet(TARGET_KEY, String(info.version));
+    if (st && st.silentLikely && !forceForeground) {
+      pendingSilent = info;
+      toast('بروزرسانی ' + info.version + ' آماده شد و هنگام خروج از برنامه خودکار نصب می‌شود.', 7000);
+      autoBusy = false;
+      return;
+    }
+    hideToast();
+    autoBusy = false;
+    busyUpdating = true;
+    doInstall(info); // اجازهٔ نصب یا تأیید یک‌باره را با پنجرهٔ ساده نشان می‌دهد
+  }
+
+  function autoUpdate(info) {
+    var P = AU();
+    if (!P || typeof P.status !== 'function') { offer(info); return; }
+    if (busyUpdating || autoBusy) return;
+
+    var f = readFail(info.version);
+    if (f.n >= 2) { offer(info); return; } // دو بار خودکار نشد ← از کاربر می‌خواهیم دستی بزند
+    if (f.n > 0 && Date.now() - f.ts < RETRY_MS) return;
+
+    autoBusy = true;
+    var forceForeground = lsGet(ATTEMPT_KEY) === String(info.version); // نصب بی‌صدا قبلاً جواب نداده
+    var stInfo = null;
+
+    P.status().then(function (st) {
+      stInfo = st || {};
+      var ready = stInfo.hasApk && lsGet(READY_KEY) === String(info.version);
+      if (ready) return;
+      toast('در حال دانلود خودکار نسخهٔ جدید…', 0);
+      stopPoll();
+      pollTimer = setInterval(function () {
+        P.progress().then(function (r) {
+          if (!r || r.state !== 'downloading' || !(r.total > 0)) return;
+          toast('دانلود خودکار نسخهٔ جدید: ' + fa(Math.floor(r.loaded * 100 / r.total)) + '٪', 0);
+        }).catch(function () {});
+      }, 500);
+      return P.download({ url: info.apk_url }).then(function () {
+        stopPoll();
+        lsSet(READY_KEY, String(info.version));
+      });
+    }).then(function () {
+      afterAutoDownload(info, stInfo, forceForeground);
+    }).catch(function (e) {
+      log(e);
+      stopPoll();
+      hideToast();
+      autoBusy = false;
+      addFail(info.version);
+    });
   }
 
   function offer(info) {
@@ -429,6 +541,7 @@
   function check(manual) {
     if (checking || busyUpdating) return;
     checking = true;
+    lastCheckTs = Date.now();
     fetchInfo().then(function (info) {
       var announced = !!(info && info.enabled && info.version && info.apk_url);
       var available = announced && isNewer(info.version, CURRENT);
@@ -447,7 +560,8 @@
         try { last = Number(localStorage.getItem(LATER_KEY + '_ts') || 0); lastV = localStorage.getItem(LATER_KEY + '_v') || ''; } catch (e) {}
         if (lastV === String(info.version) && Date.now() - last < LATER_MS) return;
       }
-      offer(info);
+      if (info.auto === true && !manual) autoUpdate(info);
+      else offer(info);
     }).catch(function (e) {
       log(e);
       if (manual) render({
@@ -466,6 +580,7 @@
     if (!target) return false;
     if (isNewer(target, CURRENT)) return false; // هنوز نصب نشده (مثلاً کاربر نصب را لغو کرده)
     try { localStorage.removeItem(TARGET_KEY); } catch (e) {}
+    lsDel(READY_KEY); lsDel(ATTEMPT_KEY); lsDel(FAIL_KEY);
     try { var P = AU(); if (P) P.cleanup(); } catch (e2) {}
     render({
       mode: 'success', icon: 'check',
@@ -486,13 +601,103 @@
     var vl = document.getElementById('app-version-line');
     if (vl) {
       var nv = (window.NATIVE_AZAN_VOICES && window.NATIVE_AZAN_VOICES.length) || 0;
-      vl.textContent = 'نسخهٔ برنامه: ' + CURRENT + '  ✅ بروزرسانی موفق  |  نصب هوشمند ✅ (تست ۲)' +
+      vl.textContent = 'نسخهٔ برنامه: ' + CURRENT +
         '  |  صدای اذان در پس‌زمینه: ' + (nv ? ('✅ ' + fa(nv) + ' صدا داخل اپ') : '⚠️ ندارد (صدای پیش‌فرض گوشی)');
       vl.classList.remove('hidden');
+      showWebLine();
     }
+    watchBoot();
     var done = showDoneIfUpdated();
     // بررسی خودکار چند ثانیه بعد از باز شدن اپ (اگر آنلاین باشد)
     setTimeout(function () { if (!done && navigator.onLine !== false) check(false); }, 5000);
+    setTimeout(function () { if (navigator.onLine !== false) webCheck(); }, 9000);
+    setInterval(function () { if (navigator.onLine !== false) webCheck(); }, RECHECK_MS);
+    // اگر اپ مدت زیادی باز بماند یا از پس‌زمینه برگردد، دوباره از سایت می‌پرسد (بروزرسانی خودکار)
+    setInterval(function () { if (navigator.onLine !== false) check(false); }, RECHECK_MS);
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible' && navigator.onLine !== false && Date.now() - lastCheckTs > 3600 * 1000) check(false);
+    });
+  }
+
+
+  /* ================== بروزرسانی «ظاهر اپ» از سایت (بدون ساخت APK) ==================
+     فایل‌های پوشهٔ app/ افزونهٔ سایت (همان که اپ اصلاً از آن ساخته شده) با هش مقایسه می‌شوند؛
+     اگر فرق داشت، در پس‌زمینه دانلود و «آماده» می‌شوند و در باز شدن بعدی اپ (یا وقتی کاربر بعد از
+     مدتی به اپ برمی‌گردد) اعمال می‌شوند. اگر نسخهٔ جدید خراب باشد، خودکار به نسخهٔ داخل APK برمی‌گردد. */
+  var WEB_BAD_MS = 24 * 3600 * 1000; // نسخهٔ خراب‌شده تا ۲۴ ساعت دوباره امتحان نمی‌شود
+  var webBusy = false;
+  var webHiddenAt = 0;
+  var webLastCheck = 0;
+  var sessionStart = Date.now();
+
+  function webManifestFetch() {
+    return fetch(apiBase() + '/web-manifest?t=' + Date.now(), { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); });
+  }
+
+  function webApplyStaged() {
+    var P = AU();
+    if (!P || typeof P.webStatus !== 'function') return;
+    P.webStatus().then(function (s) {
+      if (s && s.stagedId) return P.webApply();
+    }).catch(log);
+  }
+
+  function userIsTyping() {
+    var a = document.activeElement;
+    return !!(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable));
+  }
+
+  function webCheck() {
+    var P = AU();
+    if (!P || typeof P.webStatus !== 'function' || webBusy) return;
+    webBusy = true;
+    webLastCheck = Date.now();
+    var st = {};
+    P.webStatus().then(function (s) {
+      st = s || {};
+      return webManifestFetch();
+    }).then(function (m) {
+      if (!m || !m.enabled || !m.id || !m.base || !m.files || !m.files.length) return;
+      if (m.id === st.activeId || m.id === st.stagedId) return;
+      if (m.id === st.badId && Date.now() - (st.badTs || 0) < WEB_BAD_MS) return;
+      return P.webSync({ id: m.id, base: m.base, files: m.files }).then(function () {
+        // اگر اپ همین چند ثانیه پیش باز شده و کاربر مشغول کاری نیست، همین حالا اعمال شود؛ وگرنه دفعهٔ بعد
+        if (Date.now() - sessionStart < 25000 && !userIsTyping()) webApplyStaged();
+      });
+    }).catch(log).then(function () { webBusy = false; });
+  }
+
+  // اپ که بعد از مدتی از پس‌زمینه برگردد مثل باز شدن تازه است؛ نسخهٔ آماده را همان موقع اعمال می‌کنیم
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') { webHiddenAt = Date.now(); return; }
+    if (webHiddenAt && Date.now() - webHiddenAt > 30000 && !userIsTyping()) { webHiddenAt = 0; webApplyStaged(); }
+    if (navigator.onLine !== false && Date.now() - webLastCheck > 3600 * 1000) webCheck();
+  });
+
+  // تأیید سالم بودن: وقتی app.js تا آخر اجرا شد (window.__arefBooted)، اپ به بومی خبر می‌دهد
+  function watchBoot() {
+    var tries = 0;
+    var t = setInterval(function () {
+      tries++;
+      var P = AU();
+      if (window.__arefBooted && P && typeof P.webConfirm === 'function') {
+        clearInterval(t);
+        P.webConfirm().catch(log);
+      } else if (tries > 40) {
+        clearInterval(t);
+      }
+    }, 500);
+  }
+
+  function showWebLine() {
+    var P = AU();
+    var vl = document.getElementById('app-version-line');
+    if (!P || !vl || typeof P.webStatus !== 'function') return;
+    P.webStatus().then(function (s) {
+      var id = s && s.activeId ? String(s.activeId).slice(0, 6) : '';
+      vl.textContent += '  |  ظاهر اپ: ' + (id ? ('از سایت (' + id + ')') : 'داخلی');
+    }).catch(function () {});
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire);
