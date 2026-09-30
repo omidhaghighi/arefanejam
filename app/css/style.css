@@ -2080,3 +2080,45 @@ button, .menu-tile, .nav-btn, .note-card, .calendar-card, .verse-card,
 .app-update-notes { text-align: right; white-space: pre-wrap; font-size: 13px; background: var(--paper-alt, #f4efe4); border-radius: 10px; padding: 10px 12px; margin: 0 0 10px; }
 .app-update-hint { font-size: 12px; margin: 0 0 14px; }
 .app-update-box .modal-actions { justify-content: center; }
+
+/* ===== پنجرهٔ گرافیکی بروزرسانی داخل اپ (نسخهٔ جدید؛ جایگزین استایل‌های قدیمی بالا) ===== */
+#app-update-modal { align-items: center; padding: 20px; }
+.upd-card {
+  --upd-c1: #1E5A50; --upd-c2: #143C36; --upd-accent: #B08D4E;
+  border-radius: 24px; max-width: 360px; padding: 26px 22px 20px; text-align: center;
+  max-height: 86vh; overflow-y: auto;
+  background: linear-gradient(180deg, var(--card-bg, #fff) 0%, var(--paper, #FAF7F0) 100%);
+  box-shadow: 0 24px 60px rgba(20,60,54,0.35), 0 1px 0 rgba(255,255,255,0.6) inset;
+}
+.upd-card.upd-success { --upd-c1: #34B37A; --upd-c2: #1B7346; --upd-accent: #2FA36B; }
+.upd-card.upd-error   { --upd-c1: #C9695C; --upd-c2: #A5473C; --upd-accent: #A5473C; }
+.upd-icon {
+  width: 76px; height: 76px; margin: 0 auto 14px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; color: #fff;
+  background: radial-gradient(circle at 30% 25%, var(--upd-c1), var(--upd-c2));
+  box-shadow: 0 10px 24px rgba(20,60,54,0.32), 0 0 0 7px rgba(176,141,78,0.14);
+}
+.upd-progress-active .upd-icon, .upd-card.upd-progress .upd-icon { animation: updPulse 1.6s ease-in-out infinite; }
+.upd-card.upd-success .upd-icon, .upd-card.upd-error .upd-icon { animation: updPop .45s cubic-bezier(.2,1.4,.4,1); }
+@keyframes updPulse { 0%,100% { box-shadow: 0 10px 24px rgba(20,60,54,0.32), 0 0 0 7px rgba(176,141,78,0.14); } 50% { box-shadow: 0 10px 24px rgba(20,60,54,0.32), 0 0 0 13px rgba(176,141,78,0.06); } }
+@keyframes updPop { from { transform: scale(0.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.upd-check-path { stroke-dasharray: 26; stroke-dashoffset: 26; animation: updDraw .5s .15s ease-out forwards; }
+@keyframes updDraw { to { stroke-dashoffset: 0; } }
+.upd-title { margin: 0 0 10px; font-size: 19px; color: var(--emerald, #143C36); }
+.upd-vers { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0 0 12px; direction: ltr; }
+.upd-chip { font-size: 12.5px; padding: 3px 11px; border-radius: 999px; background: var(--paper-alt, #F1EADA); color: var(--ink, #23302C); border: 1px solid var(--line, #E2D8C0); }
+.upd-chip-new { background: linear-gradient(135deg, var(--upd-c1), var(--upd-c2)); color: #fff; border-color: transparent; font-weight: 600; }
+.upd-arrow { color: var(--upd-accent); font-weight: 700; }
+.upd-msg { margin: 0 0 14px; font-size: 13.5px; line-height: 1.9; color: #6B6558; white-space: pre-line; }
+body.dark-mode .upd-msg { color: #B9B3A5; }
+.upd-notes { text-align: right; white-space: pre-wrap; font-size: 13px; line-height: 1.8; background: var(--paper-alt, #F1EADA); border-radius: 12px; padding: 10px 12px; margin: 0 0 14px; max-height: 120px; overflow-y: auto; }
+.upd-progress { margin: 0 0 16px; }
+.upd-bar { height: 12px; border-radius: 999px; background: var(--paper-alt, #F1EADA); box-shadow: inset 0 2px 4px rgba(20,60,54,0.18); overflow: hidden; direction: ltr; }
+.upd-fill { height: 100%; width: 0; border-radius: 999px; background: linear-gradient(90deg, #2FA36B, #B08D4E); transition: width .3s ease; }
+.upd-pct { margin-top: 8px; font-size: 12.5px; color: #6B6558; direction: rtl; }
+body.dark-mode .upd-pct { color: #B9B3A5; }
+.upd-actions { display: flex; flex-direction: column; gap: 9px; }
+.upd-btn { font-family: inherit; font-size: 14px; padding: 12px 16px; border-radius: 14px; border: 1px solid var(--line, #E2D8C0); background: transparent; color: var(--ink, #23302C); cursor: pointer; }
+.upd-btn:active { transform: scale(0.98); }
+.upd-btn-primary { border: 0; color: #fff; font-weight: 600; background: linear-gradient(135deg, var(--upd-c1), var(--upd-c2)); box-shadow: 0 6px 16px rgba(20,60,54,0.28); }
+@media (prefers-reduced-motion: reduce) { .upd-icon, .upd-check-path { animation: none !important; stroke-dashoffset: 0; } .upd-fill { transition: none; } }
