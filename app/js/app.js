@@ -6000,12 +6000,66 @@ async function loadShariqSettings() {
   } catch (e) { /* ignore */ }
 }
 
+/* ---------- دریافت مطمئنِ اطلاعات «سوالات شرعی» ---------- */
+function shariqEsc(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function shariqText(s) { return shariqEsc(s).replace(/\r?\n/g, '<br>'); }
+// درخواست ساده (بدون هدر Content-Type تا نیازی به preflight نباشد) + پارامتر زمان تا هیچ کشی وسط راه جواب قدیمی ندهد
+async function shariqGet(path) {
+  const sep = path.indexOf('?') === -1 ? '?' : '&';
+  const url = state.apiUrl.replace(/\/$/, '') + path + sep + '_t=' + Date.now();
+  const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), 20000) : null;
+  let res;
+  try {
+    res = await fetch(url, { method: 'GET', cache: 'no-store', signal: ctrl ? ctrl.signal : undefined });
+  } catch (e) {
+    const err = new Error('network'); err.code = 'network'; throw err;
+  } finally { if (timer) clearTimeout(timer); }
+  const text = await res.text();
+  let data = null;
+  try { data = JSON.parse(text); } catch (e) {
+    // اگر سایت قبل از JSON یک هشدار PHP چاپ کرده باشد، از اولین [ یا { به بعد خوانده می‌شود
+    const i = text.search(/[\[{]/);
+    if (i > 0) { try { data = JSON.parse(text.slice(i)); } catch (e2) { data = null; } }
+  }
+  if (!res.ok) { const err = new Error((data && data.message) || ('HTTP ' + res.status)); err.code = 'http_' + res.status; throw err; }
+  if (data === null) { const err = new Error('bad_json'); err.code = 'bad_json'; throw err; }
+  return data;
+}
+function shariqAsArray(d) {
+  if (Array.isArray(d)) return d;
+  if (d && Array.isArray(d.items)) return d.items;
+  if (d && d.data && Array.isArray(d.data)) return d.data;
+  if (d && typeof d === 'object' && !d.code) {
+    const v = Object.values(d);
+    if (v.length && v.every((x) => x && typeof x === 'object')) return v;
+  }
+  return [];
+}
+function shariqReason(e) {
+  const c = (e && e.code) || '';
+  if (c === 'network') return 'اتصال به سایت برقرار نشد (اینترنت یا فایروال سایت)';
+  if (c === 'bad_json') return 'پاسخ سایت قابل خواندن نبود (خطای PHP یا کش سایت)';
+  if (c.indexOf('http_') === 0) return 'سایت خطا برگرداند (' + toPersianDigits(c.slice(5)) + ')';
+  return 'خطای ناشناخته';
+}
+function shariqCacheGet(key) { try { return JSON.parse(localStorage.getItem('arefanejam_shariq_' + key) || 'null'); } catch (e) { return null; } }
+function shariqCacheSet(key, val) { try { localStorage.setItem('arefanejam_shariq_' + key, JSON.stringify(val)); } catch (e) {} }
+function shariqErrorBox(e, retryId) {
+  return '<div class="shariq-empty"><span class="shariq-empty-icon">⚠️</span>در حال حاضر امکان دریافت اطلاعات نیست.'
+    + '<br><span class="muted-text small">' + shariqEsc(shariqReason(e)) + '</span>'
+    + '<br><button type="button" class="shariq-chip" id="' + retryId + '" style="margin-top:12px">تلاش دوباره</button></div>';
+}
+
 async function loadShariqCategories() {
   const row = document.getElementById('shariq-cats-row');
   row.innerHTML = '';
   try {
-    shariqState.categories = await apiFetch('/shariq/categories');
-  } catch (e) { shariqState.categories = []; }
+    shariqState.categories = shariqAsArray(await shariqGet('/shariq/categories'));
+    shariqCacheSet('cats', shariqState.categories);
+  } catch (e) { shariqState.categories = shariqAsArray(shariqCacheGet('cats')); }
 
   const allChip = document.createElement('button');
   allChip.className = 'shariq-chip active';
@@ -6037,32 +6091,52 @@ function selectShariqCategory(categoryId, chipEl) {
 async function loadShariqList(categoryId) {
   const el = document.getElementById('shariq-list-content');
   el.innerHTML = '<p class="muted-text small" style="padding:0 18px">در حال بارگذاری...</p>';
+  const cacheKey = 'list_' + (categoryId || 'all');
+  let fromCache = false;
   try {
     const path = categoryId ? `/shariq/questions?category_id=${categoryId}` : '/shariq/questions';
-    shariqState.list = await apiFetch(path);
-    el.innerHTML = '';
-    if (!shariqState.list.length) {
-      el.innerHTML = '<div class="shariq-empty"><span class="shariq-empty-icon">🕊️</span>هنوز پاسخی در این بخش ثبت نشده است.</div>';
+    shariqState.list = shariqAsArray(await shariqGet(path));
+    shariqCacheSet(cacheKey, shariqState.list);
+  } catch (e) {
+    const cached = shariqAsArray(shariqCacheGet(cacheKey));
+    if (!cached.length) {
+      el.innerHTML = shariqErrorBox(e, 'shariq-retry-btn');
+      const b = document.getElementById('shariq-retry-btn');
+      if (b) b.addEventListener('click', () => loadShariqList(categoryId));
       return;
     }
-    shariqState.list.forEach((item, i) => {
-      const card = document.createElement('div');
-      card.className = 'shariq-item';
-      card.style.animationDelay = `${Math.min(i, 8) * 0.06}s`;
-      card.innerHTML = `
-        <button type="button" class="shariq-q">${item.question_text}</button>
-        <div class="shariq-a-wrap"><div class="shariq-a">${item.answer_text}</div></div>`;
-      const qBtn = card.querySelector('.shariq-q');
-      const wrap = card.querySelector('.shariq-a-wrap');
-      qBtn.addEventListener('click', () => {
-        const opening = !wrap.classList.contains('is-open');
-        el.querySelectorAll('.shariq-a-wrap').forEach((w) => w.classList.remove('is-open'));
-        el.querySelectorAll('.shariq-q').forEach((q) => q.classList.remove('is-open'));
-        if (opening) { wrap.classList.add('is-open'); qBtn.classList.add('is-open'); }
-      });
-      el.appendChild(card);
+    shariqState.list = cached;
+    fromCache = true;
+  }
+  el.innerHTML = '';
+  if (!shariqState.list.length) {
+    el.innerHTML = '<div class="shariq-empty"><span class="shariq-empty-icon">🕊️</span>هنوز پاسخی در این بخش ثبت نشده است.</div>';
+    return;
+  }
+  if (fromCache) {
+    const note = document.createElement('p');
+    note.className = 'muted-text small';
+    note.style.padding = '0 18px';
+    note.textContent = 'اتصال به سایت برقرار نشد؛ آخرین نسخهٔ ذخیره‌شده نمایش داده می‌شود.';
+    el.appendChild(note);
+  }
+  shariqState.list.forEach((item, i) => {
+    const card = document.createElement('div');
+    card.className = 'shariq-item';
+    card.style.animationDelay = `${Math.min(i, 8) * 0.06}s`;
+    card.innerHTML = `
+      <button type="button" class="shariq-q">${shariqText(item.question_text)}</button>
+      <div class="shariq-a-wrap"><div class="shariq-a">${shariqText(item.answer_text)}</div></div>`;
+    const qBtn = card.querySelector('.shariq-q');
+    const wrap = card.querySelector('.shariq-a-wrap');
+    qBtn.addEventListener('click', () => {
+      const opening = !wrap.classList.contains('is-open');
+      el.querySelectorAll('.shariq-a-wrap').forEach((w) => w.classList.remove('is-open'));
+      el.querySelectorAll('.shariq-q').forEach((q) => q.classList.remove('is-open'));
+      if (opening) { wrap.classList.add('is-open'); qBtn.classList.add('is-open'); }
     });
-  } catch (e) { el.innerHTML = '<div class="shariq-empty"><span class="shariq-empty-icon">⚠️</span>در حال حاضر امکان دریافت اطلاعات نیست.</div>'; }
+    el.appendChild(card);
+  });
 }
 
 /* ---------- پرسیدن سوال جدید ---------- */
@@ -6099,7 +6173,7 @@ async function loadShariqMine() {
   el.innerHTML = '<p class="muted-text small" style="padding:0 18px">در حال بارگذاری...</p>';
   try {
     const device_id = await ensureDeviceId();
-    const rows = await apiFetch('/shariq/mine?device_id=' + encodeURIComponent(device_id));
+    const rows = shariqAsArray(await shariqGet('/shariq/mine?device_id=' + encodeURIComponent(device_id)));
     el.innerHTML = '';
     if (!rows.length) {
       el.innerHTML = '<div class="shariq-empty"><span class="shariq-empty-icon">✍️</span>هنوز سوالی نپرسیده‌اید.</div>';
@@ -6111,12 +6185,16 @@ async function loadShariqMine() {
       card.style.animationDelay = `${Math.min(i, 8) * 0.06}s`;
       const statusLabel = r.status === 'answered' ? 'پاسخ داده شده' : 'در انتظار پاسخ';
       card.innerHTML = `
-        <div class="shariq-q">${r.question_text}</div>
-        <span class="shariq-status ${r.status === 'answered' ? 'is-answered' : 'is-pending'}">${statusLabel}${r.category_name ? ' — ' + r.category_name : ''}</span>
-        ${r.answer_text ? `<div class="shariq-a">${r.answer_text}</div>` : ''}`;
+        <div class="shariq-q">${shariqText(r.question_text)}</div>
+        <span class="shariq-status ${r.status === 'answered' ? 'is-answered' : 'is-pending'}">${statusLabel}${r.category_name ? ' — ' + shariqEsc(r.category_name) : ''}</span>
+        ${r.answer_text ? `<div class="shariq-a">${shariqText(r.answer_text)}</div>` : ''}`;
       el.appendChild(card);
     });
-  } catch (e) { el.innerHTML = '<div class="shariq-empty"><span class="shariq-empty-icon">⚠️</span>در حال حاضر امکان دریافت اطلاعات نیست.</div>'; }
+  } catch (e) {
+    el.innerHTML = shariqErrorBox(e, 'shariq-mine-retry-btn');
+    const b = document.getElementById('shariq-mine-retry-btn');
+    if (b) b.addEventListener('click', loadShariqMine);
+  }
 }
 
 /* ---------- تسبیحات (ذکرهای مدیریت‌شده) ---------- */
