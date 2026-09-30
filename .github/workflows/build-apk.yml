@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -18,7 +20,7 @@ jobs:
           node-version: 20
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
@@ -29,17 +31,45 @@ jobs:
       - name: Add Android platform
         run: npx cap add android
 
-      - name: Custom azan sound (optional)
+      - name: Azan sound (from website dashboard, else native-assets/azan.mp3)
         run: |
-          if [ -f native-assets/azan.mp3 ]; then
-            mkdir -p android/app/src/main/res/raw
-            cp native-assets/azan.mp3 android/app/src/main/res/raw/azan.mp3
+          API="https://arefanejam.com/wp-json/arefanejam/v1"
+          RAW=android/app/src/main/res/raw
+          mkdir -p $RAW
+          FOUND=0
+          URL=$(curl -fsSL --max-time 30 "$API/settings" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{console.log(JSON.parse(d).azan_audio_url||'')}catch(e){console.log('')}})" || true)
+          echo "dashboard azan url: $URL"
+          if [ -n "$URL" ]; then
+            if curl -fsSL --max-time 180 -o /tmp/azan_src "$URL" && ffmpeg -y -loglevel error -i /tmp/azan_src -vn -ac 2 -b:a 128k $RAW/azan.mp3; then
+              FOUND=1
+              echo "azan sound taken from dashboard"
+            else
+              echo "could not download/convert dashboard azan"
+              rm -f $RAW/azan.mp3
+            fi
+          fi
+          if [ "$FOUND" = "0" ] && [ -f native-assets/azan.mp3 ]; then
+            cp native-assets/azan.mp3 $RAW/azan.mp3
+            FOUND=1
+            echo "azan sound taken from native-assets/azan.mp3"
+          fi
+          if [ "$FOUND" = "1" ]; then
             echo "window.NATIVE_AZAN_SOUND = true;" > app/js/native-config.js
-            echo "azan.mp3 found - custom sound enabled"
+            echo "window.NATIVE_AZAN_SRC = '$URL';" >> app/js/native-config.js
           else
             echo "window.NATIVE_AZAN_SOUND = false;" > app/js/native-config.js
-            echo "azan.mp3 not found - default sound will be used"
+            echo "no azan sound found - default sound will be used"
           fi
+
+      - name: App version (for in-app update)
+        run: |
+          BASE=$(node -p "require('./package.json').version")
+          # شمارهٔ بیلد به آخر نسخه اضافه می‌شود (مثلاً 1.1.2.15)؛ پس هر بیلد جدید حتماً «جدیدتر» شناخته می‌شود
+          # و دیگر لازم نیست برای هر تغییر کوچک، version در package.json را دستی زیاد کنید.
+          VER="$BASE.${{ github.run_number }}"
+          echo "APP_VERSION=$VER" >> $GITHUB_ENV
+          echo "window.NATIVE_APP_VERSION = '$VER';" >> app/js/native-config.js
+          echo "App version: $VER"
 
       - name: Permissions in AndroidManifest
         run: |
@@ -68,6 +98,13 @@ jobs:
       - name: Sync web files into Android project
         run: npx cap sync android
 
+      - name: Set Android versionCode and versionName
+        run: |
+          G=android/app/build.gradle
+          sed -i -E "s/versionCode [0-9]+/versionCode ${{ github.run_number }}/" "$G"
+          sed -i -E "s/versionName \"[^\"]*\"/versionName \"$APP_VERSION\"/" "$G"
+          grep -n -E "versionCode|versionName" "$G"
+
       - name: Use fixed signing key (so updates install over the old app)
         run: |
           mkdir -p ~/.android
@@ -79,8 +116,19 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
+      - name: Rename APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk arefanejam.apk
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: arefanejam-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: arefanejam.apk
+
+      - name: Publish GitHub Release (fixed download link for in-app update)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.APP_VERSION }}
+          name: عارفان جام ${{ env.APP_VERSION }}
+          files: arefanejam.apk
+          make_latest: true
