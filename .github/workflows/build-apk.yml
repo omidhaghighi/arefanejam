@@ -37,6 +37,8 @@ jobs:
           ffmpeg -version | head -n 1
           node native-assets/fetch-azan-voices.js
           cat app/js/native-config.js
+          echo "--- azan sounds inside the APK (res/raw) ---"
+          ls -la android/app/src/main/res/raw 2>/dev/null || echo "(no res/raw folder: NO azan sound is bundled)"
 
       - name: App version (for in-app update)
         run: |
@@ -51,7 +53,7 @@ jobs:
       - name: Permissions in AndroidManifest
         run: |
           M=android/app/src/main/AndroidManifest.xml
-          sed -i 's#</manifest>#    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />\n    <uses-permission android:name="android.permission.VIBRATE" />\n    <uses-permission android:name="android.permission.WAKE_LOCK" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n</manifest>#' "$M"
+          sed -i 's#</manifest>#    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />\n    <uses-permission android:name="android.permission.VIBRATE" />\n    <uses-permission android:name="android.permission.WAKE_LOCK" />\n    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n</manifest>#' "$M"
           cat "$M"
 
       - name: Native in-app updater (download and install APK inside the app)
