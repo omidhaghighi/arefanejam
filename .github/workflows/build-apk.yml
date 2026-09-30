@@ -31,35 +31,12 @@ jobs:
       - name: Add Android platform
         run: npx cap add android
 
-      - name: Azan sound (from website dashboard, else native-assets/azan.mp3)
+      - name: Azan voices (all voices from website dashboard, else native-assets/azan.mp3)
         run: |
-          API="https://arefanejam.com/wp-json/arefanejam/v1"
-          RAW=android/app/src/main/res/raw
-          mkdir -p $RAW
-          FOUND=0
-          URL=$(curl -fsSL --max-time 30 "$API/settings" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{console.log(JSON.parse(d).azan_audio_url||'')}catch(e){console.log('')}})" || true)
-          echo "dashboard azan url: $URL"
-          if [ -n "$URL" ]; then
-            if curl -fsSL --max-time 180 -o /tmp/azan_src "$URL" && ffmpeg -y -loglevel error -i /tmp/azan_src -vn -ac 2 -b:a 128k $RAW/azan.mp3; then
-              FOUND=1
-              echo "azan sound taken from dashboard"
-            else
-              echo "could not download/convert dashboard azan"
-              rm -f $RAW/azan.mp3
-            fi
-          fi
-          if [ "$FOUND" = "0" ] && [ -f native-assets/azan.mp3 ]; then
-            cp native-assets/azan.mp3 $RAW/azan.mp3
-            FOUND=1
-            echo "azan sound taken from native-assets/azan.mp3"
-          fi
-          if [ "$FOUND" = "1" ]; then
-            echo "window.NATIVE_AZAN_SOUND = true;" > app/js/native-config.js
-            echo "window.NATIVE_AZAN_SRC = '$URL';" >> app/js/native-config.js
-          else
-            echo "window.NATIVE_AZAN_SOUND = false;" > app/js/native-config.js
-            echo "no azan sound found - default sound will be used"
-          fi
+          which ffmpeg >/dev/null 2>&1 || { sudo apt-get update -y && sudo apt-get install -y ffmpeg; }
+          ffmpeg -version | head -n 1
+          node native-assets/fetch-azan-voices.js
+          cat app/js/native-config.js
 
       - name: App version (for in-app update)
         run: |
