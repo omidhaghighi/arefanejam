@@ -2104,11 +2104,12 @@ function syncScheduleToServiceWorker(list) {
     .filter((p) => !NON_PRAYER_KEYS.includes(p.key))
     .forEach((p) => prayers.push({ key: p.key, label: p.label, timeIso: p.time.toISOString() })));
   const enabled = s.azan_enabled !== '';
-  const key = JSON.stringify(prayers) + '|' + (s.azan_audio_url || '') + '|' + enabled;
+  const voiceId = s.azan_voice_active || '';
+  const key = JSON.stringify(prayers) + '|' + (s.azan_audio_url || '') + '|' + voiceId + '|' + enabled;
   if (key === lastScheduleSyncKey) return; // چیزی تغییر نکرده
   lastScheduleSyncKey = key;
   // نسخهٔ اندروید (Capacitor): آلارم‌ها به سیستم آلارم خود اندروید سپرده می‌شوند
-  if (window.NativeAlarms) window.NativeAlarms.syncSchedule(prayers, enabled, s.brand_name || 'عارفان جام');
+  if (window.NativeAlarms) window.NativeAlarms.syncSchedule(prayers, enabled, s.brand_name || 'عارفان جام', voiceId);
   if (!swReady) return;
   navigator.serviceWorker.controller.postMessage({
     type: 'AREFANEJAM_SCHEDULE_SYNC',

@@ -7,8 +7,22 @@
   var LN = Cap.Plugins && Cap.Plugins.LocalNotifications;
   if (!LN) return;
 
-  var CH_AZAN = 'azan-v2'; // کانال جدید، چون صدای کانال اندروید بعد از ساخت قابل تغییر نیست
-  var CH_AZAN_OLD = 'azan-v1';
+  // صدای کانال اندروید بعد از ساخت قابل تغییر نیست؛ برای همین به ازای هر صدای اذانِ داخل اپ یک کانال جدا داریم
+  // (azan-<id>) و هنگام زمان‌بندی، کانالِ «صدای فعال» انتخاب می‌شود. کانال azan-v3 فقط برای وقتی است که
+  // هیچ صدایی داخل اپ نباشد (صدای پیش‌فرض گوشی).
+  var CH_AZAN = 'azan-v3';
+  var CH_AZAN_OLD = ['azan-v1', 'azan-v2'];
+  var VOICES = (window.NATIVE_AZAN_VOICES && window.NATIVE_AZAN_VOICES.length) ? window.NATIVE_AZAN_VOICES : [];
+  var DEFAULT_VOICE = window.NATIVE_AZAN_DEFAULT || '';
+  function hasVoice(id) { for (var i = 0; i < VOICES.length; i++) { if (VOICES[i].id === id) return true; } return false; }
+  function voiceChannel(id) { return 'azan-' + id; }
+  function voiceFile(id) { return 'azan_' + id + '.mp3'; }
+  // صدایی که واقعاً باید استفاده شود: صدای فعالِ سایت اگر داخل این نسخهٔ اپ هست؛ وگرنه صدای پیش‌فرضِ زمان ساخت
+  function pickVoice(wanted) {
+    if (wanted && hasVoice(wanted)) return wanted;
+    if (DEFAULT_VOICE && hasVoice(DEFAULT_VOICE)) return DEFAULT_VOICE;
+    return '';
+  }
   var CH_NOTES = 'notes-v1';
   var SMALL_ICON = 'ic_stat_azan';
   var ready = false;
@@ -33,10 +47,11 @@
     });
   }
 
-  function applySchedule(prayers, enabled, brand) {
+  function applySchedule(prayers, enabled, brand, voiceId) {
     return cancelByKind('azan').then(function () {
       if (!enabled) return;
       var now = Date.now();
+      var voice = pickVoice(voiceId);
       var items = [];
       (prayers || []).forEach(function (p) {
         var at = new Date(p.timeIso);
@@ -46,11 +61,11 @@
           title: 'وقت اذان ' + p.label,
           body: brand || 'عارفان جام',
           schedule: { at: at, allowWhileIdle: true },
-          channelId: CH_AZAN,
+          channelId: voice ? voiceChannel(voice) : CH_AZAN,
           smallIcon: SMALL_ICON,
           extra: { kind: 'azan', label: p.label }
         };
-        if (window.NATIVE_AZAN_SOUND) n.sound = 'azan.mp3';
+        if (voice) n.sound = voiceFile(voice);
         items.push(n);
       });
       if (items.length) return LN.schedule({ notifications: items });
@@ -80,9 +95,9 @@
   function enqueue(fn) { busy = busy.then(fn).catch(log); return busy; }
 
   window.NativeAlarms = {
-    syncSchedule: function (prayers, enabled, brand) {
-      queuedSchedule = [prayers, enabled, brand];
-      if (ready) enqueue(function () { return applySchedule(prayers, enabled, brand); });
+    syncSchedule: function (prayers, enabled, brand, voiceId) {
+      queuedSchedule = [prayers, enabled, brand, voiceId];
+      if (ready) enqueue(function () { return applySchedule(prayers, enabled, brand, voiceId); });
     },
     syncNotes: function (list) {
       queuedNotes = [list];
@@ -106,15 +121,19 @@
   function init() {
     return LN.requestPermissions().then(function () {
       var ch = [
-        { id: CH_AZAN, name: 'اذان', description: 'اعلان و صدای اذان', importance: 5, visibility: 1, vibration: true },
+        { id: CH_AZAN, name: 'اذان (صدای پیش‌فرض گوشی)', description: 'اعلان اذان', importance: 5, visibility: 1, vibration: true },
         { id: CH_NOTES, name: 'یادآوری یادداشت‌ها', description: 'یادآورهای یادداشت شخصی', importance: 4, visibility: 1, vibration: true }
       ];
-      if (window.NATIVE_AZAN_SOUND) ch[0].sound = 'azan.mp3';
-      try { if (typeof LN.deleteChannel === 'function') LN.deleteChannel({ id: CH_AZAN_OLD }); } catch (e) {}
+      VOICES.forEach(function (v) {
+        ch.push({ id: voiceChannel(v.id), name: 'اذان — ' + (v.name || v.id), description: 'اعلان و صدای اذان', importance: 5, visibility: 1, vibration: true, sound: voiceFile(v.id) });
+      });
+      try {
+        if (typeof LN.deleteChannel === 'function') CH_AZAN_OLD.forEach(function (id) { LN.deleteChannel({ id: id }); });
+      } catch (e) {}
       return Promise.all(ch.map(function (c) { return LN.createChannel(c); }));
     }).then(askExactAlarmIfNeeded).then(function () {
       ready = true;
-      if (queuedSchedule) enqueue(function () { return applySchedule(queuedSchedule[0], queuedSchedule[1], queuedSchedule[2]); });
+      if (queuedSchedule) enqueue(function () { return applySchedule(queuedSchedule[0], queuedSchedule[1], queuedSchedule[2], queuedSchedule[3]); });
       if (queuedNotes) enqueue(function () { return applyNotes(queuedNotes[0]); });
     }).catch(log);
   }
@@ -465,7 +484,12 @@
       tile.addEventListener('click', function () { check(true); });
     }
     var vl = document.getElementById('app-version-line');
-    if (vl) { vl.textContent = 'نسخهٔ برنامه: ' + CURRENT + '  ✅ بروزرسانی موفق'; vl.classList.remove('hidden'); }
+    if (vl) {
+      var nv = (window.NATIVE_AZAN_VOICES && window.NATIVE_AZAN_VOICES.length) || 0;
+      vl.textContent = 'نسخهٔ برنامه: ' + CURRENT + '  ✅ بروزرسانی موفق' +
+        '  |  صدای اذان در پس‌زمینه: ' + (nv ? ('✅ ' + fa(nv) + ' صدا داخل اپ') : '⚠️ ندارد (صدای پیش‌فرض گوشی)');
+      vl.classList.remove('hidden');
+    }
     var done = showDoneIfUpdated();
     // بررسی خودکار چند ثانیه بعد از باز شدن اپ (اگر آنلاین باشد)
     setTimeout(function () { if (!done && navigator.onLine !== false) check(false); }, 5000);
