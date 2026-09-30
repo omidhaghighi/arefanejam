@@ -464,6 +464,8 @@
       tile.classList.remove('hidden');
       tile.addEventListener('click', function () { check(true); });
     }
+    var vl = document.getElementById('app-version-line');
+    if (vl) { vl.textContent = 'نسخهٔ برنامه: ' + CURRENT; vl.classList.remove('hidden'); }
     var done = showDoneIfUpdated();
     // بررسی خودکار چند ثانیه بعد از باز شدن اپ (اگر آنلاین باشد)
     setTimeout(function () { if (!done && navigator.onLine !== false) check(false); }, 5000);
