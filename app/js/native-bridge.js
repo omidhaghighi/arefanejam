@@ -160,6 +160,7 @@
       if (ready || hasNative) enqueue(function () { return applySchedule(prayers, enabled, brand, voiceId, url); });
     },
     isNativeAzan: function () { return nativeAzan; },
+    requestBattery: function (force) { return askBattery(!!force); },
     syncNotes: function (list) {
       queuedNotes = [list];
       if (ready) enqueue(function () { return applyNotes(list); });
@@ -169,6 +170,32 @@
       if (ready) enqueue(function () { return applySticky(payload); });
     }
   };
+
+  /* بهینه‌سازی باتری: اگر گوشی اپ را «محدود» کند، آلارم اذان ممکن است نیاید.
+     بار اول که اپ نصب و باز می‌شود پنجرهٔ مجوز اندروید نشان داده می‌شود (کاربر «اجازه» را می‌زند).
+     اگر قبول نکرد، حداکثر روزی یک بار و تا ۵ بار دوباره پرسیده می‌شود. اگر کاربر خودش سوییچ
+     «فعال‌سازی پخش اذان» را خاموش کرده باشد، اصلاً پرسیده نمی‌شود.
+     نیاز به مجوز REQUEST_IGNORE_BATTERY_OPTIMIZATIONS در Manifest (در build-apk.yml اضافه شده) و APK جدید دارد؛
+     در APK قدیمی این متدها نیستند و هیچ اتفاقی نمی‌افتد. */
+  var BAT_ASK_KEY = 'arefanejam_battery_asked'; // {n: تعداد دفعات پرسیده‌شده, ts: آخرین زمان}
+  function bgSwitchOn() {
+    try { var v = localStorage.getItem('arefanejam_bg_mode'); return v === null || v === '1'; } catch (e) { return true; }
+  }
+  function askBattery(force) {
+    var AUp = Cap.Plugins && Cap.Plugins.AppUpdater;
+    if (!AUp || typeof AUp.batteryStatus !== 'function' || typeof AUp.requestBatteryExemption !== 'function') return Promise.resolve();
+    if (!bgSwitchOn()) return Promise.resolve();
+    return AUp.batteryStatus().then(function (r) {
+      if (!r || r.ignoring) return;
+      var st = {};
+      try { st = JSON.parse(localStorage.getItem(BAT_ASK_KEY) || '{}'); } catch (e) {}
+      var n = Number(st.n) || 0, ts = Number(st.ts) || 0;
+      if (!force && n > 0 && (n >= 5 || Date.now() - ts < 24 * 3600 * 1000)) return;
+      try { localStorage.setItem(BAT_ASK_KEY, JSON.stringify({ n: n + 1, ts: Date.now() })); } catch (e) {}
+      try { window.alert('برای اینکه اذان همیشه سر وقت و حتی با گوشی قفل پخش شود، در پنجرهٔ بعدی لطفاً «اجازه» (Allow) را بزنید.'); } catch (e) {}
+      return AUp.requestBatteryExemption();
+    }).catch(log);
+  }
 
   function askExactAlarmIfNeeded() {
     if (typeof LN.checkExactNotificationSetting !== 'function') return Promise.resolve();
@@ -202,6 +229,8 @@
       if (queuedSchedule) enqueue(function () { return applySchedule(queuedSchedule[0], queuedSchedule[1], queuedSchedule[2], queuedSchedule[3], queuedSchedule[4]); });
       if (queuedNotes) enqueue(function () { return applyNotes(queuedNotes[0]); });
       if (queuedSticky) enqueue(function () { return applySticky(queuedSticky.p); });
+      // چند ثانیه بعد (تا صفحه و زمان‌بندی اذان آماده شوند) مجوز باتری را می‌پرسد
+      setTimeout(function () { askBattery(false); }, 4000);
     }).catch(log);
   }
 

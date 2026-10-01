@@ -2090,6 +2090,11 @@ function computePrayerTimes() {
    تا اگر اپ کاملاً بسته شد و Periodic Background Sync سرویس‌ورکر را بیدار کرد، بتواند
    بدون نیاز به شبکه بفهمد الان وقت کدام اذان است. */
 let lastScheduleSyncKey = '';
+// سوییچ «فعال‌سازی پخش اذان» (صفحهٔ اذان) که فقط خود کاربر می‌تواند خاموشش کند؛ پیش‌فرض روشن است.
+// اگر هنوز مقداردهی نشده باشد (یا خطایی بدهد) «روشن» حساب می‌شود تا اذان هرگز بی‌دلیل قطع نشود.
+function bgModeOnSafe() {
+  try { return isBgModeOn(); } catch (e) { return true; }
+}
 function syncScheduleToServiceWorker(list) {
   const swReady = ('serviceWorker' in navigator) && !!navigator.serviceWorker.controller;
   if (!swReady && !window.NativeAlarms) return;
@@ -2111,7 +2116,8 @@ function syncScheduleToServiceWorker(list) {
     .filter((p) => !NON_PRAYER_KEYS.includes(p.key))
     .forEach((p) => nativePrayers.push({ key: p.key, label: p.label, timeIso: p.time.toISOString() })));
   const prayers = nativePrayers.slice(0, 7 * 5);
-  const enabled = s.azan_enabled !== '';
+  // اذان فقط وقتی فعال است که مدیر خاموشش نکرده باشد و کاربر هم سوییچ «فعال‌سازی پخش اذان» را روشن گذاشته باشد
+  const enabled = s.azan_enabled !== '' && bgModeOnSafe();
   const voiceId = s.azan_voice_active || '';
   const key = JSON.stringify(nativePrayers) + '|' + (s.azan_audio_url || '') + '|' + voiceId + '|' + enabled;
   if (key === lastScheduleSyncKey) return; // چیزی تغییر نکرده
@@ -2561,7 +2567,11 @@ function setBgMode(on) {
   writeBgMode(on);
   const t = document.getElementById('bg-mode-toggle');
   if (t) t.checked = !!on;
+  // اذان بومی/سرویس‌ورکر با وضعیت جدید سوییچ فوراً دوباره زمان‌بندی (یا لغو) شود
+  try { lastScheduleSyncKey = ''; if (state.coords) computePrayerTimes(); } catch (e) {}
   if (on) {
+    // کاربر خودش اذان را روشن کرد: اگر هنوز «بهینه‌سازی باتری» مانع است، درخواست مجوز (فقط در اپ اندروید)
+    try { if (window.NativeAlarms && typeof window.NativeAlarms.requestBattery === 'function') window.NativeAlarms.requestBattery(true); } catch (e) {}
     ensureKeepAlive();
     // اجازهٔ اعلان هم برای هشدار یدکی لازم است
     if (typeof Notification !== 'undefined' && Notification.permission === 'default') { try { Notification.requestPermission(); } catch (e) {} }

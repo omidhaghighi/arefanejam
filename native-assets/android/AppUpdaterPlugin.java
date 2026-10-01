@@ -1113,7 +1113,7 @@ public class AppUpdaterPlugin extends Plugin {
             int imgId = ctx.getResources().getIdentifier("sticky_img", "id", pkg);
             if (layoutId != 0 && imgId != 0) {
                 // همه‌چیز فقط یک تصویر است: نه عنوان و نه متن جداگانه
-                Bitmap bar = stkBar(1280, 160, stkTile(150, day, month, weekday), jalali, hijri, next, nextName, nextTime);
+                Bitmap bar = stkBar(1280, 240, stkTile(225, day, month, weekday), jalali, hijri, next, nextName, nextTime);
                 RemoteViews rvSmall = new RemoteViews(pkg, layoutId);
                 rvSmall.setImageViewBitmap(imgId, bar);
                 RemoteViews rvBig = new RemoteViews(pkg, layoutId);
@@ -1147,6 +1147,59 @@ public class AppUpdaterPlugin extends Plugin {
         }
     }
 
+
+    /* ====== Battery optimization: asked once at first launch so the phone does not kill the azan alarm ====== */
+    static boolean isIgnoringBattery(Context ctx) {
+        if (Build.VERSION.SDK_INT < 23) return true;
+        android.os.PowerManager pm = (android.os.PowerManager) ctx.getSystemService(Context.POWER_SERVICE);
+        return pm != null && pm.isIgnoringBatteryOptimizations(ctx.getPackageName());
+    }
+
+    @PluginMethod
+    public void batteryStatus(PluginCall call) {
+        try {
+            JSObject r = new JSObject();
+            r.put("ignoring", isIgnoringBattery(getContext()));
+            call.resolve(r);
+        } catch (Throwable t) {
+            call.reject("battery: " + t);
+        }
+    }
+
+    /** Shows the Android dialog "Allow app to always run in the background?". If it cannot be shown, opens the battery settings list. */
+    @PluginMethod
+    public void requestBatteryExemption(PluginCall call) {
+        try {
+            Context ctx = getContext();
+            JSObject r = new JSObject();
+            if (isIgnoringBattery(ctx)) {
+                r.put("ignoring", true);
+                r.put("opened", false);
+                call.resolve(r);
+                return;
+            }
+            boolean opened = false;
+            try {
+                Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                i.setData(Uri.parse("package:" + ctx.getPackageName()));
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                ctx.startActivity(i);
+                opened = true;
+            } catch (Throwable t) {
+                try {
+                    Intent i2 = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
+                    i2.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    ctx.startActivity(i2);
+                    opened = true;
+                } catch (Throwable ignore) { }
+            }
+            r.put("ignoring", false);
+            r.put("opened", opened);
+            call.resolve(r);
+        } catch (Throwable t) {
+            call.reject("battery: " + t);
+        }
+    }
 
     /* ====== Native azan (works offline / locked phone / app closed): see AzanReceiver + AzanService ====== */
     @PluginMethod
