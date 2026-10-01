@@ -3738,10 +3738,10 @@ let quranTextMemo = null;
 let quranTextPromise = null;
 let quranOfflineState = 'idle'; // idle | loading | ready | needs-net | error
 
-// حالت پیش‌فرض (وقتی کاربر هنوز چیزی انتخاب نکرده) «مصحف صفحه‌ای» است؛ انتخاب‌های قبلیِ کاربر ('text' و 'translation') دست‌نخورده می‌ماند.
+// حالت «فقط متن» حذف شد (جایش را «مصحف صفحه‌ای» گرفته)؛ هر کاربری که قبلاً آن را انتخاب کرده بود خودکار به
+// «مصحف صفحه‌ای» می‌رود. تنها انتخاب دیگر «قرآن با ترجمه» است.
 function getQuranMode() {
-  const m = localStorage.getItem(QURAN_MODE_KEY);
-  return (m === 'text' || m === 'translation') ? m : 'page';
+  return localStorage.getItem(QURAN_MODE_KEY) === 'translation' ? 'translation' : 'page';
 }
 
 function quranIdbOpen() {
@@ -4249,18 +4249,22 @@ function showQuranSurahCompletePopup(number, name, cfg) {
   };
 }
 
+function setContinueReadingLabel(btn, text) {
+  btn.innerHTML = '<span class="qs-cont-ico">▶</span><span class="qs-cont-txt"><small>ادامه مطالعه</small><b></b></span><span class="qs-cont-chev">‹</span>';
+  btn.querySelector('b').textContent = text;
+}
 function renderContinueReadingButton() {
   const btn = document.getElementById('continue-reading-btn');
   const playbackPos = getPlaybackPosition();
   if (playbackPos && playbackPos.surahName) {
-    btn.textContent = `▶ ادامه از: ${playbackPos.surahName} — آیه ${toPersianDigits(playbackPos.numberInSurah)}`;
+    setContinueReadingLabel(btn, `${playbackPos.surahName} — آیه ${toPersianDigits(playbackPos.numberInSurah)}`);
     btn.classList.remove('hidden');
     btn.onclick = () => openSurahReader(playbackPos.surahNumber, playbackPos.surahName, { skipResumeCheck: true, resumePage: true });
     return;
   }
   const last = getLastRead();
   if (last) {
-    btn.textContent = '▶ ادامه از: ' + last.name;
+    setContinueReadingLabel(btn, last.name);
     btn.classList.remove('hidden');
     btn.onclick = () => openSurahReader(last.number, last.name, { skipResumeCheck: true, resumePage: true });
   } else {
@@ -4268,23 +4272,45 @@ function renderContinueReadingButton() {
   }
 }
 
+// برای جست‌وجوی نام سوره: اعراب و تفاوت‌های نگارشی (ي/ی، ك/ک، أ/إ/آ/ٱ) نادیده گرفته می‌شود
+function qsNorm(t) {
+  return String(t || '').toLowerCase()
+    .replace(/[\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g, '')
+    .replace(/[\u0622\u0623\u0625\u0671]/g, '\u0627')
+    .replace(/\u064A/g, '\u06CC').replace(/\u0649/g, '\u06CC').replace(/\u0643/g, '\u06A9').replace(/\u0629/g, '\u0647')
+    .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06F0))
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660));
+}
+let qsAllSurahs = [];
 function renderSurahList(surahs, filter) {
   const el = document.getElementById('quran-surah-list');
+  if (surahs && surahs.length) qsAllSurahs = surahs;
+  const list = qsAllSurahs;
+  const q = qsNorm(filter && filter.trim());
   el.innerHTML = '';
-  surahs
-    .filter((s) => !filter || s.name.includes(filter) || s.englishName.toLowerCase().includes(filter.toLowerCase()))
-    .forEach((s) => {
-      const row = document.createElement('div');
-      row.className = 'city-row';
-      row.innerHTML = `<strong>${toPersianDigits(s.number)}.</strong> ${s.name} <span class="muted-text small">(${s.englishName} — ${toPersianDigits(s.numberOfAyahs)} آیه)</span>`;
-      row.addEventListener('click', () => openSurahReader(s.number, s.name));
-      el.appendChild(row);
-    });
+  el.classList.toggle('qs-anim', !q);
+  const shown = list.filter((s) => !q || qsNorm(s.name).includes(q) || qsNorm(s.englishName).includes(q) || String(s.number) === q);
+  if (!shown.length) { el.innerHTML = '<p class="note-empty">سوره‌ای با این نام پیدا نشد.</p>'; return; }
+  shown.forEach((s) => {
+    const row = document.createElement('div');
+    row.className = 'qs-row';
+    const rev = s.revelationType === 'Meccan' ? '<span class="qs-tag qs-meccan">مکی</span>' : (s.revelationType === 'Medinan' ? '<span class="qs-tag qs-medinan">مدنی</span>' : '');
+    row.innerHTML = `
+      <span class="qs-num"><b>${toPersianDigits(s.number)}</b></span>
+      <span class="qs-info">
+        <span class="qs-name"></span>
+        <span class="qs-meta"><span class="qs-en"></span>${rev}<span class="qs-count">${toPersianDigits(s.numberOfAyahs)} آیه</span></span>
+      </span>
+      <span class="qs-chev">‹</span>`;
+    row.querySelector('.qs-name').textContent = s.name;
+    row.querySelector('.qs-en').textContent = s.englishName || '';
+    row.addEventListener('click', () => openSurahReader(s.number, s.name));
+    el.appendChild(row);
+  });
 }
 
 document.getElementById('quran-search-input').addEventListener('input', (e) => {
-  const cached = localStorage.getItem('arefanejam_surah_list_cache');
-  if (cached) renderSurahList(JSON.parse(cached), e.target.value.trim());
+  renderSurahList(null, e.target.value);
 });
 
 let currentSurahNumber = null;
