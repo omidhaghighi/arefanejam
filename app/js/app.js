@@ -156,6 +156,7 @@ function getCalendarStrings(date) {
     jalali: `${weekday} ${toPersianDigits(jd)} ${JALALI_MONTHS[jm - 1]} ${toPersianDigits(jy)}`,
     gregorian: `${weekday} ${toPersianDigits(date.getDate())} ${GREGORIAN_MONTHS[date.getMonth()]} ${toPersianDigits(date.getFullYear())}`,
     hijri: `${weekday} ${toPersianDigits(hd)} ${HIJRI_MONTHS[hm - 1]} ${toPersianDigits(hy)}`,
+    parts: { weekday, day: toPersianDigits(jd), month: JALALI_MONTHS[jm - 1], year: toPersianDigits(jy) },
   };
 }
 
@@ -2210,6 +2211,19 @@ function updateStickyNotification(upcoming) {
       title: brand + ' — ' + cal.jalali,       // نام اپ + تاریخ امروز
       text: custom || extra[extra.length - 1] || cal.gregorian, // متن مدیر (اگر نبود، اذان بعدی)
       lines: (custom ? [custom] : []).concat(extra),
+      // کارت گرافیکی سه‌بعدی (فقط APKهای جدید آن را نشان می‌دهند؛ بقیه همان نوتیفیکیشن ساده)
+      card: {
+        brand,
+        weekday: cal.parts.weekday,
+        day: cal.parts.day,
+        month: cal.parts.month,
+        year: cal.parts.year,
+        jalali: cal.jalali,
+        hijri: cal.hijri,
+        gregorian: cal.gregorian,
+        custom: custom || '',
+        next: upcoming ? 'اذان بعدی: ' + upcoming.label + ' — ساعت ' + formatTime(upcoming.time) : '',
+      },
     });
     return;
   }

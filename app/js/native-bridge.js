@@ -96,8 +96,7 @@
   }
 
   // نوتیفیکیشن ثابت: نام اپ + تاریخ امروز (عنوان) و متن دلخواه مدیر (متن). همیشه با همان شناسه جایگزین می‌شود.
-  function applySticky(p) {
-    if (!p) return LN.cancel({ notifications: [{ id: STICKY_ID }] }).catch(log);
+  function applyStickyPlain(p) {
     var n = {
       id: STICKY_ID,
       title: p.title || 'عارفان جام',
@@ -110,6 +109,18 @@
     };
     if (p.lines && p.lines.length > 1) n.largeBody = p.lines.join('\n');
     return LN.schedule({ notifications: [n] }).catch(log);
+  }
+  // نسخهٔ گرافیکی (کارت سه‌بعدی) با پلاگین بومی؛ اگر APK قدیمی بود یا خطا داد، همان نوتیفیکیشن ساده نشان داده می‌شود.
+  function applySticky(p) {
+    var AUp = Cap.Plugins && Cap.Plugins.AppUpdater;
+    if (!p) {
+      if (AUp && typeof AUp.hideSticky === 'function') { try { AUp.hideSticky().catch(log); } catch (e) { log(e); } }
+      return LN.cancel({ notifications: [{ id: STICKY_ID }] }).catch(log);
+    }
+    if (AUp && p.card && typeof AUp.showSticky === 'function') {
+      return AUp.showSticky(p.card).catch(function (e) { log(e); return applyStickyPlain(p); });
+    }
+    return applyStickyPlain(p);
   }
 
   function enqueue(fn) { busy = busy.then(fn).catch(log); return busy; }
