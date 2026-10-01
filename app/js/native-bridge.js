@@ -50,7 +50,7 @@
     });
   }
 
-  function applySchedule(prayers, enabled, brand, voiceId) {
+  function applyScheduleLegacy(prayers, enabled, brand, voiceId) {
     return cancelByKind('azan').then(function () {
       if (!enabled) return;
       var now = Date.now();
@@ -73,6 +73,32 @@
       });
       if (items.length) return LN.schedule({ notifications: items });
     }).catch(log);
+  }
+
+  /* Native azan (AzanReceiver/AzanService in the APK): plays the azan with the phone locked, the app closed
+     and NO internet. If the APK is old (no such method) or it fails, the old notification way is used. */
+  var nativeAzan = false;
+  function applySchedule(prayers, enabled, brand, voiceId, url) {
+    var AUp = Cap.Plugins && Cap.Plugins.AppUpdater;
+    if (AUp && typeof AUp.scheduleAzan === 'function') {
+      var items = [];
+      var now = Date.now();
+      (prayers || []).forEach(function (p) {
+        var t = new Date(p.timeIso).getTime();
+        if (t > now + 2000) items.push({ t: t, l: p.label, k: p.key });
+      });
+      return AUp.scheduleAzan({ items: items, enabled: !!enabled, url: url || '', voice: pickVoice(voiceId), brand: brand || '' })
+        .then(function () {
+          nativeAzan = true;
+          return cancelByKind('azan'); // remove old-style azan notifications so the azan is not played twice
+        })
+        .catch(function (e) {
+          log(e);
+          nativeAzan = false;
+          return ready ? applyScheduleLegacy(prayers, enabled, brand, voiceId) : null;
+        });
+    }
+    return applyScheduleLegacy(prayers, enabled, brand, voiceId);
   }
 
   function applyNotes(list) {
@@ -126,10 +152,14 @@
   function enqueue(fn) { busy = busy.then(fn).catch(log); return busy; }
 
   window.NativeAlarms = {
-    syncSchedule: function (prayers, enabled, brand, voiceId) {
-      queuedSchedule = [prayers, enabled, brand, voiceId];
-      if (ready) enqueue(function () { return applySchedule(prayers, enabled, brand, voiceId); });
+    syncSchedule: function (prayers, enabled, brand, voiceId, url) {
+      queuedSchedule = [prayers, enabled, brand, voiceId, url];
+      var AUp = Cap.Plugins && Cap.Plugins.AppUpdater;
+      var hasNative = !!(AUp && typeof AUp.scheduleAzan === 'function');
+      // native azan does not need notification permission / channels to be ready
+      if (ready || hasNative) enqueue(function () { return applySchedule(prayers, enabled, brand, voiceId, url); });
     },
+    isNativeAzan: function () { return nativeAzan; },
     syncNotes: function (list) {
       queuedNotes = [list];
       if (ready) enqueue(function () { return applyNotes(list); });
@@ -169,7 +199,7 @@
       return Promise.all(ch.map(function (c) { return LN.createChannel(c); }));
     }).then(askExactAlarmIfNeeded).then(function () {
       ready = true;
-      if (queuedSchedule) enqueue(function () { return applySchedule(queuedSchedule[0], queuedSchedule[1], queuedSchedule[2], queuedSchedule[3]); });
+      if (queuedSchedule) enqueue(function () { return applySchedule(queuedSchedule[0], queuedSchedule[1], queuedSchedule[2], queuedSchedule[3], queuedSchedule[4]); });
       if (queuedNotes) enqueue(function () { return applyNotes(queuedNotes[0]); });
       if (queuedSticky) enqueue(function () { return applySticky(queuedSticky.p); });
     }).catch(log);
@@ -228,6 +258,9 @@
   var READY_KEY = 'arefanejam_auto_ready_v';     // نسخه‌ای که APK آن قبلاً دانلود شده
   var ATTEMPT_KEY = 'arefanejam_auto_attempt_v'; // نسخه‌ای که یک بار نصب بی‌صدا برایش تلاش شده
   var FAIL_KEY = 'arefanejam_auto_fail';         // {v, n, ts}
+  var AUTO_KEY = 'arefanejam_auto_mode';         // '1' = این نصب خودکار بوده (بعدش هیچ پیامی نشان داده نشود)
+  var PROMPT_KEY = 'arefanejam_auto_prompt';     // {v, ts} آخرین باری که پنجرهٔ تأیید اندروید نشان داده شد
+  var PROMPT_MS = 24 * 3600 * 1000;              // پنجرهٔ تأیید برای هر نسخه حداکثر یک بار در روز
   var RETRY_MS = 3 * 3600 * 1000;                // بعد از شکست، ۳ ساعت بعد دوباره
   var RECHECK_MS = 6 * 3600 * 1000;              // بررسی دوره‌ای وقتی اپ باز مانده
   var autoBusy = false;
@@ -405,16 +438,20 @@
   // بعد از دانلود: یا برای هنگام خروج از اپ نگه می‌داریم (بی‌صدا)، یا همین حالا نصب را نشان می‌دهیم
   function afterAutoDownload(info, st, forceForeground) {
     lsSet(TARGET_KEY, String(info.version));
+    lsSet(AUTO_KEY, '1');
     if (st && st.silentLikely && !forceForeground) {
-      pendingSilent = info;
-      toast('بروزرسانی ' + info.version + ' آماده شد و هنگام خروج از برنامه خودکار نصب می‌شود.', 7000);
+      pendingSilent = info; // بدون هیچ پیامی؛ هنگام خروج کاربر از اپ نصب می‌شود
       autoBusy = false;
       return;
     }
-    hideToast();
+    // نصب بی‌صدا ممکن نیست (یا قبلاً جواب نداده): پنجرهٔ تأیید اندروید برای هر نسخه حداکثر روزی یک بار
+    var pv = '', pt = 0;
+    try { var po = JSON.parse(lsGet(PROMPT_KEY) || '{}'); pv = String(po.v || ''); pt = Number(po.ts || 0); } catch (e) {}
     autoBusy = false;
+    if (pv === String(info.version) && Date.now() - pt < PROMPT_MS) return;
+    lsSet(PROMPT_KEY, JSON.stringify({ v: String(info.version), ts: Date.now() }));
     busyUpdating = true;
-    doInstall(info); // اجازهٔ نصب یا تأیید یک‌باره را با پنجرهٔ ساده نشان می‌دهد
+    doInstall(info, true);
   }
 
   function autoUpdate(info) {
@@ -423,7 +460,10 @@
     if (busyUpdating || autoBusy) return;
 
     var f = readFail(info.version);
-    if (f.n >= 2) { offer(info); return; } // دو بار خودکار نشد ← از کاربر می‌خواهیم دستی بزند
+    if (f.n >= 2) { // دو بار دانلود نشد (احتمالاً اینترنت ضعیف): بدون هیچ پیامی، فردا دوباره تلاش می‌کنیم
+      if (Date.now() - f.ts < PROMPT_MS) return;
+      lsDel(FAIL_KEY);
+    }
     if (f.n > 0 && Date.now() - f.ts < RETRY_MS) return;
 
     autoBusy = true;
@@ -434,14 +474,6 @@
       stInfo = st || {};
       var ready = stInfo.hasApk && lsGet(READY_KEY) === String(info.version);
       if (ready) return;
-      toast('در حال دانلود خودکار نسخهٔ جدید…', 0);
-      stopPoll();
-      pollTimer = setInterval(function () {
-        P.progress().then(function (r) {
-          if (!r || r.state !== 'downloading' || !(r.total > 0)) return;
-          toast('دانلود خودکار نسخهٔ جدید: ' + fa(Math.floor(r.loaded * 100 / r.total)) + '٪', 0);
-        }).catch(function () {});
-      }, 500);
       return P.download({ url: info.apk_url }).then(function () {
         stopPoll();
         lsSet(READY_KEY, String(info.version));
@@ -493,6 +525,7 @@
     if (busyUpdating) return;
     busyUpdating = true;
     waitingPermission = false;
+    lsDel(AUTO_KEY); // بروزرسانی دستی: بعد از نصب پیام موفقیت نشان داده شود
     try { localStorage.setItem(TARGET_KEY, String(info.version)); } catch (e) {}
 
     render({
@@ -533,7 +566,7 @@
     });
   }
 
-  function doInstall(info) {
+  function doInstall(info, auto) {
     var P = AU();
     P.install().then(function (r) {
       var st = r && r.status;
@@ -545,15 +578,17 @@
           from: CURRENT, to: info.version,
           message: 'در صفحهٔ تنظیماتی که باز شد، گزینهٔ «اجازه‌ی نصب از این منبع» را روشن کنید و به اپ برگردید. نصب خودکار ادامه پیدا می‌کند.',
           buttons: [
-            { label: 'ادامهٔ نصب', primary: true, keepOpen: true, onClick: function () { doInstall(info); } },
+            { label: 'ادامهٔ نصب', primary: true, keepOpen: true, onClick: function () { doInstall(info, auto); } },
             { label: 'بستن', onClick: function () { busyUpdating = false; waitingPermission = false; } }
           ]
         });
         window.__updInfo = info;
+        window.__updAuto = !!auto;
         return;
       }
       waitingPermission = false;
       busyUpdating = false;
+      if (auto) return; // خودکار: فقط پنجرهٔ خود اندروید (اگر لازم بود) نشان داده می‌شود، پیام اضافهٔ ما نه
       render({
         mode: 'success', icon: 'check',
         title: 'آمادهٔ نصب است',
@@ -572,7 +607,7 @@
 
   // بعد از برگشتن از صفحهٔ تنظیمات، اگر منتظر اجازه بودیم، نصب را خودکار ادامه می‌دهیم
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'visible' && waitingPermission && window.__updInfo) doInstall(window.__updInfo);
+    if (document.visibilityState === 'visible' && waitingPermission && window.__updInfo) doInstall(window.__updInfo, window.__updAuto);
   });
 
   function check(manual) {
@@ -617,8 +652,9 @@
     if (!target) return false;
     if (isNewer(target, CURRENT)) return false; // هنوز نصب نشده (مثلاً کاربر نصب را لغو کرده)
     try { localStorage.removeItem(TARGET_KEY); } catch (e) {}
-    lsDel(READY_KEY); lsDel(ATTEMPT_KEY); lsDel(FAIL_KEY);
+    lsDel(READY_KEY); lsDel(ATTEMPT_KEY); lsDel(FAIL_KEY); lsDel(PROMPT_KEY);
     try { var P = AU(); if (P) P.cleanup(); } catch (e2) {}
+    if (lsGet(AUTO_KEY) === '1') { lsDel(AUTO_KEY); return false; } // بروزرسانی خودکار: هیچ پیامی نشان داده نمی‌شود
     render({
       mode: 'success', icon: 'check',
       title: 'بروزرسانی انجام شد',
@@ -627,6 +663,82 @@
       buttons: [{ label: 'باشه', primary: true }]
     });
     return true;
+  }
+
+  /* ===== پنل مخفی «تست اذان بومی» =====
+     با ۵ بار زدن پشت‌سرهم روی خط «نسخهٔ برنامه» (صفحهٔ بیشتر) باز می‌شود؛ کاربر عادی چیزی نمی‌بیند.
+     تست از همان مسیر اذان واقعی (آلارم ← سرویس ← صدا) رد می‌شود، فقط زمانش ۱ تا ۱۵ دقیقهٔ دیگر است. */
+  function setupAzanTest(vl) {
+    var taps = 0, tapTs = 0, panel = null;
+    vl.addEventListener('click', function () {
+      var now = Date.now();
+      taps = (now - tapTs < 1500) ? taps + 1 : 1;
+      tapTs = now;
+      if (taps < 5) return;
+      taps = 0;
+      if (panel) { panel.style.display = panel.style.display === 'none' ? '' : 'none'; if (panel.style.display !== 'none') refresh(); return; }
+      build();
+    });
+
+    var out = null;
+    function btn(label, fn) {
+      var b = el('button', null, label);
+      b.type = 'button';
+      b.style.cssText = 'margin:4px;padding:9px 12px;border-radius:12px;border:0;background:#143C36;color:#fff;font-size:13px;font-family:inherit;';
+      b.addEventListener('click', fn);
+      return b;
+    }
+    function hhmmss(t) { try { return new Date(t).toLocaleTimeString('fa-IR'); } catch (e) { return String(t); } }
+
+    function refresh() {
+      var P = AU();
+      if (!P || typeof P.azanDiag !== 'function') { out.textContent = 'این APK قدیمی است (بخش تست اذان ندارد). APK جدید را نصب کنید.'; return; }
+      P.azanDiag().then(function (d) {
+        var L = [];
+        L.push('اندروید (SDK): ' + d.sdk);
+        L.push('اذان بومی: ' + (d.enabled ? '✅ روشن' : '❌ خاموش') + ' — ' + fa(d.items) + ' وقت ذخیره‌شده');
+        L.push('اذان بعدی: ' + (d.nextT ? ((d.nextLabel || '') + ' ساعت ' + hhmmss(d.nextT)) : '⚠️ هیچ وقتی ذخیره نشده (یک بار اپ را آنلاین باز کنید)'));
+        L.push('فایل صدای ذخیره‌شده روی گوشی (برای آفلاین): ' + (d.fileKb > 0 ? ('✅ ' + fa(d.fileKb) + ' کیلوبایت') : '❌ ندارد — یک بار آنلاین باز کنید و ۳۰ ثانیه صبر کنید'));
+        L.push('صدای داخل APK: ' + (d.bundled ? '✅ دارد' : 'ندارد'));
+        L.push('اعلان‌ها: ' + (d.notif ? '✅ مجاز' : '⚠️ بسته است (صدا پخش می‌شود ولی اعلان دیده نمی‌شود)'));
+        L.push('بهینه‌سازی باتری: ' + (d.batteryFree ? '✅ آزاد (Unrestricted)' : '⚠️ فعال؛ در شیائومی/هواوی/سامسونگ ممکن است اذان را ببندد'));
+        L.push('');
+        L.push('گزارش لحظه‌ای (از قدیم به جدید):');
+        L.push(d.log ? d.log : '(هنوز چیزی ثبت نشده)');
+        out.textContent = L.join('\n');
+      }).catch(function (e) { out.textContent = 'خطا: ' + (e && e.message || e); });
+    }
+
+    function test(sec) {
+      var P = AU();
+      if (!P || typeof P.testAzan !== 'function') { out.textContent = 'این APK قدیمی است؛ APK جدید را نصب کنید.'; return; }
+      P.testAzan({ seconds: sec }).then(function (r) {
+        out.textContent = '✅ تست ثبت شد؛ اذان آزمایشی ساعت ' + hhmmss(r.t) + ' پخش می‌شود.\n\n' +
+          'حالا این کارها را انجام دهید:\n' +
+          '۱) اینترنت (وای‌فای و دیتا) را قطع کنید یا حالت پرواز بزنید\n' +
+          '۲) اپ را از لیست برنامه‌های اخیر کاملاً ببندید (Swipe)\n' +
+          '۳) گوشی را قفل کنید و صبر کنید\n\n' +
+          'بعد از پخش (یا اگر پخش نشد)، اپ را باز کنید → ۵ بار روی خط نسخه بزنید → «گزارش» را بزنید.';
+      }).catch(function (e) { out.textContent = 'خطا: ' + (e && e.message || e); });
+    }
+
+    function build() {
+      panel = el('div');
+      panel.style.cssText = 'margin:10px 12px;padding:12px;border-radius:14px;background:rgba(20,60,54,.08);direction:rtl;text-align:right;';
+      panel.appendChild(el('div', null, '🔔 تست اذان بومی (آفلاین / قفل / اپ بسته)'));
+      panel.firstChild.style.cssText = 'font-weight:700;margin-bottom:6px;';
+      var row = el('div');
+      row.appendChild(btn('تست ۱ دقیقه دیگر', function () { test(60); }));
+      row.appendChild(btn('تست ۳ دقیقه دیگر', function () { test(180); }));
+      row.appendChild(btn('گزارش', refresh));
+      row.appendChild(btn('توقف صدا', function () { var P = AU(); if (P && P.stopAzan) P.stopAzan().then(refresh).catch(log); }));
+      panel.appendChild(row);
+      out = el('pre');
+      out.style.cssText = 'white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.9;margin:8px 0 0;font-family:inherit;';
+      panel.appendChild(out);
+      vl.parentNode.insertBefore(panel, vl.nextSibling);
+      refresh();
+    }
   }
 
   function wire() {
@@ -641,7 +753,20 @@
       vl.textContent = 'نسخهٔ برنامه: ' + CURRENT +
         '  |  صدای اذان در پس‌زمینه: ' + (nv ? ('✅ ' + fa(nv) + ' صدا داخل اپ') : '⚠️ ندارد (صدای پیش‌فرض گوشی)');
       vl.classList.remove('hidden');
+      try {
+        var PS = AU();
+        if (PS && typeof PS.status === 'function') PS.status().then(function (s) {
+          var why = '';
+          if (!s) return;
+          if (s.silentLikely) why = '✅ فعال';
+          else if (s.sdk < 31) why = '⚠️ اندروید زیر ۱۲ (همیشه یک تأیید لازم است)';
+          else if (!s.canInstall) why = '⚠️ اجازهٔ نصب از این منبع داده نشده';
+          else if (!s.selfInstaller) why = '⚠️ با اولین بروزرسانی از داخل اپ فعال می‌شود';
+          vl.textContent += '  |  نصب بی‌صدا: ' + why;
+        }).catch(function () {});
+      } catch (e) {}
       showWebLine();
+      setupAzanTest(vl);
     }
     watchBoot();
     var done = showDoneIfUpdated();

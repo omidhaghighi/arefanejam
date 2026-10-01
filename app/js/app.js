@@ -2099,22 +2099,25 @@ function syncScheduleToServiceWorker(list) {
   // (هر بار اپ باز شود، همین فهرست با زمان‌های دقیق‌تر دوباره جایگزین می‌شود).
   const allLists = [list];
   try {
-    for (let i = 1; i <= 6; i++) {
+    for (let i = 1; i <= 30; i++) {
       const d = new Date(); d.setDate(d.getDate() + i);
       allLists.push(buildPrayerListForDate(d));
     }
   } catch (e) { /* اگر محاسبه برای روزهای بعد شکست خورد، فقط امروز فرستاده می‌شود */ }
-  const prayers = [];
+  // nativePrayers: 30 days ahead for the native azan (works offline for a month without opening the app)
+  // prayers: only the first 7 days (as before) for the service worker
+  const nativePrayers = [];
   allLists.forEach((dayList) => dayList
     .filter((p) => !NON_PRAYER_KEYS.includes(p.key))
-    .forEach((p) => prayers.push({ key: p.key, label: p.label, timeIso: p.time.toISOString() })));
+    .forEach((p) => nativePrayers.push({ key: p.key, label: p.label, timeIso: p.time.toISOString() })));
+  const prayers = nativePrayers.slice(0, 7 * 5);
   const enabled = s.azan_enabled !== '';
   const voiceId = s.azan_voice_active || '';
-  const key = JSON.stringify(prayers) + '|' + (s.azan_audio_url || '') + '|' + voiceId + '|' + enabled;
+  const key = JSON.stringify(nativePrayers) + '|' + (s.azan_audio_url || '') + '|' + voiceId + '|' + enabled;
   if (key === lastScheduleSyncKey) return; // چیزی تغییر نکرده
   lastScheduleSyncKey = key;
   // نسخهٔ اندروید (Capacitor): آلارم‌ها به سیستم آلارم خود اندروید سپرده می‌شوند
-  if (window.NativeAlarms) window.NativeAlarms.syncSchedule(prayers, enabled, s.brand_name || 'عارفان جام', voiceId);
+  if (window.NativeAlarms) window.NativeAlarms.syncSchedule(nativePrayers, enabled, s.brand_name || 'عارفان جام', voiceId, normalizeAzanUrl(s.azan_audio_url) || '');
   if (!swReady) return;
   navigator.serviceWorker.controller.postMessage({
     type: 'AREFANEJAM_SCHEDULE_SYNC',
@@ -2335,6 +2338,9 @@ let currentAzanAudio = null;
 function playAzanSound(prayerLabel) {
   const s = state.settings || {};
   if (s.azan_enabled === '') return; // مدیر پخش اذان را کاملاً خاموش کرده است
+  // in the Android app the native azan service plays the sound (works offline and with locked phone);
+  // playing it here too would make two azans at once
+  if (window.NativeAlarms && typeof window.NativeAlarms.isNativeAzan === 'function' && window.NativeAlarms.isNativeAzan()) return;
   if (currentAzanAudio) { currentAzanAudio.pause(); currentAzanAudio = null; }
   const url = normalizeAzanUrl(s.azan_audio_url);
   if (url) {

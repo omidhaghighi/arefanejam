@@ -196,7 +196,9 @@ public class AppUpdaterPlugin extends Plugin {
                 return;
             }
             boolean done = false;
-            if (Build.VERSION.SDK_INT >= 31) {
+            if (Build.VERSION.SDK_INT >= 21) {
+                // نصب با PackageInstaller روی همهٔ نسخه‌های اندروید: اپ «نصب‌کنندهٔ ثبت‌شده» می‌شود
+                // و در اندروید ۱۲ به بالا بروزرسانی‌های بعدی بی‌صدا نصب می‌شوند
                 try {
                     installViaSession(ctx, f);
                     done = true;
@@ -258,6 +260,16 @@ public class AppUpdaterPlugin extends Plugin {
                 public void onReceive(Context c, Intent intent) {
                     int status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, -1);
                     if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+                        if (!MainActivity.inForeground) {
+                            // اپ در پس‌زمینه است و اندروید بی‌صدا نصب نکرد: پنجرهٔ تأیید ناگهانی نشان نمی‌دهیم؛
+                            // نصب لغو می‌شود و دفعهٔ بعد که کاربر اپ را باز کرد (حداکثر یک بار در روز) درخواست می‌شود
+                            try { ctx.unregisterReceiver(this); } catch (Exception ignore) { }
+                            try {
+                                int sid = intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1);
+                                if (sid > 0) ctx.getPackageManager().getPackageInstaller().abandonSession(sid);
+                            } catch (Exception ignore) { }
+                            return;
+                        }
                         // اندروید تأیید کاربر را لازم دانسته: همان صفحهٔ تأیید را نشان بده
                         Intent confirm = (Intent) intent.getParcelableExtra(Intent.EXTRA_INTENT);
                         if (confirm != null) {
@@ -268,7 +280,8 @@ public class AppUpdaterPlugin extends Plugin {
                     }
                     try { ctx.unregisterReceiver(this); } catch (Exception ignore) { }
                     if (status != PackageInstaller.STATUS_SUCCESS
-                            && status != PackageInstaller.STATUS_FAILURE_ABORTED) {
+                            && status != PackageInstaller.STATUS_FAILURE_ABORTED
+                            && MainActivity.inForeground) {
                         // روش جدید شکست خورد (نه اینکه کاربر لغو کرده باشد) → روش قدیمی
                         try { installViaIntent(ctx, f); } catch (Exception ignore) { }
                     }
@@ -1134,6 +1147,82 @@ public class AppUpdaterPlugin extends Plugin {
         }
     }
 
+
+    /* ====== Native azan (works offline / locked phone / app closed): see AzanReceiver + AzanService ====== */
+    @PluginMethod
+    public void scheduleAzan(PluginCall call) {
+        try {
+            Context ctx = getContext().getApplicationContext();
+            JSArray items = call.getArray("items");
+            Boolean en = call.getBoolean("enabled", true);
+            boolean enabled = en == null ? true : en.booleanValue();
+            String url = call.getString("url", "");
+            String voice = call.getString("voice", "");
+            String brand = call.getString("brand", "");
+            AzanReceiver.save(ctx, items == null ? "[]" : items.toString(), enabled, url, voice, brand);
+            AzanReceiver.arm(ctx);
+            if (enabled && url != null && url.length() > 0) AzanReceiver.downloadAsync(ctx, url);
+            JSObject r = new JSObject();
+            r.put("ok", true);
+            call.resolve(r);
+        } catch (Throwable t) {
+            call.reject("azan: " + t);
+        }
+    }
+
+    @PluginMethod
+    public void azanStatus(PluginCall call) {
+        try {
+            Context ctx = getContext().getApplicationContext();
+            java.io.File f = AzanReceiver.bestAudioFile(ctx);
+            JSObject r = new JSObject();
+            r.put("hasFile", f != null);
+            r.put("native", true);
+            call.resolve(r);
+        } catch (Throwable t) {
+            call.reject("azan: " + t);
+        }
+    }
+
+    /** Test: arms a one-off azan after N seconds (10..900) through the same native path as a real azan. */
+    @PluginMethod
+    public void testAzan(PluginCall call) {
+        try {
+            Context ctx = getContext().getApplicationContext();
+            Integer sec = call.getInt("seconds", 60);
+            int n = sec == null ? 60 : sec.intValue();
+            if (n < 10) n = 10;
+            if (n > 900) n = 900;
+            long t = AzanReceiver.scheduleTest(ctx, n);
+            JSObject r = new JSObject();
+            r.put("ok", true);
+            r.put("t", t);
+            call.resolve(r);
+        } catch (Throwable t) {
+            call.reject("azan: " + t);
+        }
+    }
+
+    @PluginMethod
+    public void azanDiag(PluginCall call) {
+        try {
+            Context ctx = getContext().getApplicationContext();
+            call.resolve(new JSObject(AzanReceiver.diag(ctx).toString()));
+        } catch (Throwable t) {
+            call.reject("azan: " + t);
+        }
+    }
+
+    @PluginMethod
+    public void stopAzan(PluginCall call) {
+        try {
+            Context ctx = getContext().getApplicationContext();
+            ctx.stopService(new Intent(ctx, AzanService.class));
+            call.resolve();
+        } catch (Throwable t) {
+            call.reject("azan: " + t);
+        }
+    }
 
     @PluginMethod
     public void cleanup(PluginCall call) {
