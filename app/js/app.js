@@ -3738,7 +3738,11 @@ let quranTextMemo = null;
 let quranTextPromise = null;
 let quranOfflineState = 'idle'; // idle | loading | ready | needs-net | error
 
-function getQuranMode() { return localStorage.getItem(QURAN_MODE_KEY) === 'text' ? 'text' : 'translation'; }
+// حالت پیش‌فرض (وقتی کاربر هنوز چیزی انتخاب نکرده) «مصحف صفحه‌ای» است؛ انتخاب‌های قبلیِ کاربر ('text' و 'translation') دست‌نخورده می‌ماند.
+function getQuranMode() {
+  const m = localStorage.getItem(QURAN_MODE_KEY);
+  return (m === 'text' || m === 'translation') ? m : 'page';
+}
 
 function quranIdbOpen() {
   return new Promise((resolve, reject) => {
@@ -3823,7 +3827,7 @@ function setQuranOfflineState(state) {
 function renderQuranOfflineStatus() {
   const el = document.getElementById('quran-offline-status');
   if (!el) return;
-  if (getQuranMode() !== 'text') { el.classList.add('hidden'); return; }
+  if (getQuranMode() === 'translation') { el.classList.add('hidden'); return; }
   const msgs = {
     idle: '',
     loading: '⏳ در حال ذخیرهٔ متن قرآن روی گوشی برای استفادهٔ آفلاین...',
@@ -3861,7 +3865,7 @@ document.querySelectorAll('#quran-mode-switch button').forEach((b) => {
   b.addEventListener('click', () => {
     localStorage.setItem(QURAN_MODE_KEY, b.dataset.mode);
     syncQuranModeUi();
-    if (b.dataset.mode === 'text') downloadQuranTextForOffline(false);
+    if (b.dataset.mode !== 'translation') downloadQuranTextForOffline(false);
   });
 });
 
@@ -4251,14 +4255,14 @@ function renderContinueReadingButton() {
   if (playbackPos && playbackPos.surahName) {
     btn.textContent = `▶ ادامه از: ${playbackPos.surahName} — آیه ${toPersianDigits(playbackPos.numberInSurah)}`;
     btn.classList.remove('hidden');
-    btn.onclick = () => openSurahReader(playbackPos.surahNumber, playbackPos.surahName, { skipResumeCheck: true });
+    btn.onclick = () => openSurahReader(playbackPos.surahNumber, playbackPos.surahName, { skipResumeCheck: true, resumePage: true });
     return;
   }
   const last = getLastRead();
   if (last) {
     btn.textContent = '▶ ادامه از: ' + last.name;
     btn.classList.remove('hidden');
-    btn.onclick = () => openSurahReader(last.number, last.name, { skipResumeCheck: true });
+    btn.onclick = () => openSurahReader(last.number, last.name, { skipResumeCheck: true, resumePage: true });
   } else {
     btn.classList.add('hidden');
   }
@@ -4310,6 +4314,11 @@ async function openSurahReader(number, name, opts) {
       if (resume) { showQuranResumePrompt(number, name, resume, !!opts.autoPlay); return; }
     } catch (e) {} // در صورت هر خطایی (مثلاً هنوز دادهٔ آفلاین آماده نیست) مستقیم برو سراغ باز کردن سوره
   }
+  if (getQuranMode() === 'page') {
+    openQuranPageReader({ surahNumber: number, name: name, scrollToAyah: opts.scrollToAyah, autoPlay: opts.autoPlay, resumePage: opts.resumePage });
+    return;
+  }
+  qpSetMode(false);
   resetPlaybackForNewContent();
   currentSurahNumber = number;
   primeQuranExitPopupBaseline(number);
@@ -4568,6 +4577,8 @@ function playCurrentQueueItem(surahName) {
     // خودکار برو سراغ سورهٔ بعد و همان شرط «قبلاً تا کجا خوانده‌ای» را دوباره
     // روی آن بررسی کن؛ اگر سورهٔ بعد هم قبلاً ناتمام خوانده شده، همان پاپ‌آپ ادامه/از‌اول
     // نشان داده می‌شود، وگرنه خودش از آیهٔ اول سورهٔ بعد با صدا ادامه پیدا می‌کند.
+    // در حالت «مصحف صفحه‌ای» با تمام‌شدن آیه‌های این صفحه، خودکار صفحهٔ بعد باز می‌شود و پخش ادامه پیدا می‌کند
+    if (qpActive) { qpPlaybackFinishedPage(); return; }
     if (currentSurahNumber && currentSurahNumber < 114) {
       goToNextSurahAfterFinish(currentSurahNumber, playbackSession);
     }
@@ -4575,6 +4586,12 @@ function playCurrentQueueItem(surahName) {
   }
   const ayah = playbackQueue[playQueueIndex];
   const block = playbackBlocks[playQueueIndex];
+  // یک صفحهٔ مصحف ممکن است آیه‌های دو سورهٔ مختلف داشته باشد؛ نام/شمارهٔ سورهٔ همین آیه ثبت شود
+  if (qpActive && ayah && ayah.surahNumber) {
+    currentSurahNumber = ayah.surahNumber;
+    surahName = ayah.surahName;
+    window.__currentSurahName = ayah.surahName;
+  }
   document.querySelectorAll('.ayah-block.is-playing').forEach((b) => b.classList.remove('is-playing'));
   if (block) {
     block.classList.add('is-playing');
@@ -4694,6 +4711,8 @@ document.getElementById('play-selected-juz-btn').addEventListener('click', () =>
   if (selectedJuz) openJuzReader(selectedJuz);
 });
 async function openJuzReader(juzNumber) {
+  if (getQuranMode() === 'page') { openQuranPageReader({ juz: juzNumber }); return; }
+  qpSetMode(false);
   resetPlaybackForNewContent();
   switchToTab('quran-reader', { push: true });
   currentSurahNumber = null;
@@ -7133,6 +7152,324 @@ setInterval(clearStaleAzanNotifications, 5 * 60 * 1000);
       playAzanSound(label);
     }
   }, 500);
+})();
+
+/* ===================== مصحف صفحه‌ای =====================
+   قرآن را مثل مصحف چاپی (۶۰۴ صفحه) نشان می‌دهد: هر بار فقط یک صفحه، با نوار بالای «جزء / شمارهٔ صفحه / سوره»،
+   و با کشیدن انگشت به چپ و راست صفحه عوض می‌شود. دادهٔ آن همان متن آفلاینِ ذخیره‌شدهٔ قرآن است (فیلد page
+   هر آیه)، پس بعد از اولین ذخیره بدون اینترنت هم کار می‌کند. ردیابِ خواندن، پخش صوت، نشان‌کردن و اشتراک‌گذاری
+   همان سازوکارهای قبلی را به کار می‌برند. (از var استفاده شده تا حتی اگر کدی زودتر صدا زده شود خطا ندهد.) */
+var QURAN_TOTAL_PAGES = 604;
+var QPAGE_LAST_KEY = 'arefanejam_quran_last_page';
+var QP_BASMALA = 'بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ';
+var qpActive = false;      // الان خواننده در حالت مصحف صفحه‌ای است؟
+var qpIndex = null;        // ایندکس صفحات؛ qpIndex[شمارهٔ صفحه] = آیه‌های همان صفحه
+var qpPage = 0;            // صفحهٔ نمایش‌داده‌شده
+var qpAyahs = [];          // آیه‌های صفحهٔ فعلی
+var qpSelectedIdx = -1;    // آیهٔ انتخاب‌شده (برای نوار گزینه‌ها)
+var qpLoadToken = 0;
+
+function qpSetMode(on) {
+  qpActive = !!on;
+  const sec = document.getElementById('tab-quran-reader');
+  if (sec) sec.classList.toggle('page-mode', qpActive);
+}
+
+function qpNormalizeWord(w) {
+  return String(w).replace(/[\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g, '').replace(/\u0671/g, '\u0627');
+}
+// در متن قرآنِ ذخیره‌شده، «بسم الله...» اول آیهٔ ۱ همهٔ سوره‌ها (جز حمد و توبه) چسبیده است؛ در مصحف
+// به‌صورت یک خطِ جدا زیر عنوان سوره می‌آید. فقط اگر مطمئن باشیم همان چهار کلمه است جدا می‌کنیم؛ وگرنه متن دست‌نخورده می‌ماند.
+function qpAyahText(ayah) {
+  if (ayah.numberInSurah !== 1 || ayah.surahNumber === 1 || ayah.surahNumber === 9) return ayah.text;
+  const words = String(ayah.text).trim().split(/\s+/);
+  if (words.length > 4 && qpNormalizeWord(words[0]) === 'بسم' && qpNormalizeWord(words[3]).indexOf('الرح') === 0) {
+    return words.slice(4).join(' ');
+  }
+  return ayah.text;
+}
+
+async function qpEnsureData() {
+  if (qpIndex) return qpIndex;
+  let surahs = await getOfflineQuranText();
+  if (!surahs) {
+    await downloadQuranTextForOffline(false);
+    surahs = await getOfflineQuranText();
+  }
+  if (!surahs) return null;
+  const pages = [];
+  for (let p = 0; p <= QURAN_TOTAL_PAGES; p++) pages.push([]);
+  surahs.forEach((sr) => (sr.ayahs || []).forEach((a) => {
+    if (a.page >= 1 && a.page <= QURAN_TOTAL_PAGES) {
+      pages[a.page].push(Object.assign({}, a, { surahNumber: sr.number, surahName: sr.name, surahAyahCount: sr.ayahs.length }));
+    }
+  }));
+  let filled = 0;
+  for (let p = 1; p <= QURAN_TOTAL_PAGES; p++) if (pages[p].length) filled++;
+  if (filled < 600) return null; // دادهٔ ناقص/بدون شمارهٔ صفحه
+  qpIndex = pages;
+  return qpIndex;
+}
+
+function qpFindPage(idx, surahNumber, ayahInSurah) {
+  for (let p = 1; p <= QURAN_TOTAL_PAGES; p++) {
+    const list = idx[p];
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].surahNumber === surahNumber && list[i].numberInSurah === ayahInSurah) return p;
+    }
+  }
+  return 1;
+}
+function qpFindPageOfJuz(idx, juz) {
+  for (let p = 1; p <= QURAN_TOTAL_PAGES; p++) {
+    if (idx[p].some((a) => a.juz === juz)) return p;
+  }
+  return 1;
+}
+
+// ورود به خواندنِ صفحه‌ای؛ opts: { surahNumber, scrollToAyah, juz, page, autoPlay, resumePage }
+async function openQuranPageReader(opts) {
+  opts = opts || {};
+  resetPlaybackForNewContent();
+  qpSetMode(true);
+  switchToTab('quran-reader', { push: true });
+  const pageEl = document.getElementById('qp-page');
+  const token = ++qpLoadToken;
+  document.getElementById('qp-juz').textContent = '—';
+  document.getElementById('qp-page-num').textContent = '—';
+  document.getElementById('qp-surah').textContent = '—';
+  document.getElementById('qp-count').textContent = '—';
+  qpClearSelection();
+  pageEl.innerHTML = '<p class="muted-text qp-msg">در حال آماده‌سازی صفحات قرآن...</p>';
+  const idx = await qpEnsureData();
+  if (token !== qpLoadToken) return; // کاربر در این فاصله چیز دیگری را باز کرده
+  if (!idx) {
+    pageEl.innerHTML = '<p class="note-empty">برای استفاده از مصحف صفحه‌ای، یک‌بار با اینترنت وصل شوید تا متن قرآن روی گوشی ذخیره شود (بعد از آن بدون اینترنت هم کار می‌کند).</p>';
+    return;
+  }
+  let page = Number(opts.page) || 0;
+  if (!page && opts.juz) page = qpFindPageOfJuz(idx, opts.juz);
+  if (!page && opts.surahNumber) {
+    if (opts.resumePage && !opts.scrollToAyah) {
+      const saved = Number(localStorage.getItem(QPAGE_LAST_KEY));
+      if (saved >= 1 && saved <= QURAN_TOTAL_PAGES && idx[saved].some((a) => a.surahNumber === opts.surahNumber)) page = saved;
+    }
+    if (!page) page = qpFindPage(idx, opts.surahNumber, opts.scrollToAyah || 1);
+  }
+  if (!page) {
+    const saved = Number(localStorage.getItem(QPAGE_LAST_KEY));
+    page = (saved >= 1 && saved <= QURAN_TOTAL_PAGES) ? saved : 1;
+  }
+  qpShowPage(page, { focusSurah: opts.surahNumber, focusAyah: opts.scrollToAyah, autoPlay: opts.autoPlay });
+}
+
+// نمایش یک صفحه؛ o: { dir (+1 بعد / -1 قبل)، focusSurah، focusAyah، autoPlay }
+function qpShowPage(page, o) {
+  o = o || {};
+  if (!qpIndex) return;
+  page = Math.max(1, Math.min(QURAN_TOTAL_PAGES, Number(page) || 1));
+  const ayahs = qpIndex[page];
+  if (!ayahs || !ayahs.length) return;
+  resetPlaybackForNewContent();
+  qpPage = page;
+  qpAyahs = ayahs;
+  qpClearSelection();
+  try { localStorage.setItem(QPAGE_LAST_KEY, String(page)); } catch (e) {}
+
+  const first = ayahs[0];
+  const prevSurah = currentSurahNumber;
+  currentSurahNumber = first.surahNumber;
+  if (prevSurah !== currentSurahNumber) primeQuranExitPopupBaseline(currentSurahNumber);
+  try { localStorage.setItem('arefanejam_last_read', JSON.stringify({ number: first.surahNumber, name: first.surahName, ts: Date.now() })); } catch (e) {}
+
+  // نوار بالا
+  document.getElementById('qp-juz').textContent = 'جزء ' + toPersianDigits(first.juz);
+  document.getElementById('qp-page-num').textContent = toPersianDigits(page);
+  document.getElementById('qp-surah').textContent = first.surahName;
+  document.getElementById('qp-count').textContent = 'صفحهٔ ' + toPersianDigits(page) + ' از ' + toPersianDigits(QURAN_TOTAL_PAGES);
+  document.getElementById('qp-prev').disabled = page <= 1;
+  document.getElementById('qp-next').disabled = page >= QURAN_TOTAL_PAGES;
+
+  // متن صفحه
+  const pageEl = document.getElementById('qp-page');
+  pageEl.innerHTML = '';
+  const blocks = [];
+  let para = null;
+  ayahs.forEach((ayah, i) => {
+    if (ayah.numberInSurah === 1) {
+      const banner = document.createElement('div');
+      banner.className = 'qp-surah-banner';
+      banner.textContent = ayah.surahName;
+      pageEl.appendChild(banner);
+      if (ayah.surahNumber !== 1 && ayah.surahNumber !== 9) {
+        const bs = document.createElement('div');
+        bs.className = 'qp-basmala';
+        bs.textContent = QP_BASMALA;
+        pageEl.appendChild(bs);
+      }
+      para = null;
+    }
+    if (!para) {
+      para = document.createElement('p');
+      para.className = 'qp-text';
+      pageEl.appendChild(para);
+    }
+    const span = document.createElement('span');
+    span.className = 'ayah-block qp-ayah';
+    span.appendChild(document.createTextNode(qpAyahText(ayah) + ' '));
+    const mark = document.createElement('span');
+    mark.className = 'qp-end';
+    mark.textContent = toPersianDigits(ayah.numberInSurah);
+    span.appendChild(mark);
+    span.addEventListener('click', () => qpSelectAyah(i));
+    para.appendChild(span);
+    para.appendChild(document.createTextNode(' '));
+    blocks.push(span);
+    if (ayah.numberInSurah === ayah.surahAyahCount) para.classList.add('qp-text-end');
+  });
+
+  playbackQueue = ayahs;
+  playbackBlocks = blocks;
+  window.__currentSurahName = first.surahName;
+
+  // برگشت به بالای صفحه + انیمیشن ورق‌خوردن (فقط اگر کاربر همین‌جا در حال خواندن است)
+  const content = document.getElementById('content');
+  if (currentTab === 'quran-reader') {
+    content.style.scrollBehavior = 'auto';
+    content.scrollTop = 0;
+    content.style.scrollBehavior = '';
+  }
+  pageEl.classList.remove('qp-in-next', 'qp-in-prev');
+  if (o.dir) {
+    void pageEl.offsetWidth;
+    pageEl.classList.add(o.dir > 0 ? 'qp-in-next' : 'qp-in-prev');
+  }
+
+  // ردیابِ خودکارِ «خواندن» (همان سازوکار قبلی) روی آیه‌های همین صفحه
+  attachQuranReadingTracker(content, ayahs, blocks);
+  highlightPreviouslyReadAyahs(ayahs, blocks);
+
+  // پرش به یک آیهٔ مشخص (ادامهٔ سوره، جست‌وجو، نشان‌شده‌ها) و/یا پخش خودکار
+  let startIdx = 0;
+  let hasFocus = false;
+  if (o.focusAyah) {
+    const fi = ayahs.findIndex((a) => a.numberInSurah === o.focusAyah && (!o.focusSurah || a.surahNumber === o.focusSurah));
+    if (fi >= 0) { startIdx = fi; hasFocus = true; }
+  }
+  if (hasFocus) {
+    qpSelectAyah(startIdx, false);
+    if (currentTab === 'quran-reader') {
+      quranProgrammaticScrollActive = true;
+      setTimeout(() => {
+        try { blocks[startIdx].scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+        waitForQuranScrollSettle(content, 2500).then(() => { quranProgrammaticScrollActive = false; });
+      }, 50);
+    }
+  }
+  if (o.autoPlay) startSequentialPlayback(playbackQueue, playbackBlocks, startIdx, ayahs[startIdx].surahName);
+}
+
+function qpGo(delta) {
+  if (!qpIndex || !qpPage) return;
+  const p = qpPage + delta;
+  if (p < 1 || p > QURAN_TOTAL_PAGES) return;
+  qpShowPage(p, { dir: delta });
+}
+
+// تمام‌شدنِ پخشِ همهٔ آیه‌های این صفحه → صفحهٔ بعد و ادامهٔ پخش
+function qpPlaybackFinishedPage() {
+  if (!qpActive || qpPage >= QURAN_TOTAL_PAGES) return;
+  qpShowPage(qpPage + 1, { dir: 1, autoPlay: true });
+}
+
+/* ---------- انتخاب آیه و نوار گزینه‌ها ---------- */
+function qpClearSelection() {
+  qpSelectedIdx = -1;
+  document.querySelectorAll('#qp-page .qp-selected').forEach((b) => b.classList.remove('qp-selected'));
+  const bar = document.getElementById('qp-actions');
+  if (bar) bar.classList.add('hidden');
+}
+function qpSelectAyah(i, showBar) {
+  const ayah = qpAyahs[i];
+  if (!ayah) return;
+  if (showBar !== false && qpSelectedIdx === i) { qpClearSelection(); return; } // دوباره زدن روی همان آیه = بستن
+  qpSelectedIdx = i;
+  playbackBlocks.forEach((b, k) => b.classList.toggle('qp-selected', k === i));
+  const bar = document.getElementById('qp-actions');
+  if (showBar === false) { bar.classList.add('hidden'); return; }
+  document.getElementById('qp-act-label').textContent = ayah.surahName + ' — آیه ' + toPersianDigits(ayah.numberInSurah);
+  document.getElementById('qp-act-bookmark').classList.toggle('is-bookmarked', isBookmarked(ayah.number));
+  bar.classList.remove('hidden');
+}
+
+document.getElementById('qp-act-play').addEventListener('click', () => {
+  const i = qpSelectedIdx;
+  if (i < 0 || !qpAyahs[i]) return;
+  if (isSequentialPlaying && playbackQueue[playQueueIndex] === qpAyahs[i]) {
+    recitationAudio.pause();
+    isSequentialPlaying = false;
+    document.querySelectorAll('.ayah-block.is-playing').forEach((b) => b.classList.remove('is-playing'));
+    return;
+  }
+  startSequentialPlayback(playbackQueue, playbackBlocks, i, qpAyahs[i].surahName);
+});
+document.getElementById('qp-act-bookmark').addEventListener('click', (e) => {
+  const a = qpAyahs[qpSelectedIdx];
+  if (!a) return;
+  const prev = currentSurahNumber;
+  currentSurahNumber = a.surahNumber; // toggleBookmark شمارهٔ سوره را از همین متغیر برمی‌دارد
+  toggleBookmark(Object.assign({}, a, { text: qpAyahText(a) }), a.surahName, e.currentTarget);
+  currentSurahNumber = prev;
+});
+document.getElementById('qp-act-share').addEventListener('click', () => {
+  const a = qpAyahs[qpSelectedIdx];
+  if (!a) return;
+  shareAyah(qpAyahText(a), a.surahName + ' — آیه ' + toPersianDigits(a.numberInSurah));
+});
+document.getElementById('qp-act-close').addEventListener('click', qpClearSelection);
+
+/* ---------- ورق‌زدن: کشیدنِ انگشت، دکمه‌ها و کلیدهای جهت‌دار ---------- */
+// مصحف راست‌به‌چپ است: صفحهٔ بعد سمت چپ قرار دارد؛ پس کشیدنِ انگشت به «راست» = صفحهٔ بعد، و به «چپ» = صفحهٔ قبل.
+(function initQuranPageSwipe() {
+  const el = document.getElementById('qp-swipe');
+  if (!el) return;
+  let sx = 0, sy = 0, st = 0, on = false;
+  el.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) { on = false; return; }
+    sx = e.touches[0].clientX; sy = e.touches[0].clientY; st = Date.now(); on = true;
+  }, { passive: true });
+  el.addEventListener('touchcancel', () => { on = false; }, { passive: true });
+  el.addEventListener('touchend', (e) => {
+    if (!on) return;
+    on = false;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - sx, dy = t.clientY - sy;
+    if (Date.now() - st > 800) return;                         // کشیدنِ خیلی کند، ورق‌زدن حساب نمی‌شود
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return; // کم‌حرکت یا بیشتر عمودی (اسکرول)
+    qpGo(dx > 0 ? 1 : -1);
+  }, { passive: true });
+  document.getElementById('qp-prev').addEventListener('click', () => qpGo(-1));
+  document.getElementById('qp-next').addEventListener('click', () => qpGo(1));
+  document.addEventListener('keydown', (e) => {
+    if (!qpActive || currentTab !== 'quran-reader') return;
+    const tag = (e.target && e.target.tagName) || '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (e.key === 'ArrowLeft') qpGo(1);
+    else if (e.key === 'ArrowRight') qpGo(-1);
+  });
+})();
+
+// اسلایدر اندازهٔ فونت صفحه‌ای؛ با همان تنظیمِ ذخیره‌شدهٔ بخش‌های دیگر هماهنگ است
+(function initQuranPageFontSlider() {
+  const s = document.getElementById('qp-font-slider');
+  if (!s) return;
+  s.value = localStorage.getItem('arefanejam_arabic_font_size') || '22';
+  s.addEventListener('input', (e) => {
+    document.documentElement.style.setProperty('--arabic-font-size', e.target.value + 'px');
+    try { localStorage.setItem('arefanejam_arabic_font_size', e.target.value); } catch (err) {}
+    const classic = document.getElementById('arabic-font-slider');
+    if (classic) classic.value = e.target.value;
+  });
 })();
 
 // نشانهٔ «اجرای کامل app.js» برای بروزرسانی ظاهر اپ از سایت (اگر تا اینجا نرسد، اپ به نسخهٔ داخلی برمی‌گردد)

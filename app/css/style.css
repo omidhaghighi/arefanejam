@@ -2467,3 +2467,104 @@ body:not(.dark-mode) .social-card::before { background: linear-gradient(180deg, 
 @media (max-width: 340px) { .social-grid { grid-template-columns: 1fr; } }
 #tab-social > .section-block:first-child { padding-bottom: 0; }
 #tab-social #social-links-content { padding-top: 6px; }
+
+/* ===================== مصحف صفحه‌ای (شبیه صفحهٔ چاپی قرآن) ===================== */
+.quran-mode-switch button { font-size: 12.5px; padding-inline: 4px; }
+
+/* در حالت صفحه‌ای فقط نمای صفحه دیده می‌شود، در بقیهٔ حالت‌ها فقط نمای قبلی */
+#tab-quran-reader.page-mode > .qr-classic { display: none; }
+#tab-quran-reader:not(.page-mode) > #qp-view { display: none; }
+
+.qp-view { padding: 0 0 12px; }
+
+/* نوار بالا: جزء (راست) | شمارهٔ صفحه (وسط) | سوره (چپ) */
+.qp-topbar {
+  position: sticky; top: 0; z-index: 6;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 9px 16px;
+  background: linear-gradient(135deg, var(--night-1, #0A2B36), var(--night-2, #12414F));
+  color: #FFF6DC;
+}
+.qp-juz, .qp-surah { flex: 1; font-family: var(--font-quran); font-size: 15px; }
+.qp-juz { text-align: start; }
+.qp-surah { text-align: end; }
+.qp-pagenum { font-size: 19px; font-weight: 700; min-width: 2.4em; text-align: center; }
+
+/* خودِ صفحه: کاغذِ کرمی با متن مشکی */
+.qp-swipe {
+  touch-action: pan-y; overflow-x: hidden;
+  -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+}
+.qp-page {
+  background: #FBF6E8; color: #1D1A14;
+  padding: 14px 16px 20px; min-height: 58vh;
+  font-family: var(--font-quran);
+  font-size: calc(var(--arabic-font-size, 22px) * 1.1);
+  box-shadow: inset 0 0 0 1px #E7DBBA;
+}
+body.dark-mode .qp-page { background: #1A201D; color: #EDE5CF; box-shadow: inset 0 0 0 1px #33443E; }
+.qp-msg { text-align: center; font-family: var(--font-ui); font-size: 14px; padding: 30px 0; }
+.qp-page .note-empty { font-family: var(--font-ui); font-size: 14px; }
+
+.qp-text { margin: 0 0 4px; text-align: justify; text-justify: inter-word; line-height: 2.35; }
+.qp-text-end { text-align-last: center; } /* آخرِ سوره: خطِ آخر وسط‌چین */
+.qp-surah-banner {
+  margin: 10px 0 6px; padding: 5px 10px; text-align: center; font-weight: 700;
+  color: #1F5B4E; border: 1.5px solid #B08D4E; border-radius: 8px;
+  background: linear-gradient(180deg, #F3E9CC, #EBDDB4);
+}
+body.dark-mode .qp-surah-banner { color: #E8CD9C; border-color: #8A6F3E; background: linear-gradient(180deg, #26332D, #202B26); }
+.qp-basmala { text-align: center; line-height: 2.2; margin: 2px 0 6px; }
+
+/* هر آیه: متنِ پیوسته (inline)، نه کارت */
+#qp-page .ayah-block.qp-ayah {
+  display: inline; padding: 0; margin: 0; border: none; border-radius: 0;
+  background: none; box-shadow: none; animation: none; transform: none; transition: none; cursor: pointer;
+  -webkit-box-decoration-break: clone; box-decoration-break: clone;
+}
+#qp-page .ayah-block.qp-ayah::after { content: none; }
+/* ترتیب مهم است: خوانده‌شده < در حال پخش < انتخاب‌شده */
+#qp-page .ayah-block.ayah-read-highlight { background: rgba(192, 57, 43, 0.09); box-shadow: none; animation: none; border: none; }
+#qp-page .ayah-block.is-playing { background: rgba(31, 122, 104, 0.18); box-shadow: none; animation: none; transform: none; }
+#qp-page .ayah-block.qp-selected { background: rgba(176, 141, 78, 0.30); }
+body.dark-mode #qp-page .ayah-block.ayah-read-highlight { background: rgba(192, 57, 43, 0.22); }
+body.dark-mode #qp-page .ayah-block.is-playing { background: rgba(80, 200, 170, 0.22); }
+body.dark-mode #qp-page .ayah-block.qp-selected { background: rgba(217, 189, 135, 0.28); }
+
+/* نشانهٔ گردِ پایانِ آیه */
+.qp-end {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 1.7em; height: 1.7em; padding: 0 .15em; margin: 0 .12em; box-sizing: border-box;
+  border: 1.5px solid #1F7A68; border-radius: 50%; color: #1F7A68;
+  font-family: var(--font-ui); font-size: .5em; line-height: 1; vertical-align: middle;
+}
+body.dark-mode .qp-end { border-color: #8FD3C1; color: #8FD3C1; }
+
+/* ورق‌خوردن: صفحهٔ بعد از چپ می‌آید، صفحهٔ قبل از راست */
+@keyframes qpInFromLeft  { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
+@keyframes qpInFromRight { from { opacity: 0; transform: translateX(28px); }  to { opacity: 1; transform: none; } }
+.qp-page.qp-in-next { animation: qpInFromLeft .22s ease-out; }
+.qp-page.qp-in-prev { animation: qpInFromRight .22s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .qp-page.qp-in-next, .qp-page.qp-in-prev { animation: none; }
+}
+
+.qp-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 16px 0; }
+.qp-nav button:disabled { opacity: .4; }
+.qp-font-row { padding: 10px 16px 0; margin-bottom: 0; }
+.qp-hint { padding: 0 16px; margin: 8px 0 0; line-height: 1.9; }
+
+/* نوار گزینه‌های آیهٔ انتخاب‌شده (پخش / نشان / اشتراک) */
+.qp-actions {
+  position: sticky; bottom: 8px; z-index: 6;
+  display: flex; align-items: center; gap: 8px;
+  margin: 10px 12px 0; padding: 8px 10px; border-radius: 14px;
+  background: var(--night-1, #0A2B36); color: #FFF6DC;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, .3);
+}
+.qp-act-label { flex: 1; font-size: 13px; }
+.qp-act {
+  border: 0; border-radius: 10px; padding: 7px 11px; font-size: 15px; cursor: pointer;
+  background: rgba(255, 255, 255, .13); color: #FFF6DC;
+}
+.qp-act.is-bookmarked { background: var(--danger, #A5473C); }

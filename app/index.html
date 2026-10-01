@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=61">
+<link rel="stylesheet" href="css/style.css?v=62">
 </head>
 <body>
 
@@ -579,7 +579,8 @@
       <div class="section-block">
         <h3>قرآن کریم</h3>
         <div id="quran-mode-switch" class="quran-mode-switch">
-          <button type="button" data-mode="translation" class="active">📖 قرآن با ترجمه</button>
+          <button type="button" data-mode="page" class="active">📄 مصحف صفحه‌ای</button>
+          <button type="button" data-mode="translation">📖 قرآن با ترجمه</button>
           <button type="button" data-mode="text">📜 قرآن فقط متن</button>
         </div>
         <p id="quran-offline-status" class="muted-text small quran-offline-status hidden"></p>
@@ -591,7 +592,7 @@
 
     <!-- متن سوره -->
     <section id="tab-quran-reader" class="tab-panel">
-      <div class="section-block">
+      <div class="section-block qr-classic">
         <h3 id="quran-reader-title">—</h3>
         <div class="reader-toolbar">
           <button id="surah-play-btn" class="secondary-btn small-btn">🔊 پخش کل سوره</button>
@@ -610,6 +611,35 @@
         </div>
         <p class="muted-text small">برای شنیدن هر آیه روی متنش، برای نشان‌کردن روی آیکون 🔖 و برای اشتراک‌گذاری روی 📤 ضربه بزنید.</p>
         <div id="quran-reader-content"></div>
+      </div>
+
+      <!-- مصحف صفحه‌ای: هر بار یک صفحه (۶۰۴ صفحه)، با کشیدن انگشت ورق می‌خورد -->
+      <div id="qp-view" class="qp-view">
+        <div class="qp-topbar">
+          <span id="qp-juz" class="qp-juz">—</span>
+          <span id="qp-page-num" class="qp-pagenum">—</span>
+          <span id="qp-surah" class="qp-surah">—</span>
+        </div>
+        <div id="qp-swipe" class="qp-swipe">
+          <div id="qp-page" class="qp-page"></div>
+        </div>
+        <div class="qp-nav">
+          <button type="button" id="qp-prev" class="ghost-btn small-btn">صفحهٔ قبل</button>
+          <span id="qp-count" class="muted-text small">—</span>
+          <button type="button" id="qp-next" class="ghost-btn small-btn">صفحهٔ بعد</button>
+        </div>
+        <div class="font-size-row qp-font-row">
+          <span class="muted-text small">اندازه فونت عربی</span>
+          <input type="range" id="qp-font-slider" min="16" max="32" value="22">
+        </div>
+        <p class="muted-text small qp-hint">برای رفتن به صفحهٔ بعد، صفحه را با انگشت به سمت راست بکشید و برای صفحهٔ قبل به سمت چپ. روی هر آیه بزنید تا پخش، نشان‌کردن و اشتراک‌گذاری همان آیه را ببینید.</p>
+        <div id="qp-actions" class="qp-actions hidden">
+          <span id="qp-act-label" class="qp-act-label"></span>
+          <button type="button" id="qp-act-play" class="qp-act" title="پخش / توقف">🔊</button>
+          <button type="button" id="qp-act-bookmark" class="qp-act" title="نشان‌کردن">🔖</button>
+          <button type="button" id="qp-act-share" class="qp-act" title="اشتراک‌گذاری">📤</button>
+          <button type="button" id="qp-act-close" class="qp-act" title="بستن">✕</button>
+        </div>
       </div>
     </section>
 
@@ -931,6 +961,6 @@
 <script src="js/iran-cities.js?v=14"></script>
 <script src="js/native-config.js"></script>
 <script src="js/native-bridge.js?v=8"></script>
-<script src="js/app.js?v=88"></script>
+<script src="js/app.js?v=89"></script>
 </body>
 </html>
