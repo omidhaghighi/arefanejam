@@ -65,6 +65,8 @@ jobs:
           cp native-assets/android/MainActivity.java native-assets/android/AppUpdaterPlugin.java native-assets/android/UpdateFileProvider.java "$JDIR/"
           mkdir -p android/app/src/main/res/xml
           cp native-assets/android/update_file_paths.xml android/app/src/main/res/xml/update_file_paths.xml
+          mkdir -p android/app/src/main/res/layout
+          cp native-assets/android/sticky_card.xml android/app/src/main/res/layout/sticky_card.xml
           M=android/app/src/main/AndroidManifest.xml
           sed -i 's#</manifest>#    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />\n</manifest>#' "$M"
           sed -i 's#</application>#        <provider android:name="com.arefanejam.quran.UpdateFileProvider" android:authorities="${applicationId}.updateprovider" android:exported="false" android:grantUriPermissions="true">\n            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_file_paths" />\n        </provider>\n    </application>#' "$M"
