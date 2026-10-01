@@ -1697,6 +1697,10 @@ async function prepareTodayShareVerse() {
     try { todayShareVerse = JSON.parse(cached); todayShareVerseDate = todayKey; return; } catch (e) {}
   }
   const ayahNumber = todaysAyahNumber();
+  try {
+    const off = await offlineVerseWithTranslation(ayahNumber);
+    if (off) { localStorage.setItem(cacheKey, JSON.stringify(off)); todayShareVerse = off; todayShareVerseDate = todayKey; return; }
+  } catch (e) {}
   if (navigator.onLine) {
     try {
       const res = await fetch(`https://api.alquran.cloud/v1/ayah/${ayahNumber}/editions/quran-uthmani,fa.makarem`);
@@ -3665,6 +3669,10 @@ async function loadVerseOfDay() {
   const cached = localStorage.getItem(cacheKey);
   if (cached) { renderVerse(JSON.parse(cached)); return; }
   try {
+    const off = await offlineVerseWithTranslation(ayahNumber);
+    if (off) { localStorage.setItem(cacheKey, JSON.stringify(off)); renderVerse(off); return; }
+  } catch (e) {}
+  try {
     const res = await fetch(`https://api.alquran.cloud/v1/ayah/${ayahNumber}/editions/quran-uthmani,fa.makarem`);
     const json = await res.json();
     const [arabic, translation] = json.data;
@@ -3781,12 +3789,119 @@ async function getOfflineQuranText() {
     quranTextMemo = stored.surahs;
     return quranTextMemo;
   }
+  // متن قرآن داخل خود اپ (فایل data/quran-uthmani.json): بدون اینترنت و بدون دانلود
+  const bundled = await loadBundledQuranText();
+  if (bundled) { quranTextMemo = bundled; return quranTextMemo; }
   return null;
+}
+
+/* ---------- متن قرآن و ترجمهٔ فارسی داخل خود اپ ----------
+   فایل‌های data/quran-uthmani.json (متن عثمانی با شمارهٔ صفحه و جزء) و data/fa-makarem.json (ترجمهٔ فارسی)
+   همراه APK و بروزرسانی ظاهر اپ می‌آیند؛ پس کاربر هیچ‌وقت لازم نیست برای متن قرآن اینترنت وصل کند.
+   اگر فایلی نبود یا خراب بود، همان روش قبلی (دانلود از اینترنت) به کار می‌افتد. */
+const BUNDLED_QURAN_URL = 'data/quran-uthmani.json';
+const BUNDLED_TRANSLATION_URL = 'data/fa-makarem.json';
+let bundledQuranPromise = null;
+let bundledTransPromise = null;
+let quranTransMemo = null;
+
+function validQuranSurahs(surahs) {
+  if (!Array.isArray(surahs) || surahs.length !== 114) return false;
+  return surahs.reduce((n, sr) => n + (sr && sr.ayahs ? sr.ayahs.length : 0), 0) === 6236;
+}
+async function fetchBundledSurahs(url) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const json = await res.json();
+    const surahs = (json && json.data && json.data.surahs) || (json && json.surahs);
+    return validQuranSurahs(surahs) ? surahs : null;
+  } catch (e) { return null; }
+}
+function loadBundledQuranText() {
+  if (!bundledQuranPromise) bundledQuranPromise = fetchBundledSurahs(BUNDLED_QURAN_URL);
+  return bundledQuranPromise;
+}
+async function getOfflineTranslation() {
+  if (quranTransMemo) return quranTransMemo;
+  if (!bundledTransPromise) bundledTransPromise = fetchBundledSurahs(BUNDLED_TRANSLATION_URL);
+  quranTransMemo = await bundledTransPromise;
+  return quranTransMemo;
+}
+// سورهٔ کامل به شکل [عربی، ترجمه] (همان ساختار پاسخ اینترنتی)، یا null اگر ترجمهٔ داخلی نباشد
+async function offlineSurahEditions(number) {
+  const ar = await getOfflineQuranText();
+  const tr = await getOfflineTranslation();
+  if (!ar || !tr) return null;
+  const a = ar.find((s) => s.number === number);
+  const t = tr.find((s) => s.number === number);
+  if (!a || !t || a.ayahs.length !== t.ayahs.length) return null;
+  return [a, { ayahs: t.ayahs }];
+}
+async function offlineJuzEditions(juz) {
+  const ar = await getOfflineQuranText();
+  const tr = await getOfflineTranslation();
+  if (!ar || !tr) return null;
+  const arAyahs = [], trAyahs = [];
+  ar.forEach((sr, si) => {
+    const tsr = tr.find((s) => s.number === sr.number);
+    if (!tsr || tsr.ayahs.length !== sr.ayahs.length) return;
+    sr.ayahs.forEach((a, k) => {
+      if (a.juz !== juz) return;
+      arAyahs.push(Object.assign({}, a, { surah: { number: sr.number, name: sr.name } }));
+      trAyahs.push(tsr.ayahs[k]);
+    });
+  });
+  if (!arAyahs.length) return null;
+  return [{ ayahs: arAyahs }, { ayahs: trAyahs }];
+}
+// آیهٔ سراسری (۱ تا ۶۲۳۶) همراه ترجمه، یا null
+async function offlineVerseWithTranslation(globalAyahNumber) {
+  const ar = await getOfflineQuranText();
+  const tr = await getOfflineTranslation();
+  if (!ar || !tr) return null;
+  let remaining = globalAyahNumber;
+  for (const sr of ar) {
+    if (remaining <= sr.ayahs.length) {
+      const tsr = tr.find((s) => s.number === sr.number);
+      const a = sr.ayahs[remaining - 1];
+      const t = tsr && tsr.ayahs[remaining - 1];
+      if (!a || !t) return null;
+      return { arabic: a.text, translation: t.text, surah: sr.name, ayahNum: a.numberInSurah };
+    }
+    remaining -= sr.ayahs.length;
+  }
+  return null;
+}
+function normFaSearch(s) {
+  return String(s).replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[\u064A\u0649]/g, '\u06CC').replace(/\u0643/g, '\u06A9')
+    .replace(/[\u200C\u200F\u200E]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+// جست‌وجوی آفلاین در ترجمهٔ فارسی؛ null یعنی ترجمهٔ داخلی نیست (از اینترنت جست‌وجو می‌شود)
+async function offlineSearchMatches(q) {
+  const ar = await getOfflineQuranText();
+  const tr = await getOfflineTranslation();
+  if (!ar || !tr) return null;
+  const needle = normFaSearch(q);
+  if (!needle) return [];
+  const out = [];
+  for (const tsr of tr) {
+    const sr = ar.find((s) => s.number === tsr.number);
+    if (!sr) continue;
+    for (let k = 0; k < tsr.ayahs.length; k++) {
+      if (normFaSearch(tsr.ayahs[k].text).indexOf(needle) !== -1) {
+        out.push({ surah: { number: sr.number, name: sr.name }, numberInSurah: tsr.ayahs[k].numberInSurah || (sr.ayahs[k] && sr.ayahs[k].numberInSurah) || (k + 1), text: tsr.ayahs[k].text });
+        if (out.length >= 40) return out;
+      }
+    }
+  }
+  return out;
 }
 
 async function doDownloadQuranText(force) {
   setQuranOfflineState('loading');
   try {
+    if (await loadBundledQuranText()) { await getOfflineQuranText(); setQuranOfflineState('ready'); return true; }
     if (!force && await getOfflineQuranText()) { setQuranOfflineState('ready'); return true; }
     if (!navigator.onLine) { setQuranOfflineState('needs-net'); return false; }
     const res = await fetch('https://api.alquran.cloud/v1/quran/quran-uthmani');
@@ -4024,6 +4139,17 @@ async function loadSurahList() {
   const cached = localStorage.getItem(cacheKey);
   if (cached) { renderSurahList(JSON.parse(cached)); }
   renderContinueReadingButton();
+  if (!cached) {
+    try {
+      const all = await getOfflineQuranText();
+      if (all) {
+        const list = all.map((sr) => ({ number: sr.number, name: sr.name, englishName: sr.englishName, englishNameTranslation: sr.englishNameTranslation, revelationType: sr.revelationType, numberOfAyahs: sr.ayahs.length }));
+        try { localStorage.setItem(cacheKey, JSON.stringify(list)); } catch (e2) {}
+        renderSurahList(list);
+        return;
+      }
+    } catch (e) {}
+  }
   try {
     const res = await fetch('https://api.alquran.cloud/v1/surah');
     const json = await res.json();
@@ -4364,6 +4490,10 @@ async function openSurahReader(number, name, opts) {
     }
     return;
   }
+  try {
+    const off = await offlineSurahEditions(number); // متن + ترجمهٔ داخل اپ
+    if (off) { renderSurahContent(off, opts.scrollToAyah, opts.autoPlay); return; }
+  } catch (e) {}
   const cacheKey = 'arefanejam_surah_' + number;
   const cached = localStorage.getItem(cacheKey);
   if (cached) { renderSurahContent(JSON.parse(cached), opts.scrollToAyah, opts.autoPlay); return; }
@@ -4692,8 +4822,13 @@ document.getElementById('quran-fulltext-search').addEventListener('input', (e) =
   resultsEl.innerHTML = '<p class="muted-text small">در حال جست‌وجو...</p>';
   searchDebounce = setTimeout(async () => {
     try {
-      const res = await fetch(`https://api.alquran.cloud/v1/search/${encodeURIComponent(q)}/all/fa.makarem`);
-      const json = await res.json();
+      const offMatches = await offlineSearchMatches(q); // اگر ترجمهٔ داخل اپ هست، بدون اینترنت
+      let json;
+      if (offMatches) json = { data: { matches: offMatches } };
+      else {
+        const res = await fetch(`https://api.alquran.cloud/v1/search/${encodeURIComponent(q)}/all/fa.makarem`);
+        json = await res.json();
+      }
       resultsEl.innerHTML = '';
       if (!json.data || !json.data.matches || !json.data.matches.length) {
         resultsEl.innerHTML = '<p class="note-empty">نتیجه‌ای پیدا نشد.</p>';
@@ -4757,6 +4892,10 @@ async function openJuzReader(juzNumber) {
     }
     return;
   }
+  try {
+    const off = await offlineJuzEditions(juzNumber); // متن + ترجمهٔ داخل اپ
+    if (off) { renderJuzContent(off); return; }
+  } catch (e) {}
   const cacheKey = 'arefanejam_juz_' + juzNumber;
   const cached = localStorage.getItem(cacheKey);
   if (cached) { renderJuzContent(JSON.parse(cached)); return; }
@@ -7315,6 +7454,7 @@ function qpShowPage(page, o) {
   document.getElementById('qp-count').textContent = 'صفحهٔ ' + toPersianDigits(page) + ' از ' + toPersianDigits(QURAN_TOTAL_PAGES);
   document.getElementById('qp-prev').disabled = page <= 1;
   document.getElementById('qp-next').disabled = page >= QURAN_TOTAL_PAGES;
+  if (typeof qpMenuRefresh === 'function') qpMenuRefresh();
 
   // متن صفحه
   const pageEl = document.getElementById('qp-page');
@@ -7419,6 +7559,7 @@ function qpSelectAyah(i, showBar) {
   const ayah = qpAyahs[i];
   if (!ayah) return;
   if (showBar !== false && qpSelectedIdx === i) { qpClearSelection(); return; } // دوباره زدن روی همان آیه = بستن
+  if (showBar !== false && typeof qpMenuClose === 'function') qpMenuClose();
   qpSelectedIdx = i;
   playbackBlocks.forEach((b, k) => b.classList.toggle('qp-selected', k === i));
   const bar = document.getElementById('qp-actions');
@@ -7496,6 +7637,146 @@ document.getElementById('qp-act-close').addEventListener('click', qpClearSelecti
     const classic = document.getElementById('arabic-font-slider');
     if (classic) classic.value = e.target.value;
   });
+})();
+
+/* ---------- منوی پایین مصحف (جست‌وجو، نشانهٔ صفحه، حالت شب، فهرست، جزءها، صفحه‌ها، اشتراک‌گذاری...) ----------
+   با دکمهٔ 📖 باز و بسته می‌شود. «نشانهٔ صفحه» جدا از «آیات نشان‌شده» است: فقط شمارهٔ یک صفحه را نگه می‌دارد تا بعداً
+   با «رفتن به نشانه» به همان صفحه برگردید. */
+var QPAGE_MARK_KEY = 'arefanejam_quran_page_mark';
+var qpMsgTimer = null;
+
+function qpMenuEl() { return document.getElementById('qp-menu'); }
+function qpMenuIsOpen() { const m = qpMenuEl(); return !!m && !m.classList.contains('hidden'); }
+function qpMenuOpen() {
+  const m = qpMenuEl(); if (!m) return;
+  qpClearSelection();
+  m.classList.remove('hidden');
+  document.getElementById('qp-menu-toggle').setAttribute('aria-expanded', 'true');
+  qpMenuRefresh();
+}
+function qpMenuClose() {
+  const m = qpMenuEl(); if (!m) return;
+  m.classList.add('hidden');
+  const g = document.getElementById('qp-menu-goto'); if (g) g.classList.add('hidden');
+  qpMenuMsg('');
+  const t = document.getElementById('qp-menu-toggle'); if (t) t.setAttribute('aria-expanded', 'false');
+}
+function qpMenuMsg(text) {
+  const el = document.getElementById('qp-menu-msg');
+  if (!el) return;
+  clearTimeout(qpMsgTimer);
+  if (!text) { el.classList.add('hidden'); el.textContent = ''; return; }
+  el.textContent = text;
+  el.classList.remove('hidden');
+  qpMsgTimer = setTimeout(() => el.classList.add('hidden'), 2600);
+}
+function qpGetMark() {
+  try {
+    const m = JSON.parse(localStorage.getItem(QPAGE_MARK_KEY) || 'null');
+    if (m && m.page >= 1 && m.page <= QURAN_TOTAL_PAGES) return m;
+  } catch (e) {}
+  return null;
+}
+function qpMenuRefresh() {
+  const dark = document.body.classList.contains('dark-mode');
+  const th = document.getElementById('qp-mi-theme');
+  if (th) {
+    th.querySelector('.qp-menu-ico').textContent = dark ? '☀️' : '🌙';
+    th.querySelector('span:last-child').textContent = dark ? 'حالت روز' : 'حالت شب';
+  }
+  const sv = document.getElementById('qp-mi-save');
+  if (sv) {
+    const mk = qpGetMark();
+    const here = !!(mk && mk.page === qpPage);
+    sv.classList.toggle('is-on', here);
+    sv.querySelector('span:last-child').textContent = here ? 'نشانه ذخیره است' : 'ذخیرهٔ نشانه';
+  }
+}
+function qpToLatinDigits(s) {
+  return String(s)
+    .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06F0))
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660));
+}
+function qpJumpTo(p) {
+  if (!qpIndex) return;
+  p = Math.max(1, Math.min(QURAN_TOTAL_PAGES, Number(p) || 0));
+  if (!p) return;
+  qpShowPage(p, { dir: p === qpPage ? 0 : (p > qpPage ? 1 : -1) });
+}
+
+(function initQuranPageMenu() {
+  const toggle = document.getElementById('qp-menu-toggle');
+  const menu = qpMenuEl();
+  if (!toggle || !menu) return;
+  toggle.addEventListener('click', () => { if (qpMenuIsOpen()) qpMenuClose(); else qpMenuOpen(); });
+
+  const goBox = document.getElementById('qp-menu-goto');
+  const goInput = document.getElementById('qp-goto-input');
+  function doGoto() {
+    const n = parseInt(qpToLatinDigits(goInput.value).replace(/[^0-9]/g, ''), 10);
+    if (!n || n < 1 || n > QURAN_TOTAL_PAGES) { qpMenuMsg('یک عدد از ۱ تا ' + toPersianDigits(QURAN_TOTAL_PAGES) + ' وارد کنید.'); return; }
+    goInput.value = '';
+    qpMenuClose();
+    qpJumpTo(n);
+  }
+  document.getElementById('qp-goto-btn').addEventListener('click', doGoto);
+  goInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doGoto(); } });
+
+  menu.addEventListener('click', (e) => {
+    const btn = e.target.closest('.qp-menu-item');
+    if (!btn) return;
+    const act = btn.dataset.act;
+    switch (act) {
+      case 'search':    qpMenuClose(); switchToTab('quran-search', { push: true }); break;
+      case 'index':     qpMenuClose(); switchToTab('quran-list', { push: true }); break;
+      case 'juz':       qpMenuClose(); switchToTab('quran-juz', { push: true }); break;
+      case 'bookmarks': qpMenuClose(); switchToTab('quran-bookmarks', { push: true }); break;
+      case 'more':      qpMenuClose(); switchToTab('more', { push: true }); break;
+      case 'theme':
+        applyDarkMode(!document.body.classList.contains('dark-mode'));
+        qpMenuRefresh();
+        break;
+      case 'mark-save': {
+        if (!qpPage) break;
+        const first = qpAyahs[0];
+        try { localStorage.setItem(QPAGE_MARK_KEY, JSON.stringify({ page: qpPage, surah: first ? first.surahName : '', ts: Date.now() })); } catch (err) {}
+        qpMenuRefresh();
+        qpMenuMsg('نشانه روی صفحهٔ ' + toPersianDigits(qpPage) + ' ذخیره شد.');
+        break;
+      }
+      case 'mark-go': {
+        const mk = qpGetMark();
+        if (!mk) { qpMenuMsg('هنوز نشانه‌ای ذخیره نکرده‌اید. اول روی «ذخیرهٔ نشانه» بزنید.'); break; }
+        qpMenuClose();
+        qpJumpTo(mk.page);
+        break;
+      }
+      case 'pages':
+        goBox.classList.toggle('hidden');
+        if (!goBox.classList.contains('hidden')) { qpMenuMsg(''); setTimeout(() => { try { goInput.focus(); } catch (err) {} }, 50); }
+        break;
+      case 'share': {
+        if (!qpAyahs.length) break;
+        const text = qpAyahs.map((a) => qpAyahText(a) + ' ﴿' + toPersianDigits(a.numberInSurah) + '﴾').join(' ');
+        shareAyah(text, 'قرآن کریم — ' + qpAyahs[0].surahName + ' — صفحهٔ ' + toPersianDigits(qpPage));
+        break;
+      }
+      case 'play':
+        if (!qpAyahs.length) break;
+        if (isSequentialPlaying) {
+          recitationAudio.pause();
+          isSequentialPlaying = false;
+          document.querySelectorAll('.ayah-block.is-playing').forEach((b) => b.classList.remove('is-playing'));
+        } else {
+          qpMenuClose();
+          startSequentialPlayback(playbackQueue, playbackBlocks, 0, qpAyahs[0].surahName);
+        }
+        break;
+    }
+  });
+
+  // اگر حالت تاریک از جای دیگر (بالای صفحه یا تنظیمات) عوض شد، برچسب منو هم هماهنگ شود
+  document.addEventListener('click', () => { setTimeout(qpMenuRefresh, 0); }, true);
 })();
 
 // نشانهٔ «اجرای کامل app.js» برای بروزرسانی ظاهر اپ از سایت (اگر تا اینجا نرسد، اپ به نسخهٔ داخلی برمی‌گردد)

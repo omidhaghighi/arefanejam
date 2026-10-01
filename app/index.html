@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=63">
+<link rel="stylesheet" href="css/style.css?v=65">
 </head>
 <body>
 
@@ -638,13 +638,41 @@
           <span class="muted-text small">اندازه فونت عربی</span>
           <input type="range" id="qp-font-slider" min="16" max="32" value="22">
         </div>
-        <p class="muted-text small qp-hint">برای رفتن به صفحهٔ بعد، صفحه را با انگشت به سمت راست بکشید و برای صفحهٔ قبل به سمت چپ. روی هر آیه بزنید تا پخش، نشان‌کردن و اشتراک‌گذاری همان آیه را ببینید.</p>
-        <div id="qp-actions" class="qp-actions hidden">
+        <p class="muted-text small qp-hint">برای رفتن به صفحهٔ بعد، صفحه را با انگشت به سمت راست بکشید و برای صفحهٔ قبل به سمت چپ. روی هر آیه بزنید تا پخش، نشان‌کردن و اشتراک‌گذاری همان آیه را ببینید. برای باز شدن منوی مصحف، دکمهٔ 📖 پایین صفحه را بزنید.</p>
+        <!-- داک پایین: نوار گزینه‌های آیه + دکمهٔ منو + منوی مصحف -->
+        <div class="qp-dock">
+          <div id="qp-actions" class="qp-actions hidden">
           <span id="qp-act-label" class="qp-act-label"></span>
           <button type="button" id="qp-act-play" class="qp-act" title="پخش / توقف">🔊</button>
           <button type="button" id="qp-act-bookmark" class="qp-act" title="نشان‌کردن">🔖</button>
           <button type="button" id="qp-act-share" class="qp-act" title="اشتراک‌گذاری">📤</button>
           <button type="button" id="qp-act-close" class="qp-act" title="بستن">✕</button>
+        </div>
+          <button type="button" id="qp-menu-toggle" class="qp-menu-toggle" aria-expanded="false" aria-label="منوی مصحف" title="منو">📖</button>
+          <div id="qp-menu" class="qp-menu hidden">
+            <div class="qp-menu-row">
+              <button type="button" class="qp-menu-item" data-act="search"><span class="qp-menu-ico">🔍</span><span>جست‌وجو</span></button>
+              <button type="button" class="qp-menu-item" id="qp-mi-save" data-act="mark-save"><span class="qp-menu-ico">🔖</span><span>ذخیرهٔ نشانه</span></button>
+              <button type="button" class="qp-menu-item" data-act="mark-go"><span class="qp-menu-ico">📌</span><span>رفتن به نشانه</span></button>
+              <button type="button" class="qp-menu-item" id="qp-mi-theme" data-act="theme"><span class="qp-menu-ico">🌙</span><span>حالت شب</span></button>
+            </div>
+            <div class="qp-menu-row">
+              <button type="button" class="qp-menu-item" data-act="index"><span class="qp-menu-ico">☰</span><span>فهرست سوره‌ها</span></button>
+              <button type="button" class="qp-menu-item" data-act="juz"><span class="qp-menu-ico">🧩</span><span>جزءها</span></button>
+              <button type="button" class="qp-menu-item" data-act="pages"><span class="qp-menu-ico">📄</span><span>صفحه‌ها</span></button>
+              <button type="button" class="qp-menu-item" data-act="bookmarks"><span class="qp-menu-ico">⭐</span><span>نشان‌شده‌ها</span></button>
+            </div>
+            <div class="qp-menu-row">
+              <button type="button" class="qp-menu-item" data-act="share"><span class="qp-menu-ico">📤</span><span>اشتراک‌گذاری</span></button>
+              <button type="button" class="qp-menu-item" data-act="play"><span class="qp-menu-ico">🔊</span><span>پخش صفحه</span></button>
+              <button type="button" class="qp-menu-item" data-act="more"><span class="qp-menu-ico">⋯</span><span>بیشتر</span></button>
+            </div>
+            <div id="qp-menu-goto" class="qp-menu-goto hidden">
+              <input type="text" id="qp-goto-input" inputmode="numeric" autocomplete="off" placeholder="شمارهٔ صفحه (۱ تا ۶۰۴)">
+              <button type="button" id="qp-goto-btn" class="qp-menu-go">برو</button>
+            </div>
+            <p id="qp-menu-msg" class="qp-menu-msg hidden"></p>
+          </div>
         </div>
       </div>
     </section>
@@ -967,6 +995,6 @@
 <script src="js/iran-cities.js?v=14"></script>
 <script src="js/native-config.js"></script>
 <script src="js/native-bridge.js?v=8"></script>
-<script src="js/app.js?v=90"></script>
+<script src="js/app.js?v=92"></script>
 </body>
 </html>
