@@ -14,6 +14,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check project files (clear error if something was not uploaded to GitHub)
+        run: |
+          MISSING=0
+          for f in native-assets/debug.keystore native-assets/fetch-azan-voices.js \
+                   native-assets/android/MainActivity.java native-assets/android/AppUpdaterPlugin.java \
+                   native-assets/android/UpdateFileProvider.java native-assets/android/update_file_paths.xml \
+                   native-assets/android/sticky_card.xml native-assets/android/AzanReceiver.java \
+                   native-assets/android/AzanService.java app/index.html app/js/app.js app/js/native-bridge.js; do
+            if [ ! -f "$f" ]; then echo "ERROR: file is missing in the repository: $f"; MISSING=1; fi
+          done
+          if ! grep -q "Native azan player" .github/workflows/build-apk.yml; then echo "ERROR: build-apk.yml is an OLD version (no 'Native azan player' step)"; MISSING=1; fi
+          [ "$MISSING" = "0" ] || exit 1
+          echo "All required files are present."
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -71,6 +85,19 @@ jobs:
           sed -i 's#</manifest>#    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />\n</manifest>#' "$M"
           sed -i 's#</application>#        <provider android:name="com.arefanejam.quran.UpdateFileProvider" android:authorities="${applicationId}.updateprovider" android:exported="false" android:grantUriPermissions="true">\n            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_file_paths" />\n        </provider>\n    </application>#' "$M"
           grep -q "updateprovider" "$M" || { echo "ERROR: provider was not added to manifest"; exit 1; }
+          cat "$M"
+
+      - name: Native azan player (plays azan offline, phone locked, app closed)
+        run: |
+          MAIN=$(find android/app/src/main/java -name MainActivity.java | head -n 1)
+          JDIR=$(dirname "$MAIN")
+          echo "$JDIR" | grep -q "com/arefanejam/quran" || { echo "ERROR: package folder is not com/arefanejam/quran"; exit 1; }
+          cp native-assets/android/AzanReceiver.java native-assets/android/AzanService.java "$JDIR/"
+          M=android/app/src/main/AndroidManifest.xml
+          sed -i 's#</manifest>#    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />\n</manifest>#' "$M"
+          sed -i 's#</application>#        <receiver android:name="com.arefanejam.quran.AzanReceiver" android:exported="false">\n            <intent-filter>\n                <action android:name="android.intent.action.BOOT_COMPLETED" />\n                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />\n                <action android:name="android.intent.action.TIME_SET" />\n                <action android:name="android.intent.action.TIMEZONE_CHANGED" />\n            </intent-filter>\n        </receiver>\n        <service android:name="com.arefanejam.quran.AzanService" android:exported="false" android:foregroundServiceType="mediaPlayback" />\n    </application>#' "$M"
+          grep -q "AzanService" "$M" || { echo "ERROR: azan service was not added to manifest"; exit 1; }
+          grep -q "AzanReceiver" "$M" || { echo "ERROR: azan receiver was not added to manifest"; exit 1; }
           cat "$M"
 
       - name: App icon and notification icon
