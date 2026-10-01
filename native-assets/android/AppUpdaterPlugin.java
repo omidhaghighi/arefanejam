@@ -21,6 +21,7 @@ import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
+import android.widget.RemoteViews;
 
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
@@ -670,6 +671,7 @@ public class AppUpdaterPlugin extends Plugin {
     // تصویر کارت با Canvas کشیده می‌شود (بدون فایل XML جدید، پس build-apk.yml تغییر نمی‌کند).
     private static final int STK_ID = 777000001;
     private static final String STK_CH = "sticky-v1";
+    private static final int STK_GOLD = 0xFFF3D98A;
 
     private static int stkMix(int a, int b, float t) {
         int ar = (a >> 16) & 255, ag = (a >> 8) & 255, ab = a & 255;
@@ -770,80 +772,278 @@ public class AppUpdaterPlugin extends Plugin {
         return bmp;
     }
 
-    /** کارت پهن (حالت باز‌شدهٔ نوتیفیکیشن): پس‌زمینهٔ سبز عمیق با درخشش طلایی و هلال، کاشی سه‌بعدی، تاریخ‌ها و قرص «اذان بعدی» */
-    private static Bitmap stkCard(int w, int h, Bitmap tile, String jalali, String hijri, String greg, String next, String dua) {
-        Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
-        Canvas c = new Canvas(bmp);
+    // ---------- اجزای تزئینی کارت ----------
 
+    /** ستارهٔ هشت‌پر (خاتم): دو مربع روی هم؛ با Paint از نوع STROKE خطوط ستاره کشیده می‌شود */
+    private static void stkStar8(Canvas c, float cx, float cy, float r, Paint p) {
+        c.save();
+        c.translate(cx, cy);
+        RectF sq = new RectF(-r, -r, r, r);
+        c.drawRect(sq, p);
+        c.rotate(45f);
+        c.drawRect(sq, p);
+        c.restore();
+    }
+
+    /** نقش هندسی اسلامی (ستاره‌های هشت‌پر) به‌صورت شبکهٔ کمرنگ */
+    private static void stkPattern(Canvas c, float w, float h, float step, int color) {
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(Math.max(1.2f, step * 0.016f));
+        p.setColor(color);
+        int row = 0;
+        for (float y = step * 0.5f; y < h + step; y += step * 0.5f) {
+            float off = (row % 2 == 0) ? 0f : step * 0.5f;
+            for (float x = off; x < w + step; x += step) {
+                stkStar8(c, x, y, step * 0.17f, p);
+            }
+            row++;
+        }
+    }
+
+    /** هلال طلایی براق (با سایه) */
+    private static void stkCrescent(Canvas c, float cx, float cy, float r) {
+        Path cr = new Path();
+        cr.addCircle(cx, cy, r, Path.Direction.CW);
+        Path cut = new Path();
+        cut.addCircle(cx + r * 0.36f, cy - r * 0.10f, r * 0.84f, Path.Direction.CW);
+        cr.op(cut, Path.Op.DIFFERENCE);
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        p.setShader(new LinearGradient(cx - r, cy - r, cx + r, cy + r, 0xFFFFF1B8, 0xFFC9A24B, Shader.TileMode.CLAMP));
+        p.setShadowLayer(r * 0.25f, 0f, r * 0.08f, 0x99000000);
+        c.drawPath(cr, p);
+    }
+
+    /** ستارهٔ پنج‌پر طلایی */
+    private static void stkStar5(Canvas c, float cx, float cy, float r) {
+        Path p = new Path();
+        for (int i = 0; i < 10; i++) {
+            double a = -Math.PI / 2 + i * Math.PI / 5;
+            float rr = (i % 2 == 0) ? r : r * 0.42f;
+            float x = cx + (float) (Math.cos(a) * rr);
+            float y = cy + (float) (Math.sin(a) * rr);
+            if (i == 0) p.moveTo(x, y); else p.lineTo(x, y);
+        }
+        p.close();
+        Paint pt = new Paint(Paint.ANTI_ALIAS_FLAG);
+        pt.setShader(new LinearGradient(cx - r, cy - r, cx + r, cy + r, 0xFFFFF1B8, 0xFFC9A24B, Shader.TileMode.CLAMP));
+        pt.setShadowLayer(r * 0.3f, 0f, r * 0.1f, 0x88000000);
+        c.drawPath(p, pt);
+    }
+
+    /** خط آسمانِ مسجد (گنبد و دو مناره) به‌صورت سایه‌روشن کمرنگ */
+    private static void stkSkyline(Canvas c, float x0, float baseY, float u, float bottom, int color) {
+        Path p = new Path();
+        float hallW = u * 6f;
+        p.addRect(x0, baseY, x0 + hallW, bottom, Path.Direction.CW);
+        float cx = x0 + hallW / 2f;
+        p.addCircle(cx, baseY, u * 1.15f, Path.Direction.CW);
+        p.addCircle(cx - u * 2.0f, baseY, u * 0.6f, Path.Direction.CW);
+        p.addCircle(cx + u * 2.0f, baseY, u * 0.6f, Path.Direction.CW);
+        float mw = u * 0.3f;
+        float[] mx = new float[] { x0 - u * 0.5f, x0 + hallW + u * 0.2f };
+        for (int i = 0; i < mx.length; i++) {
+            float top = baseY - u * 2.6f;
+            p.addRect(mx[i], top, mx[i] + mw, bottom, Path.Direction.CW);
+            p.moveTo(mx[i] - mw * 0.45f, top);
+            p.lineTo(mx[i] + mw * 0.5f, top - u * 0.8f);
+            p.lineTo(mx[i] + mw * 1.45f, top);
+            p.close();
+        }
+        Paint fp = new Paint(Paint.ANTI_ALIAS_FLAG);
+        fp.setColor(color);
+        c.drawPath(p, fp);
+    }
+
+    /** پس‌زمینهٔ کارت: سبز عمیق، درخشش طلایی، نقش خاتم و لبهٔ طلایی */
+    private static void stkBackground(Canvas c, int w, int h, float radius, float patternStep) {
+        RectF r = new RectF(0f, 0f, w, h);
         Paint bg = new Paint(Paint.ANTI_ALIAS_FLAG);
-        bg.setShader(new LinearGradient(0, 0, w, h, 0xFF08241F, 0xFF1A6A5C, Shader.TileMode.CLAMP));
-        c.drawRect(0, 0, w, h, bg);
+        bg.setShader(new LinearGradient(0f, 0f, w, h,
+                new int[] { 0xFF04201B, 0xFF0E5446, 0xFF1D7F6B }, new float[] { 0f, 0.6f, 1f }, Shader.TileMode.CLAMP));
+        c.drawRoundRect(r, radius, radius, bg);
 
         Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG);
-        glow.setShader(new RadialGradient(w * 0.12f, h * 0.05f, h * 1.1f, 0x55F3D98A, 0x00F3D98A, Shader.TileMode.CLAMP));
-        c.drawRect(0, 0, w, h, glow);
+        glow.setShader(new RadialGradient(w * 0.18f, 0f, h * 1.25f, 0x55F3D98A, 0x00F3D98A, Shader.TileMode.CLAMP));
+        c.drawRoundRect(r, radius, radius, glow);
 
-        Paint moon = new Paint(Paint.ANTI_ALIAS_FLAG);
-        moon.setColor(0x1FF3D98A);
-        float mr = h * 0.62f, mx = w * 0.14f, my = h * 0.62f;
-        Path crescent = new Path();
-        crescent.addCircle(mx, my, mr, Path.Direction.CW);
-        Path cut = new Path();
-        cut.addCircle(mx + mr * 0.38f, my - mr * 0.12f, mr * 0.86f, Path.Direction.CW);
-        crescent.op(cut, Path.Op.DIFFERENCE);
-        c.drawPath(crescent, moon);
+        Paint glow2 = new Paint(Paint.ANTI_ALIAS_FLAG);
+        glow2.setShader(new RadialGradient(w * 0.86f, h * 0.55f, h * 0.9f, 0x4435C9A8, 0x0035C9A8, Shader.TileMode.CLAMP));
+        c.drawRoundRect(r, radius, radius, glow2);
 
+        Path clip = new Path();
+        clip.addRoundRect(r, radius, radius, Path.Direction.CW);
+        c.save();
+        c.clipPath(clip);
+        stkPattern(c, w, h, patternStep, 0x17F3D98A);
         Paint sheen = new Paint(Paint.ANTI_ALIAS_FLAG);
-        sheen.setShader(new LinearGradient(0, 0, 0, h * 0.5f, 0x22FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP));
-        c.drawRect(0, 0, w, h * 0.5f, sheen);
+        sheen.setShader(new LinearGradient(0f, 0f, 0f, h * 0.45f, 0x2AFFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP));
+        c.drawRect(0f, 0f, w, h * 0.45f, sheen);
+        c.restore();
 
+        Paint ed = new Paint(Paint.ANTI_ALIAS_FLAG);
+        ed.setStyle(Paint.Style.STROKE);
+        ed.setStrokeWidth(Math.max(2f, h * 0.007f));
+        ed.setShader(new LinearGradient(0f, 0f, 0f, h, 0xBBF3D98A, 0x33F3D98A, Shader.TileMode.CLAMP));
+        c.drawRoundRect(new RectF(1.5f, 1.5f, w - 1.5f, h - 1.5f), radius, radius, ed);
+    }
+
+    /** کارت بزرگ (حالت بازشدهٔ نوتیفیکیشن): همهٔ اطلاعات داخل خود تصویر است */
+    private static Bitmap stkCard(int w, int h, Bitmap tile, String brand, String jalali, String hijri,
+                                  String greg, String next, String nextName, String nextTime, String dua) {
+        Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(bmp);
+        stkBackground(c, w, h, h * 0.10f, h * 0.2f);
+
+        // هلال و ستارهٔ بالا-چپ
+        float mr = h * 0.075f, mcx = h * 0.17f, mcy = h * 0.15f;
+        stkCrescent(c, mcx, mcy, mr);
+        stkStar5(c, mcx + mr * 0.62f, mcy - mr * 0.12f, mr * 0.28f);
+
+        // خط آسمان مسجد پایین-چپ (کمرنگ)
+        Path clip = new Path();
+        clip.addRoundRect(new RectF(0f, 0f, w, h), h * 0.10f, h * 0.10f, Path.Direction.CW);
+        c.save();
+        c.clipPath(clip);
+        stkSkyline(c, w * 0.05f, h * 0.93f, h * 0.05f, h, 0x2A000000);
+        c.restore();
+
+        // کاشی سه‌بعدی سمت راست
         int ts = tile.getWidth();
-        float tl = w - ts - h * 0.06f;
+        float tl = w - ts - h * 0.035f;
         float tt = (h - ts) / 2f;
         c.drawBitmap(tile, null, new RectF(tl, tt, tl + ts, tt + ts), new Paint(Paint.FILTER_BITMAP_FLAG));
 
-        float right = tl - h * 0.07f;
-        float left = h * 0.1f;
+        float right = tl - h * 0.03f;
+        float left = h * 0.09f;
         float maxW = right - left;
 
-        Paint p1 = stkText(0xFFFFFFFF, h * 0.15f, true);
-        p1.setTextAlign(Paint.Align.RIGHT);
-        p1.setShadowLayer(4, 0, 3, 0x88000000);
-        stkFit(p1, jalali, maxW);
-        c.drawText(jalali, right, h * 0.24f, p1);
-
-        Paint p2 = stkText(0xFFF3D98A, h * 0.095f, false);
-        p2.setTextAlign(Paint.Align.RIGHT);
-        stkFit(p2, hijri, maxW);
-        c.drawText(hijri, right, h * 0.40f, p2);
-
-        Paint p3 = stkText(0xCCFFFFFF, h * 0.088f, false);
-        p3.setTextAlign(Paint.Align.RIGHT);
-        stkFit(p3, greg, maxW);
-        c.drawText(greg, right, h * 0.54f, p3);
-
-        if (next != null && next.length() > 0) {
-            float pt = h * 0.61f, pb = h * 0.80f;
-            RectF pill = new RectF(left, pt, right, pb);
-            Paint pf = new Paint(Paint.ANTI_ALIAS_FLAG);
-            pf.setShader(new LinearGradient(0, pt, 0, pb, 0x40FFFFFF, 0x12FFFFFF, Shader.TileMode.CLAMP));
-            c.drawRoundRect(pill, (pb - pt) / 2f, (pb - pt) / 2f, pf);
-            Paint ps = new Paint(Paint.ANTI_ALIAS_FLAG);
-            ps.setStyle(Paint.Style.STROKE);
-            ps.setStrokeWidth(2.5f);
-            ps.setColor(0x99F3D98A);
-            c.drawRoundRect(pill, (pb - pt) / 2f, (pb - pt) / 2f, ps);
-            Paint pn = stkText(0xFFFFFFFF, h * 0.095f, true);
-            pn.setTextAlign(Paint.Align.RIGHT);
-            stkFit(pn, next, maxW - h * 0.12f);
-            c.drawText(next, right - h * 0.06f, pt + (pb - pt) / 2f + pn.getTextSize() * 0.34f, pn);
+        // نام برنامه (بخش بیرون پرانتز طلایی، بخش داخل پرانتز کوچک‌تر)
+        String main = brand == null ? "" : brand;
+        String sub = "";
+        int po = main.indexOf('(');
+        if (po > 0) {
+            int pc = main.indexOf(')', po);
+            sub = main.substring(po + 1, pc > po ? pc : main.length()).trim();
+            main = main.substring(0, po).trim();
+        }
+        Paint pb1 = stkText(STK_GOLD, h * 0.066f, true);
+        pb1.setTextAlign(Paint.Align.RIGHT);
+        stkFit(pb1, main, maxW);
+        c.drawText(main, right, h * 0.105f, pb1);
+        if (sub.length() > 0) {
+            Paint pb2 = stkText(0xB3FFFFFF, h * 0.045f, false);
+            pb2.setTextAlign(Paint.Align.RIGHT);
+            stkFit(pb2, sub, maxW);
+            c.drawText(sub, right, h * 0.165f, pb2);
         }
 
+        // تاریخ شمسی (درشت)، قمری (طلایی)، میلادی
+        Paint p1 = stkText(0xFFFFFFFF, h * 0.125f, true);
+        p1.setTextAlign(Paint.Align.RIGHT);
+        p1.setShadowLayer(5f, 0f, 3f, 0x99000000);
+        stkFit(p1, jalali, maxW);
+        c.drawText(jalali, right, h * 0.325f, p1);
+
+        Paint p2 = stkText(STK_GOLD, h * 0.07f, false);
+        p2.setTextAlign(Paint.Align.RIGHT);
+        stkFit(p2, hijri, maxW);
+        c.drawText(hijri, right, h * 0.435f, p2);
+
+        Paint p3 = stkText(0xCCFFFFFF, h * 0.062f, false);
+        p3.setTextAlign(Paint.Align.RIGHT);
+        stkFit(p3, greg, maxW);
+        c.drawText(greg, right, h * 0.515f, p3);
+
+        // قرص شیشه‌ای «اذان بعدی»
+        boolean hasNext = (nextName != null && nextName.length() > 0) || (next != null && next.length() > 0);
+        if (hasNext) {
+            float pt = h * 0.585f, pbm = h * 0.775f;
+            float pr = (pbm - pt) / 2f;
+            float cy = pt + pr;
+            RectF pill = new RectF(left, pt, right, pbm);
+            Paint pf = new Paint(Paint.ANTI_ALIAS_FLAG);
+            pf.setShader(new LinearGradient(0f, pt, 0f, pbm, 0x55FFFFFF, 0x14FFFFFF, Shader.TileMode.CLAMP));
+            pf.setShadowLayer(h * 0.02f, 0f, h * 0.012f, 0x66000000);
+            c.drawRoundRect(pill, pr, pr, pf);
+            Paint ps = new Paint(Paint.ANTI_ALIAS_FLAG);
+            ps.setStyle(Paint.Style.STROKE);
+            ps.setStrokeWidth(Math.max(2f, h * 0.006f));
+            ps.setColor(0xAAF3D98A);
+            c.drawRoundRect(pill, pr, pr, ps);
+
+            Paint dot = new Paint(Paint.ANTI_ALIAS_FLAG);
+            dot.setColor(STK_GOLD);
+            c.drawCircle(right - pr * 0.8f, cy, pr * 0.2f, dot);
+
+            String nm = (nextName != null && nextName.length() > 0) ? ("اذان بعدی: " + nextName) : next;
+            Paint pn = stkText(0xFFFFFFFF, h * 0.072f, true);
+            pn.setTextAlign(Paint.Align.RIGHT);
+            boolean hasTime = nextTime != null && nextTime.length() > 0;
+            stkFit(pn, nm, hasTime ? maxW * 0.58f : maxW - pr * 2.2f);
+            c.drawText(nm, right - pr * 1.25f, cy + pn.getTextSize() * 0.34f, pn);
+
+            if (hasTime) {
+                Paint pm = stkText(STK_GOLD, h * 0.092f, true);
+                pm.setShadowLayer(4f, 0f, 3f, 0x99000000);
+                stkFit(pm, nextTime, maxW * 0.3f);
+                c.drawText(nextTime, left + pr * 0.75f, cy + pm.getTextSize() * 0.34f, pm);
+            }
+        }
+
+        // دعا / متن مدیر پایین کارت
         if (dua != null && dua.length() > 0) {
-            Paint pd = stkText(0xFFF3D98A, h * 0.075f, false);
+            Paint ln = new Paint(Paint.ANTI_ALIAS_FLAG);
+            ln.setStrokeWidth(Math.max(2f, h * 0.004f));
+            ln.setShader(new LinearGradient(left, 0f, right, 0f, 0x00F3D98A, 0x99F3D98A, Shader.TileMode.CLAMP));
+            c.drawLine(left, h * 0.845f, right, h * 0.845f, ln);
+            Paint pd = stkText(STK_GOLD, h * 0.06f, false);
             pd.setTextAlign(Paint.Align.RIGHT);
             stkFit(pd, dua, maxW);
-            c.drawText(dua, right, h * 0.94f, pd);
+            c.drawText(dua, right, h * 0.915f, pd);
+        }
+        return bmp;
+    }
+
+    /** نوار باریک (حالت بسته‌شدهٔ نوتیفیکیشن): کاشی تاریخ + تاریخ‌ها + اذان بعدی */
+    private static Bitmap stkBar(int w, int h, Bitmap tile, String jalali, String hijri,
+                                 String next, String nextName, String nextTime) {
+        Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(bmp);
+        stkBackground(c, w, h, h * 0.28f, h * 0.55f);
+
+        int ts = tile.getWidth();
+        float tl = w - ts - h * 0.03f;
+        float tt = (h - ts) / 2f;
+        c.drawBitmap(tile, null, new RectF(tl, tt, tl + ts, tt + ts), new Paint(Paint.FILTER_BITMAP_FLAG));
+
+        float right = tl - h * 0.08f;
+        Paint p1 = stkText(0xFFFFFFFF, h * 0.30f, true);
+        p1.setTextAlign(Paint.Align.RIGHT);
+        p1.setShadowLayer(4f, 0f, 2f, 0x99000000);
+        stkFit(p1, jalali, w * 0.42f);
+        c.drawText(jalali, right, h * 0.47f, p1);
+
+        Paint p2 = stkText(STK_GOLD, h * 0.20f, false);
+        p2.setTextAlign(Paint.Align.RIGHT);
+        stkFit(p2, hijri, w * 0.42f);
+        c.drawText(hijri, right, h * 0.80f, p2);
+
+        float left = h * 0.30f;
+        boolean hasTime = nextTime != null && nextTime.length() > 0;
+        if (hasTime) {
+            String nm = (nextName != null && nextName.length() > 0) ? ("اذان بعدی: " + nextName) : "اذان بعدی";
+            Paint pn = stkText(0xE6FFFFFF, h * 0.19f, true);
+            stkFit(pn, nm, w * 0.30f);
+            c.drawText(nm, left, h * 0.36f, pn);
+            Paint pm = stkText(STK_GOLD, h * 0.40f, true);
+            pm.setShadowLayer(4f, 0f, 3f, 0x99000000);
+            stkFit(pm, nextTime, w * 0.30f);
+            c.drawText(nextTime, left, h * 0.80f, pm);
+        } else if (next != null && next.length() > 0) {
+            Paint pn = stkText(STK_GOLD, h * 0.22f, true);
+            stkFit(pn, next, w * 0.36f);
+            c.drawText(next, left, h * 0.60f, pn);
         }
         return bmp;
     }
@@ -852,6 +1052,7 @@ public class AppUpdaterPlugin extends Plugin {
     public void showSticky(PluginCall call) {
         try {
             Context ctx = getContext();
+            String pkg = ctx.getPackageName();
             String brand = call.getString("brand", "عارفان جام");
             String weekday = call.getString("weekday", "");
             String day = call.getString("day", "");
@@ -861,6 +1062,8 @@ public class AppUpdaterPlugin extends Plugin {
             String greg = call.getString("gregorian", "");
             String custom = call.getString("custom", "");
             String next = call.getString("next", "");
+            String nextName = call.getString("nextName", "");
+            String nextTime = call.getString("nextTime", "");
 
             NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
             if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(STK_CH) == null) {
@@ -870,16 +1073,11 @@ public class AppUpdaterPlugin extends Plugin {
                 nm.createNotificationChannel(ch);
             }
 
-            int cardH = 400;
-            Bitmap smallTile = stkTile(192, day, month, weekday);
-            Bitmap bigTile = stkTile((int) (cardH * 0.84f), day, month, weekday);
-            Bitmap card = stkCard(1024, cardH, bigTile, jalali, hijri, greg, next, custom);
-
-            Intent launch = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
+            Intent launch = ctx.getPackageManager().getLaunchIntentForPackage(pkg);
             int piFlags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0);
             PendingIntent pi = PendingIntent.getActivity(ctx, 0, launch, piFlags);
 
-            int small = ctx.getResources().getIdentifier("ic_stat_azan", "drawable", ctx.getPackageName());
+            int small = ctx.getResources().getIdentifier("ic_stat_azan", "drawable", pkg);
             if (small == 0) small = ctx.getApplicationInfo().icon;
 
             String line = next.length() > 0 ? next : (custom.length() > 0 ? custom : greg);
@@ -888,11 +1086,6 @@ public class AppUpdaterPlugin extends Plugin {
                 .setColor(0xFF143C36)
                 .setContentTitle(brand + " — " + jalali)
                 .setContentText(line)
-                .setLargeIcon(smallTile)
-                .setStyle(new NotificationCompat.BigPictureStyle()
-                    .bigPicture(card)
-                    .bigLargeIcon((Bitmap) null)
-                    .setSummaryText(line))
                 .setOngoing(true)
                 .setAutoCancel(false)
                 .setOnlyAlertOnce(true)
@@ -900,6 +1093,29 @@ public class AppUpdaterPlugin extends Plugin {
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setContentIntent(pi);
+
+            Bitmap card = stkCard(1080, 540, stkTile(420, day, month, weekday), brand, jalali, hijri, greg, next, nextName, nextTime, custom);
+
+            int layoutId = ctx.getResources().getIdentifier("sticky_card", "layout", pkg);
+            int imgId = ctx.getResources().getIdentifier("sticky_img", "id", pkg);
+            if (layoutId != 0 && imgId != 0) {
+                // همه‌چیز فقط یک تصویر است: نه عنوان و نه متن جداگانه
+                Bitmap bar = stkBar(1280, 160, stkTile(150, day, month, weekday), jalali, hijri, next, nextName, nextTime);
+                RemoteViews rvSmall = new RemoteViews(pkg, layoutId);
+                rvSmall.setImageViewBitmap(imgId, bar);
+                RemoteViews rvBig = new RemoteViews(pkg, layoutId);
+                rvBig.setImageViewBitmap(imgId, card);
+                b.setStyle(new NotificationCompat.DecoratedCustomViewStyle())
+                 .setCustomContentView(rvSmall)
+                 .setCustomBigContentView(rvBig);
+            } else {
+                // اگر فایل طرح (sticky_card.xml) داخل APK نبود: همان نمایش تصویریِ قبلی
+                b.setLargeIcon(stkTile(192, day, month, weekday))
+                 .setStyle(new NotificationCompat.BigPictureStyle()
+                    .bigPicture(card)
+                    .bigLargeIcon((Bitmap) null)
+                    .setSummaryText(line));
+            }
             nm.notify(STK_ID, b.build());
             call.resolve();
         } catch (Throwable t) {

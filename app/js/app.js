@@ -2223,6 +2223,8 @@ function updateStickyNotification(upcoming) {
         gregorian: cal.gregorian,
         custom: custom || '',
         next: upcoming ? 'اذان بعدی: ' + upcoming.label + ' — ساعت ' + formatTime(upcoming.time) : '',
+        nextName: upcoming ? String(upcoming.label) : '',
+        nextTime: upcoming ? formatTime(upcoming.time) : '',
       },
     });
     return;
