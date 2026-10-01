@@ -666,37 +666,56 @@
   }
 
   /* ===== پنل مخفی «تست اذان بومی» =====
-     با ۵ بار زدن پشت‌سرهم روی خط «نسخهٔ برنامه» (صفحهٔ بیشتر) باز می‌شود؛ کاربر عادی چیزی نمی‌بیند.
+     با ۵ بار زدن پشت‌سرهم روی خط «نسخهٔ برنامه» (صفحهٔ بیشتر) یک صفحهٔ تمام‌صفحه باز می‌شود؛ کاربر عادی چیزی نمی‌بیند.
      تست از همان مسیر اذان واقعی (آلارم ← سرویس ← صدا) رد می‌شود، فقط زمانش ۱ تا ۱۵ دقیقهٔ دیگر است. */
   function setupAzanTest(vl) {
-    var taps = 0, tapTs = 0, panel = null;
+    var taps = 0, tapTs = 0, overlay = null, out = null;
     vl.addEventListener('click', function () {
       var now = Date.now();
       taps = (now - tapTs < 1500) ? taps + 1 : 1;
       tapTs = now;
       if (taps < 5) return;
       taps = 0;
-      if (panel) { panel.style.display = panel.style.display === 'none' ? '' : 'none'; if (panel.style.display !== 'none') refresh(); return; }
-      build();
+      if (!overlay) build();
+      overlay.style.display = 'block';
+      refresh();
     });
 
-    var out = null;
-    function btn(label, fn) {
+    function btn(label, fn, strong) {
       var b = el('button', null, label);
       b.type = 'button';
-      b.style.cssText = 'margin:4px;padding:9px 12px;border-radius:12px;border:0;background:#143C36;color:#fff;font-size:13px;font-family:inherit;';
-      b.addEventListener('click', fn);
+      b.style.cssText = 'margin:4px;padding:11px 14px;border-radius:12px;border:0;font-size:14px;font-family:inherit;' +
+        (strong ? 'background:#C9A24D;color:#143C36;font-weight:700;' : 'background:#1f5a50;color:#fff;');
+      b.addEventListener('click', function () { try { fn(); } catch (e) { show('خطا: ' + e); } });
       return b;
     }
+    function show(t) { if (out) out.textContent = t; }
     function hhmmss(t) { try { return new Date(t).toLocaleTimeString('fa-IR'); } catch (e) { return String(t); } }
+    function errText(e) { try { return (e && e.message) ? e.message : (typeof e === 'string' ? e : JSON.stringify(e)); } catch (x) { return String(e); } }
+
+    // اطلاعات سمت وب؛ همیشه نشان داده می‌شود تا صفحه هرگز خالی نماند
+    function head(P) {
+      return ['نسخهٔ برنامه: ' + CURRENT,
+              'بخش بومی (AppUpdater): ' + (P ? '✅ هست' : '❌ پیدا نشد'),
+              'azanDiag: ' + (P ? typeof P.azanDiag : '-') + '  |  testAzan: ' + (P ? typeof P.testAzan : '-')].join('\n');
+    }
 
     function refresh() {
-      var P = AU();
-      if (!P || typeof P.azanDiag !== 'function') { out.textContent = 'این APK قدیمی است (بخش تست اذان ندارد). APK جدید را نصب کنید.'; return; }
-      P.azanDiag().then(function (d) {
-        var L = [];
+      var P = AU(), h = head(P);
+      show(h + '\n\n⏳ در حال دریافت گزارش…');
+      if (!P || typeof P.azanDiag !== 'function') { show(h + '\n\n❌ این APK قدیمی است (بخش تست اذان ندارد). APK جدید را نصب کنید.'); return; }
+      var done = false;
+      var timer = setTimeout(function () {
+        if (!done) show(h + '\n\n⚠️ تا ۵ ثانیه پاسخی از بخش بومی نیامد. احتمالاً APK نصب‌شده قدیمی است؛ آخرین APK را نصب کنید.');
+      }, 5000);
+      var pr;
+      try { pr = P.azanDiag(); } catch (e) { done = true; clearTimeout(timer); show(h + '\n\n❌ خطا: ' + errText(e)); return; }
+      Promise.resolve(pr).then(function (d) {
+        done = true; clearTimeout(timer);
+        d = d || {};
+        var L = [h, ''];
         L.push('اندروید (SDK): ' + d.sdk);
-        L.push('اذان بومی: ' + (d.enabled ? '✅ روشن' : '❌ خاموش') + ' — ' + fa(d.items) + ' وقت ذخیره‌شده');
+        L.push('اذان بومی: ' + (d.enabled ? '✅ روشن' : '❌ خاموش') + ' — ' + fa(d.items || 0) + ' وقت ذخیره‌شده');
         L.push('اذان بعدی: ' + (d.nextT ? ((d.nextLabel || '') + ' ساعت ' + hhmmss(d.nextT)) : '⚠️ هیچ وقتی ذخیره نشده (یک بار اپ را آنلاین باز کنید)'));
         L.push('فایل صدای ذخیره‌شده روی گوشی (برای آفلاین): ' + (d.fileKb > 0 ? ('✅ ' + fa(d.fileKb) + ' کیلوبایت') : '❌ ندارد — یک بار آنلاین باز کنید و ۳۰ ثانیه صبر کنید'));
         L.push('صدای داخل APK: ' + (d.bundled ? '✅ دارد' : 'ندارد'));
@@ -705,39 +724,52 @@
         L.push('');
         L.push('گزارش لحظه‌ای (از قدیم به جدید):');
         L.push(d.log ? d.log : '(هنوز چیزی ثبت نشده)');
-        out.textContent = L.join('\n');
-      }).catch(function (e) { out.textContent = 'خطا: ' + (e && e.message || e); });
+        show(L.join('\n'));
+      }).catch(function (e) {
+        done = true; clearTimeout(timer);
+        show(h + '\n\n❌ خطا از بخش بومی: ' + errText(e));
+      });
     }
 
     function test(sec) {
-      var P = AU();
-      if (!P || typeof P.testAzan !== 'function') { out.textContent = 'این APK قدیمی است؛ APK جدید را نصب کنید.'; return; }
-      P.testAzan({ seconds: sec }).then(function (r) {
-        out.textContent = '✅ تست ثبت شد؛ اذان آزمایشی ساعت ' + hhmmss(r.t) + ' پخش می‌شود.\n\n' +
+      var P = AU(), h = head(P);
+      if (!P || typeof P.testAzan !== 'function') { show(h + '\n\n❌ این APK قدیمی است؛ APK جدید را نصب کنید.'); return; }
+      show(h + '\n\n⏳ در حال ثبت تست…');
+      Promise.resolve(P.testAzan({ seconds: sec })).then(function (r) {
+        show('✅ تست ثبت شد؛ اذان آزمایشی ساعت ' + hhmmss(r && r.t) + ' پخش می‌شود.\n\n' +
           'حالا این کارها را انجام دهید:\n' +
           '۱) اینترنت (وای‌فای و دیتا) را قطع کنید یا حالت پرواز بزنید\n' +
           '۲) اپ را از لیست برنامه‌های اخیر کاملاً ببندید (Swipe)\n' +
           '۳) گوشی را قفل کنید و صبر کنید\n\n' +
-          'بعد از پخش (یا اگر پخش نشد)، اپ را باز کنید → ۵ بار روی خط نسخه بزنید → «گزارش» را بزنید.';
-      }).catch(function (e) { out.textContent = 'خطا: ' + (e && e.message || e); });
+          'بعد از پخش (یا اگر پخش نشد)، اپ را باز کنید ← ۵ بار روی خط نسخه بزنید ← «گزارش» را بزنید.');
+      }).catch(function (e) { show(h + '\n\n❌ خطا: ' + errText(e)); });
     }
 
     function build() {
-      panel = el('div');
-      panel.style.cssText = 'margin:10px 12px;padding:12px;border-radius:14px;background:rgba(20,60,54,.08);direction:rtl;text-align:right;';
-      panel.appendChild(el('div', null, '🔔 تست اذان بومی (آفلاین / قفل / اپ بسته)'));
-      panel.firstChild.style.cssText = 'font-weight:700;margin-bottom:6px;';
+      overlay = el('div');
+      overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:100000;background:#0f2e29;color:#fff;overflow:auto;' +
+        '-webkit-overflow-scrolling:touch;direction:rtl;text-align:right;font-family:inherit;' +
+        'padding:calc(env(safe-area-inset-top,0px) + 14px) 14px calc(env(safe-area-inset-bottom,0px) + 24px);';
+      var top = el('div');
+      top.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;';
+      var ttl = el('div', null, '🔔 تست اذان بومی (آفلاین / قفل / اپ بسته)');
+      ttl.style.cssText = 'font-weight:700;font-size:15px;';
+      top.appendChild(ttl);
+      top.appendChild(btn('✕ بستن', function () { overlay.style.display = 'none'; }));
+      overlay.appendChild(top);
       var row = el('div');
-      row.appendChild(btn('تست ۱ دقیقه دیگر', function () { test(60); }));
-      row.appendChild(btn('تست ۳ دقیقه دیگر', function () { test(180); }));
+      row.appendChild(btn('تست ۱ دقیقه دیگر', function () { test(60); }, true));
+      row.appendChild(btn('تست ۳ دقیقه دیگر', function () { test(180); }, true));
       row.appendChild(btn('گزارش', refresh));
-      row.appendChild(btn('توقف صدا', function () { var P = AU(); if (P && P.stopAzan) P.stopAzan().then(refresh).catch(log); }));
-      panel.appendChild(row);
-      out = el('pre');
-      out.style.cssText = 'white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.9;margin:8px 0 0;font-family:inherit;';
-      panel.appendChild(out);
-      vl.parentNode.insertBefore(panel, vl.nextSibling);
-      refresh();
+      row.appendChild(btn('توقف صدا', function () {
+        var P = AU();
+        if (P && typeof P.stopAzan === 'function') Promise.resolve(P.stopAzan()).then(refresh).catch(function (e) { show('❌ خطا: ' + errText(e)); });
+      }));
+      overlay.appendChild(row);
+      out = el('div');
+      out.style.cssText = 'white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:2;margin-top:10px;padding:12px;border-radius:12px;background:rgba(255,255,255,.08);color:#fff;min-height:120px;';
+      overlay.appendChild(out);
+      document.body.appendChild(overlay);
     }
   }
 
