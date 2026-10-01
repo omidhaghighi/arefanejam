@@ -694,6 +694,158 @@
     return true;
   }
 
+  /* ===== دکمهٔ «بروزرسانی» نوار بالا (🔄 بالا سمت چپ) =====
+     با هر بار زدن: اول نسخهٔ جدید APK از سایت پرسیده می‌شود؛ اگر بود پنجرهٔ «نسخهٔ جدید آماده است» می‌آید.
+     اگر APK جدید نبود، «بروزرسانی ظاهر اپ از سایت» بررسی و همان لحظه اعمال می‌شود. اگر هیچ‌کدام نبود: «برنامه به‌روز است». */
+  var manualBusy = false;
+  var manualRun = 0;
+
+  function setReloadBtnBusy(on) {
+    var b = document.getElementById('topbar-reload-btn');
+    if (!b) return;
+    b.disabled = !!on;
+    b.classList.toggle('spinning', !!on);
+  }
+
+  function withTimeout(promise, ms) {
+    return new Promise(function (resolve, reject) {
+      var t = setTimeout(function () { reject(new Error('timeout')); }, ms);
+      promise.then(function (v) { clearTimeout(t); resolve(v); }, function (e) { clearTimeout(t); reject(e); });
+    });
+  }
+
+  // اگر بررسی پس‌زمینهٔ ظاهر اپ همین الان مشغول است، چند ثانیه صبر می‌کنیم تا تمام شود
+  function waitWebIdle() {
+    return new Promise(function (resolve) {
+      var n = 0;
+      (function tick() {
+        if (!webBusy || n > 75) { resolve(); return; }
+        n++; setTimeout(tick, 400);
+      })();
+    });
+  }
+
+  // نتیجه: 'staged' (نسخهٔ جدید ظاهر آماده است) | 'none' (چیزی برای بروزرسانی نیست) | 'error'
+  function webManualCheck() {
+    var P = AU();
+    if (!P || typeof P.webStatus !== 'function' || typeof P.webSync !== 'function') return Promise.resolve('none');
+    return waitWebIdle().then(function () {
+      webBusy = true;
+      webLastCheck = Date.now();
+      var st = {};
+      return P.webStatus().then(function (s) {
+        st = s || {};
+        if (st.stagedId) return 'staged';
+        return withTimeout(webManifestFetch(), 15000).then(function (m) {
+          if (!m || !m.enabled || !m.id || !m.base || !m.files || !m.files.length) return 'none';
+          if (m.id === st.activeId) return 'none';
+          if (m.id === st.badId && Date.now() - (st.badTs || 0) < WEB_BAD_MS) return 'none';
+          return P.webSync({ id: m.id, base: m.base, files: m.files }).then(function () { return 'staged'; });
+        });
+      }).then(function (r) { webBusy = false; return r; }, function (e) { webBusy = false; log(e); return 'error'; });
+    });
+  }
+
+  function manualFinish(run) {
+    if (run !== manualRun) return;
+    manualBusy = false;
+    setReloadBtnBusy(false);
+  }
+
+  function manualUpdate() {
+    if (manualBusy || busyUpdating) return;
+    var run = ++manualRun;
+    manualBusy = true;
+    setReloadBtnBusy(true);
+
+    if (navigator.onLine === false) {
+      manualFinish(run);
+      render({
+        mode: 'error', icon: 'warn',
+        title: 'اینترنت وصل نیست',
+        message: 'برای بروزرسانی باید گوشی به اینترنت وصل باشد. اتصال را بررسی کنید و دوباره تلاش کنید.',
+        buttons: [{ label: 'باشه', primary: true }]
+      });
+      return;
+    }
+
+    render({
+      mode: 'progress', icon: 'arrow',
+      title: 'در حال بررسی بروزرسانی…',
+      message: 'لطفاً چند لحظه صبر کنید.',
+      buttons: [{ label: 'لغو', onClick: function () { if (run === manualRun) { manualRun++; manualBusy = false; setReloadBtnBusy(false); } } }]
+    });
+
+    var apiOk = true;
+    lastCheckTs = Date.now();
+    withTimeout(fetchInfo(), 15000).catch(function (e) { log(e); apiOk = false; return null; }).then(function (info) {
+      if (run !== manualRun) return;
+      var announced = !!(info && info.enabled && info.version && info.apk_url);
+      if (announced && isNewer(info.version, CURRENT)) {
+        // APK جدید هست: پنجرهٔ «نسخهٔ جدید آماده است» (با دکمهٔ بروزرسانی)
+        manualFinish(run);
+        offer(info);
+        return;
+      }
+      return webManualCheck().then(function (r) {
+        if (run !== manualRun) return;
+        if (r === 'staged') {
+          var P = AU();
+          render({
+            mode: 'progress', icon: 'check',
+            title: 'در حال بروزرسانی اپ…',
+            message: 'نسخهٔ جدید ظاهر اپ دانلود شد؛ در چند لحظه اپ دوباره باز می‌شود.'
+          });
+          setTimeout(function () {
+            if (!P || typeof P.webApply !== 'function') { manualFinish(run); closeModal(); return; }
+            P.webApply().then(function () {
+              // صفحه با نسخهٔ جدید دوباره بارگذاری می‌شود؛ اگر نشد، خودمان بارگذاری می‌کنیم
+              setTimeout(function () { try { location.reload(); } catch (e) {} }, 4000);
+            }).catch(function (e) {
+              log(e);
+              manualFinish(run);
+              render({
+                mode: 'error', icon: 'warn',
+                title: 'بروزرسانی کامل نشد',
+                message: 'نسخهٔ جدید اعمال نشد. دوباره تلاش کنید.',
+                buttons: [{ label: 'تلاش دوباره', primary: true, onClick: function () { manualUpdate(); } }, { label: 'بستن' }]
+              });
+            });
+          }, 700);
+          return;
+        }
+        manualFinish(run);
+        if (r === 'error' && !apiOk) {
+          render({
+            mode: 'error', icon: 'warn',
+            title: 'بررسی انجام نشد',
+            message: 'اتصال اینترنت را بررسی کنید و دوباره تلاش کنید.',
+            buttons: [{ label: 'تلاش دوباره', primary: true, onClick: function () { manualUpdate(); } }, { label: 'بستن' }]
+          });
+          return;
+        }
+        render({
+          mode: 'success', icon: 'check',
+          title: 'برنامه به‌روز است',
+          message: 'شما از آخرین نسخه استفاده می‌کنید.\nنسخهٔ شما: ' + CURRENT + (announced ? '   |   آخرین نسخهٔ سایت: ' + info.version : ''),
+          buttons: [{ label: 'باشه', primary: true }]
+        });
+      });
+    }).catch(function (e) {
+      log(e);
+      if (run !== manualRun) return;
+      manualFinish(run);
+      render({
+        mode: 'error', icon: 'warn',
+        title: 'بررسی انجام نشد',
+        message: 'اتصال اینترنت را بررسی کنید و دوباره تلاش کنید.',
+        buttons: [{ label: 'باشه', primary: true }]
+      });
+    });
+  }
+
+  window.NativeUpdate = { manual: manualUpdate };
+
   /* ===== پنل مخفی «تست اذان بومی» =====
      با ۵ بار زدن پشت‌سرهم روی خط «نسخهٔ برنامه» (صفحهٔ بیشتر) یک صفحهٔ تمام‌صفحه باز می‌شود؛ کاربر عادی چیزی نمی‌بیند.
      تست از همان مسیر اذان واقعی (آلارم ← سرویس ← صدا) رد می‌شود، فقط زمانش ۱ تا ۱۵ دقیقهٔ دیگر است. */
@@ -803,6 +955,8 @@
   }
 
   function wire() {
+    var rb = document.getElementById('topbar-reload-btn');
+    if (rb) rb.title = 'بروزرسانی';
     var tile = document.getElementById('app-update-tile');
     if (tile) {
       tile.classList.remove('hidden');

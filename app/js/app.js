@@ -711,6 +711,8 @@ updateOfflineBanner();
 
 /* ---------- بارگذاری مجدد دستی (دکمهٔ نوار بالا) + غیرفعال‌سازی کشیدن به پایین برای رفرش ---------- */
 function hardReloadApp() {
+  // داخل اپ اندروید: این دکمه «بروزرسانی» است (بررسی APK جدید و ظاهر جدید از سایت)؛ در مرورگر/PWA مثل قبل بارگذاری مجدد
+  if (window.NativeUpdate && typeof window.NativeUpdate.manual === 'function') { window.NativeUpdate.manual(); return; }
   const btn = document.getElementById('topbar-reload-btn');
   const overlay = document.getElementById('reload-overlay');
   if (btn) { btn.disabled = true; btn.classList.add('spinning'); }
@@ -2238,23 +2240,6 @@ function updateStickyNotification(upcoming) {
     });
     return;
   }
-
-  if (!('serviceWorker' in navigator) || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
-
-  navigator.serviceWorker.getRegistration('push-worker.js').then((reg) => {
-    if (!reg) return;
-    reg.showNotification(brand, {
-      body,
-      icon: s.logo_url || undefined,
-      badge: s.logo_url || undefined,
-      image: (s.sticky_info && s.sticky_info.banner_url) || undefined,
-      tag: 'arefanejam-sticky',
-      silent: true,
-      requireInteraction: true,
-      renotify: false,
-      data: { link: '' },
-    }).catch(() => {});
-  }).catch(() => {});
 }
 // هر بار اپ دوباره باز/جلو آمد، تاریخ (و متن) نوتیفیکیشن ثابت دوباره تازه می‌شود (مثلاً بعد از تغییر روز)
 document.addEventListener('visibilitychange', () => {
@@ -2573,8 +2558,6 @@ function setBgMode(on) {
     // کاربر خودش اذان را روشن کرد: اگر هنوز «بهینه‌سازی باتری» مانع است، درخواست مجوز (فقط در اپ اندروید)
     try { if (window.NativeAlarms && typeof window.NativeAlarms.requestBattery === 'function') window.NativeAlarms.requestBattery(true); } catch (e) {}
     ensureKeepAlive();
-    // اجازهٔ اعلان هم برای هشدار یدکی لازم است
-    if (typeof Notification !== 'undefined' && Notification.permission === 'default') { try { Notification.requestPermission(); } catch (e) {} }
   } else {
     stopKeepAlive();
   }
@@ -2592,7 +2575,6 @@ function setBgMode(on) {
     }
   } catch (e) {}
   ensureKeepAlive();
-  if (typeof Notification !== 'undefined' && Notification.permission === 'default') { try { Notification.requestPermission(); } catch (e) {} }
   // مرورگر بدون لمس ممکن است اجازهٔ پخش ندهد؛ با اولین لمس/کلید ادامه می‌دهیم
   ['pointerdown', 'touchstart', 'click', 'keydown'].forEach((ev) => document.addEventListener(ev, ensureKeepAlive, { passive: true }));
   // هر بار که اپ دوباره دیده شد/برگشت/از حالت انجماد درآمد/اینترنت آمد
@@ -5749,92 +5731,6 @@ document.querySelector('[data-goto="charity"]').addEventListener('click', () => 
     codeStep.classList.remove('hidden');
   });
 })();
-
-/* ---------- نوتیفیکیشن واقعی (Web Push) ---------- */
-function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = atob(base64);
-  return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
-}
-
-const pushToggle = document.getElementById('push-notif-toggle');
-const pushStatusEl = document.getElementById('push-notif-status');
-
-async function checkPushSubscriptionStatus() {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-    pushStatusEl.textContent = 'مرورگر شما از نوتیفیکیشن پشتیبانی نمی‌کند.';
-    pushToggle.disabled = true;
-    return;
-  }
-  try {
-    const reg = await navigator.serviceWorker.getRegistration('push-worker.js');
-    const sub = reg && await reg.pushManager.getSubscription();
-    pushToggle.checked = !!sub;
-  } catch (e) { /* ignore */ }
-}
-
-async function enablePushNotifications() {
-  pushStatusEl.textContent = 'در حال فعال‌سازی...';
-  try {
-    const permission = await Notification.requestPermission();
-    if (permission !== 'granted') {
-      pushStatusEl.textContent = 'اجازه داده نشد. از تنظیمات مرورگر/گوشی، دسترسی اعلان را برای این سایت فعال کنید.';
-      pushToggle.checked = false;
-      return;
-    }
-    const reg = await navigator.serviceWorker.register('push-worker.js');
-    reg.update().catch(() => {}); // چک فوری برای نسخهٔ تازه‌تر سرویس‌ورکر، به‌جای صبر تا ۲۴ ساعت بعد
-    await navigator.serviceWorker.ready;
-    const { key } = await apiFetch('/vapid-public-key');
-    if (!key) { pushStatusEl.textContent = 'سرور هنوز کلید نوتیفیکیشن را آماده نکرده؛ چند دقیقه دیگر دوباره امتحان کنید.'; pushToggle.checked = false; return; }
-    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(key) });
-    const device_id = await ensureDeviceId();
-    await apiFetch('/push-subscribe', { method: 'POST', body: JSON.stringify(Object.assign(sub.toJSON(), { device_id })) });
-    pushStatusEl.textContent = 'نوتیفیکیشن فعال شد ✓';
-    lastStickyBody = ''; // اجازه بده نوتیفیکیشن ثابت بلافاصله با اجازهٔ تازه نمایش داده شود
-    updateStickyNotification(null);
-    if (state.coords) computePrayerTimes();
-  } catch (e) {
-    pushStatusEl.textContent = 'فعال‌سازی ناموفق بود. دوباره امتحان کنید.';
-    pushToggle.checked = false;
-  }
-}
-
-async function disablePushNotifications() {
-  try {
-    const reg = await navigator.serviceWorker.getRegistration('push-worker.js');
-    const sub = reg && await reg.pushManager.getSubscription();
-    if (sub) await sub.unsubscribe();
-  } catch (e) { /* ignore */ }
-  pushStatusEl.textContent = 'نوتیفیکیشن غیرفعال شد.';
-}
-
-pushToggle.addEventListener('change', (e) => {
-  if (e.target.checked) enablePushNotifications();
-  else disablePushNotifications();
-});
-checkPushSubscriptionStatus();
-
-/* ---------- درخواست اولیهٔ نوتیفیکیشن (اولین باز کردن اپ) ---------- */
-function maybeShowOnboardingPushPrompt() {
-  if (localStorage.getItem('arefanejam_push_prompted')) return;
-  if (!('PushManager' in window) || !('serviceWorker' in navigator)) return;
-  if (Notification.permission !== 'default') { localStorage.setItem('arefanejam_push_prompted', '1'); return; }
-  setTimeout(() => {
-    document.getElementById('onboarding-push-modal').classList.remove('hidden');
-  }, 1200);
-}
-document.getElementById('onboarding-push-yes-btn').addEventListener('click', async () => {
-  localStorage.setItem('arefanejam_push_prompted', '1');
-  document.getElementById('onboarding-push-modal').classList.add('hidden');
-  await enablePushNotifications();
-});
-document.getElementById('onboarding-push-later-btn').addEventListener('click', () => {
-  localStorage.setItem('arefanejam_push_prompted', '1');
-  document.getElementById('onboarding-push-modal').classList.add('hidden');
-});
-maybeShowOnboardingPushPrompt();
 
 /* ---------- اخبار ---------- */
 let newsCache = [];
