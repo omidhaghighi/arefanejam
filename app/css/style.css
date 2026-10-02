@@ -2831,3 +2831,18 @@ body.dark-mode .qs-medinan { background: #12363A; color: #8FD6CC; }
   .qp-menu { animation: none; }
   .qp-menu-toggle, .qp-menu-item, .qp-menu-go { transition: none; }
 }
+
+/* ===== پنجرهٔ عمومی مکاتب (دکمهٔ دوم): تمام‌صفحه + اسلایدر زیر عکس ===== */
+#mokatib-public-btn2-popup { align-items: stretch; background: var(--card-bg); backdrop-filter: none; animation: none; }
+#mokatib-public-btn2-popup .modal-box.mokatib-btn2-box {
+  max-width: none; width: 100%; height: 100%; max-height: none;
+  border-radius: 0; box-shadow: none; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  display: flex; flex-direction: column;
+  padding: max(22px, env(safe-area-inset-top)) 16px max(18px, env(safe-area-inset-bottom));
+}
+#mokatib-public-btn2-popup .modal-box.mokatib-btn2-box::before { display: none; }
+#mokatib-public-btn2-popup .modal-actions { margin-top: auto !important; padding-top: 16px; }
+#mokatib-public-btn2-popup .img-viewer-stage { height: 52vh; max-height: 560px; }
+.mokatib-detail-slider { margin: 4px 0 14px; }
+.mokatib-detail-slider .mokatib-slider { height: 200px; user-select: none; -webkit-user-select: none; }
+.mokatib-detail-slider .mokatib-slide img { -webkit-user-drag: none; }

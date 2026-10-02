@@ -5180,8 +5180,46 @@ function hijriToApproxGregorian(hy, hm, hd) {
   const year = 100 * b + d2 - 4800 + Math.floor(m / 10);
   return [year, month, day];
 }
-function renderRamadanCountdown() {
+/* تاریخ دستی شروع و پایان رمضان (از پیشخوان سایت). فقط اگر هر دو درست و معتبر باشند برمی‌گردد؛ وگرنه null و محاسبهٔ تقریبی قبلی استفاده می‌شود. */
+function ramadanCustomRange(r) {
+  if (!r) return null;
+  const parse = (v) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v || ''));
+    return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
+  };
+  const start = parse(r.start_date);
+  const end = parse(r.end_date);
+  if (!start || !end || end < start) return null;
+  const total = Math.round((end - start) / 86400000) + 1;
+  if (total < 1 || total > 31) return null;
+  return { start, end, total };
+}
+function ramadanFaDate(d) {
+  const [jy, jm, jd] = gregorianToJalali(d.getFullYear(), d.getMonth() + 1, d.getDate());
+  const names = ['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
+  return toPersianDigits(jd) + ' ' + names[jm - 1] + ' ' + toPersianDigits(jy);
+}
+function renderRamadanCountdown(r) {
   const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const daysEl = document.getElementById('ramadan-days-left');
+  const labelEl = document.getElementById('ramadan-date-label');
+  const duaEl = document.getElementById('ramadan-dua-text');
+  const custom = ramadanCustomRange(r);
+  if (custom && today <= custom.end) {
+    if (today < custom.start) {
+      const daysLeft = Math.round((custom.start - today) / 86400000);
+      daysEl.textContent = toPersianDigits(daysLeft) + ' روز';
+      labelEl.textContent = 'شروع ماه رمضان: ' + ramadanFaDate(custom.start);
+      duaEl.classList.toggle('hidden', daysLeft > 30);
+    } else {
+      const dayNo = Math.round((today - custom.start) / 86400000) + 1;
+      daysEl.textContent = 'روز ' + toPersianDigits(dayNo) + ' از ' + toPersianDigits(custom.total);
+      labelEl.textContent = 'ماه رمضان تا ' + ramadanFaDate(custom.end) + ' ادامه دارد';
+      duaEl.classList.add('hidden');
+    }
+    return;
+  }
   const [hy] = islamicFromJulianDay(julianDayFromGregorian(now.getFullYear(), now.getMonth() + 1, now.getDate()));
   let targetHy = hy;
   let [gy, gm, gd] = hijriToApproxGregorian(targetHy, 9, 1);
@@ -5192,10 +5230,9 @@ function renderRamadanCountdown() {
     target = new Date(gy, gm - 1, gd);
   }
   const daysLeft = Math.ceil((target - now) / 86400000);
-  document.getElementById('ramadan-days-left').textContent = toPersianDigits(daysLeft) + ' روز';
-  document.getElementById('ramadan-date-label').textContent =
+  daysEl.textContent = toPersianDigits(daysLeft) + ' روز';
+  labelEl.textContent =
     'تخمین شروع رمضان ' + toPersianDigits(targetHy) + ' — تاریخ دقیق بر اساس رؤیت هلال اعلام می‌شود';
-  const duaEl = document.getElementById('ramadan-dua-text');
   duaEl.classList.toggle('hidden', daysLeft > 30);
 }
 /* تعداد روزهای ماه رمضان در سال قمری hy (۲۹ یا ۳۰ روز) */
@@ -5406,9 +5443,10 @@ recitationAudio.addEventListener('play', () => { document.getElementById('mini-p
 
 /* ---------- رمضان: شمارش + برنامه ویژه ---------- */
 async function loadRamadanPage() {
-  renderRamadanCountdown();
+  renderRamadanCountdown(null);
   try {
     const r = await apiFetch('/ramadan');
+    renderRamadanCountdown(r);
     renderRamadanContent(r);
   } catch (e) { /* ignore */ }
 }
@@ -5440,8 +5478,21 @@ function renderRamadanContent(r) {
   specialBlock.innerHTML = '';
   if (r.active === '1') {
     const now = new Date();
-    const [hy, hm, hd] = islamicFromJulianDay(julianDayFromGregorian(now.getFullYear(), now.getMonth() + 1, now.getDate()));
-    const totalRamadanDays = ramadanTotalDays(hy);
+    let [hy, hm, hd] = islamicFromJulianDay(julianDayFromGregorian(now.getFullYear(), now.getMonth() + 1, now.getDate()));
+    let totalRamadanDays = ramadanTotalDays(hy);
+    /* اگر تاریخ شروع و پایان رمضان از پیشخوان تعیین شده باشد، همان ملاک است */
+    const custom = ramadanCustomRange(r);
+    if (custom) {
+      const today0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      totalRamadanDays = custom.total;
+      if (today0 >= custom.start && today0 <= custom.end) {
+        hm = 9;
+        hd = Math.round((today0 - custom.start) / 86400000) + 1;
+      } else {
+        hm = 0;
+        hd = 0;
+      }
+    }
     const days = r.days || {};
     let dayLabel = 'برنامهٔ ویژهٔ رمضان (فعال)';
     if (hm === 9) {
@@ -6823,6 +6874,52 @@ const mokatibBtn1ImageViewer = setupImageViewer(document.getElementById('mokatib
 const mokatibBtn2ImageViewer = setupImageViewer(document.getElementById('mokatib-btn2-detail-imgwrap'));
 let mokatibBtn2Path = [];
 
+/* اسلایدر عکس‌های هر مورد (زیر عکس اصلی در پنجرهٔ تمام‌صفحهٔ مکاتب)؛ اسلاید خودکار، نقطه‌ها و کشیدن با انگشت */
+let mokatibDetailSliderTimer = null;
+function clearMokatibDetailSlider() {
+  if (mokatibDetailSliderTimer) { clearInterval(mokatibDetailSliderTimer); mokatibDetailSliderTimer = null; }
+  const holder = document.getElementById('mokatib-btn2-detail-slider');
+  if (holder) { holder.classList.add('hidden'); holder.innerHTML = ''; }
+}
+function renderMokatibDetailSlider(urls) {
+  clearMokatibDetailSlider();
+  const holder = document.getElementById('mokatib-btn2-detail-slider');
+  const list = (urls || []).map((u) => secureUrl(u)).filter(Boolean);
+  if (!holder || !list.length) return;
+  const slidesHtml = list.map((u) => `<div class="mokatib-slide"><img src="${u}" alt="" draggable="false"></div>`).join('');
+  const dotsHtml = list.length > 1
+    ? `<div class="mokatib-slider-dots">${list.map((_, i) => `<span class="mokatib-slider-dot${i === 0 ? ' active' : ''}"></span>`).join('')}</div>`
+    : '';
+  holder.innerHTML = `<div class="mokatib-slider"><div class="mokatib-slider-track">${slidesHtml}</div></div>${dotsHtml}`;
+  holder.classList.remove('hidden');
+  if (list.length <= 1) return;
+  const slider = holder.querySelector('.mokatib-slider');
+  const track = holder.querySelector('.mokatib-slider-track');
+  const dots = holder.querySelectorAll('.mokatib-slider-dot');
+  const count = list.length;
+  let idx = 0;
+  function goTo(i) {
+    idx = ((i % count) + count) % count;
+    track.style.transform = `translateX(-${idx * 100}%)`;
+    dots.forEach((d, di) => d.classList.toggle('active', di === idx));
+  }
+  function restart() {
+    if (mokatibDetailSliderTimer) clearInterval(mokatibDetailSliderTimer);
+    mokatibDetailSliderTimer = setInterval(() => goTo(idx + 1), 4500);
+  }
+  dots.forEach((d, di) => d.addEventListener('click', () => { goTo(di); restart(); }));
+  let sx = null, sy = null;
+  slider.addEventListener('touchstart', (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+  slider.addEventListener('touchend', (e) => {
+    if (sx === null) return;
+    const dx = e.changedTouches[0].clientX - sx;
+    const dy = e.changedTouches[0].clientY - sy;
+    sx = null; sy = null;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) { goTo(dx < 0 ? idx + 1 : idx - 1); restart(); }
+  }, { passive: true });
+  restart();
+}
+
 function renderMokatibBtn2View() {
   const parentId = mokatibBtn2Path.length ? mokatibBtn2Path[mokatibBtn2Path.length - 1] : null;
   const mosques = mokatibState.publicMosques || [];
@@ -6832,6 +6929,7 @@ function renderMokatibBtn2View() {
   if (parentId !== null) {
     const m = mosques.find((x) => Number(x.id) === Number(parentId));
     if (m) {
+      renderMokatibDetailSlider(m.slides);
       detailBlock.classList.remove('hidden');
       document.getElementById('mokatib-btn2-detail-name').textContent = m.name;
       document.getElementById('mokatib-btn2-detail-info').textContent = m.imam_name ? 'امام: ' + m.imam_name : '';
@@ -6847,6 +6945,7 @@ function renderMokatibBtn2View() {
       }
     }
   } else {
+    clearMokatibDetailSlider();
     detailBlock.classList.add('hidden');
   }
 
@@ -6890,6 +6989,7 @@ function undoMokatibBtn2Step() {
   renderMokatibBtn2View();
 }
 function closeMokatibBtn2Popup() {
+  clearMokatibDetailSlider();
   exitImageViewerFullscreen(document.getElementById('mokatib-btn2-detail-imgwrap'));
   document.getElementById('mokatib-public-btn2-popup').classList.add('hidden');
 }
