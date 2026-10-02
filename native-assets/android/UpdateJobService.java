@@ -1,5 +1,8 @@
 package com.arefanejam.quran;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.app.job.JobInfo;
 import android.app.job.JobParameters;
 import android.app.job.JobScheduler;
@@ -20,6 +23,7 @@ import android.net.NetworkInfo;
 import android.net.NetworkRequest;
 import android.os.Build;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
@@ -47,6 +51,9 @@ public class UpdateJobService extends JobService {
 
     static final int JOB_PERIODIC = 4801;
     static final int JOB_KICK = 4802;
+    static final int JOB_NEWS = 4803;   // خبرهای امروز: هر بار که اینترنت وصل شود (حداکثر هر ۱۵ دقیقه یک بار)
+    static final long NEWS_PERIOD_MS = 15L * 60L * 1000L;
+    static final String NEWS_CH = "arefanejam_news_today";
     static final String PREFS = "arefanejam_bg_update";
     static final String DEFAULT_API = "https://arefanejam.com/wp-json/arefanejam/v1";
     static final long PERIOD_MS = 6L * 3600L * 1000L;
@@ -203,6 +210,9 @@ public class UpdateJobService extends JobService {
             if (!isPending(js, JOB_PERIODIC)) {
                 js.schedule(builder(JOB_PERIODIC, cn).setPeriodic(PERIOD_MS).setPersisted(true).build());
             }
+            if (!isPending(js, JOB_NEWS)) {
+                js.schedule(builder(JOB_NEWS, cn).setPeriodic(NEWS_PERIOD_MS).setPersisted(true).build());
+            }
             long last = prefs(app).getLong("last_run", 0);
             if (System.currentTimeMillis() - last > KICK_EVERY_MS && !isPending(js, JOB_KICK)) {
                 js.schedule(builder(JOB_KICK, cn).setPersisted(true).build());
@@ -225,7 +235,15 @@ public class UpdateJobService extends JobService {
                 boolean retry = false;
                 Context ctx = getApplicationContext();
                 try {
-                    retry = doUpdate(ctx);
+                    if (params.getJobId() == JOB_NEWS) {
+                        // کار «خبرهای امروز»: فقط خبر را بررسی می‌کند، به دانلود بروزرسانی کاری ندارد
+                        try { checkTodayNews(ctx); } catch (IOException ignoreNet) { /* بدون اینترنت/سایت در دسترس نیست: بی‌صدا رد می‌شود */ } catch (Throwable t) { log(ctx, "news error: " + t); }
+                        retry = false;
+                    } else {
+                        retry = doUpdate(ctx);
+                        // هر بار که کار بروزرسانی هم اجرا می‌شود، خبرها هم یک‌بار نگاه می‌شود (بی‌ضرر؛ تکراری اعلان نمی‌دهد)
+                        try { checkTodayNews(ctx); } catch (IOException ignoreNet) { /* بدون اینترنت/سایت در دسترس نیست: بی‌صدا رد می‌شود */ } catch (Throwable t) { log(ctx, "news error: " + t); }
+                    }
                 } catch (Throwable t) {
                     log(ctx, "error: " + t);
                     retry = true;
@@ -279,6 +297,113 @@ public class UpdateJobService extends JobService {
         boolean again = download(ctx, sp, apkUrl, version);
         if (!again && version.equals(readyVersion(ctx))) maybeInstall(ctx, sp, version);
         return again;
+    }
+
+    /* ------------------------------ خبرهای امروز ------------------------------ */
+
+    /**
+     * به محض اینکه اینترنت وصل شود (حتی اگر اپ بسته باشد)، اگر امروز در سایت خبر تازه‌ای منتشر شده باشد
+     * یک اعلان با صدا نشان می‌دهد. هر خبر فقط یک بار اعلام می‌شود؛ فردا فهرست از نو شروع می‌شود.
+     * اگر در پیشخوان «هشدار اخبار امروز» خاموش باشد (enabled=false) هیچ کاری نمی‌کند.
+     */
+    private static final Object NEWS_LOCK = new Object();
+
+    static void checkTodayNews(Context ctx) throws Exception {
+        synchronized (NEWS_LOCK) {
+            if (!online(ctx)) return;
+            SharedPreferences sp = prefs(ctx);
+
+            String api = sp.getString("api", DEFAULT_API);
+            if (api == null || !api.startsWith("http")) api = DEFAULT_API;
+            while (api.endsWith("/")) api = api.substring(0, api.length() - 1);
+
+            JSONObject info = new JSONObject(httpText(api + "/news-today?t=" + System.currentTimeMillis()));
+            if (!info.optBoolean("enabled", false)) return;
+            String date = info.optString("date", "");
+            JSONArray items = info.optJSONArray("items");
+            if (date.length() == 0 || items == null || items.length() == 0) return;
+
+            // فهرست خبرهایی که امروز قبلاً اعلام شده‌اند (با عوض شدن روز پاک می‌شود)
+            String sentDate = sp.getString("news_date", "");
+            String sent = date.equals(sentDate) ? sp.getString("news_sent", "") : "";
+            java.util.HashSet<String> done = new java.util.HashSet<String>();
+            if (sent.length() > 0) for (String x : sent.split(",")) done.add(x);
+
+            java.util.ArrayList<String> titles = new java.util.ArrayList<String>();
+            java.util.ArrayList<String> newIds = new java.util.ArrayList<String>();
+            for (int i = 0; i < items.length(); i++) {
+                JSONObject it = items.optJSONObject(i);
+                if (it == null) continue;
+                String id = String.valueOf(it.optInt("id", 0));
+                if ("0".equals(id) || done.contains(id)) continue;
+                String t = it.optString("title", "").trim();
+                if (t.length() == 0) continue;
+                titles.add(t);
+                newIds.add(id);
+            }
+            if (titles.isEmpty()) return;
+
+            if (!showNewsNotification(ctx, titles)) return; // اعلان ممکن نبود (مثلاً اجازهٔ اعلان نیست): بعداً دوباره تلاش می‌شود
+
+            StringBuilder sb = new StringBuilder(sent);
+            for (String id : newIds) { if (sb.length() > 0) sb.append(','); sb.append(id); }
+            sp.edit().putString("news_date", date).putString("news_sent", sb.toString()).apply();
+            log(ctx, "news alarm shown: " + titles.size() + " item(s)");
+        }
+    }
+
+    private static boolean showNewsNotification(Context ctx, java.util.List<String> titles) {
+        try {
+            if (!androidx.core.app.NotificationManagerCompat.from(ctx).areNotificationsEnabled()) {
+                log(ctx, "news: notifications are not allowed - waits");
+                return false;
+            }
+            NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return false;
+            if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(NEWS_CH) == null) {
+                NotificationChannel ch = new NotificationChannel(NEWS_CH, "اخبار امروز", NotificationManager.IMPORTANCE_DEFAULT);
+                ch.setDescription("خبرهای امروز سایت عارفان جام");
+                nm.createNotificationChannel(ch);
+            }
+            int n = titles.size();
+            String title = n == 1 ? "خبر امروز عارفان جام" : ("امروز " + n + " خبر تازه در سایت منتشر شده");
+            StringBuilder body = new StringBuilder();
+            for (int i = 0; i < Math.min(n, 5); i++) {
+                if (i > 0) body.append("\n");
+                body.append("• ").append(titles.get(i));
+            }
+            if (n > 5) body.append("\n… و ").append(n - 5).append(" خبر دیگر");
+            String firstLine = titles.get(0);
+
+            Intent open = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
+            PendingIntent pi = null;
+            if (open != null) {
+                open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                int fl = PendingIntent.FLAG_UPDATE_CURRENT;
+                if (Build.VERSION.SDK_INT >= 23) fl |= PendingIntent.FLAG_IMMUTABLE;
+                pi = PendingIntent.getActivity(ctx, 4803, open, fl);
+            }
+            int icon = ctx.getResources().getIdentifier("ic_stat_azan", "drawable", ctx.getPackageName());
+            if (icon == 0) icon = android.R.drawable.ic_dialog_info;
+
+            androidx.core.app.NotificationCompat.Builder b = new androidx.core.app.NotificationCompat.Builder(ctx, NEWS_CH)
+                    .setSmallIcon(icon)
+                    .setContentTitle(title)
+                    .setContentText(n == 1 ? firstLine : ("• " + firstLine))
+                    .setStyle(new androidx.core.app.NotificationCompat.BigTextStyle().bigText(body.toString()))
+                    .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
+                    .setCategory(androidx.core.app.NotificationCompat.CATEGORY_MESSAGE)
+                    .setDefaults(Notification.DEFAULT_SOUND | Notification.DEFAULT_VIBRATE)
+                    .setColor(0xFF143C36)
+                    .setAutoCancel(true);
+            if (pi != null) b.setContentIntent(pi);
+            // یک اعلان ثابت برای «خبرهای امروز»: اگر خبر تازه‌تری بیاید همین را به‌روز می‌کند، اعلان‌ها روی هم انبار نمی‌شوند
+            nm.notify(4803, b.build());
+            return true;
+        } catch (Throwable t) {
+            log(ctx, "news notification error: " + t);
+            return false;
+        }
     }
 
     /* ------------------------------ silent install ------------------------------ */

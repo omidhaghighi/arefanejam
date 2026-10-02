@@ -2846,3 +2846,30 @@ body.dark-mode .qs-medinan { background: #12363A; color: #8FD6CC; }
 .mokatib-detail-slider { margin: 4px 0 14px; }
 .mokatib-detail-slider .mokatib-slider { height: 200px; user-select: none; -webkit-user-select: none; }
 .mokatib-detail-slider .mokatib-slide img { -webkit-user-drag: none; }
+
+/* ---------- جشن عید فطر (آتش‌بازی + تبریک) ---------- */
+.eid-overlay {
+  position: fixed; inset: 0; z-index: 100001; display: flex; align-items: center; justify-content: center;
+  padding: calc(24px + env(safe-area-inset-top, 0px)) 24px calc(24px + env(safe-area-inset-bottom, 0px));
+  background: radial-gradient(ellipse at 50% 30%, rgba(20,60,54,0.93), rgba(4,14,12,0.97));
+  animation: eidFade 0.5s ease both;
+}
+.eid-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.eid-card {
+  position: relative; z-index: 1; width: 100%; max-width: 340px; text-align: center; color: #fff;
+  padding: 26px 22px 22px; border-radius: 22px;
+  background: linear-gradient(160deg, rgba(20,60,54,0.88), rgba(10,30,27,0.88));
+  border: 1px solid rgba(217,189,135,0.55);
+  box-shadow: 0 10px 40px rgba(0,0,0,0.5), 0 0 30px rgba(217,189,135,0.25);
+  animation: eidPop 0.7s cubic-bezier(0.2, 1.3, 0.4, 1) both;
+}
+.eid-moon { font-size: 54px; line-height: 1; filter: drop-shadow(0 0 14px rgba(255,220,130,0.8)); animation: eidFloat 3s ease-in-out infinite; }
+.eid-title { margin: 12px 0 8px; font-size: 22px; font-weight: 800; line-height: 1.7; color: var(--gold-light, #D9BD87); }
+.eid-text { margin: 0 0 18px; font-size: 15px; line-height: 2; white-space: pre-line; color: #f4efe2; }
+.eid-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.eid-btn { border: 0; border-radius: 14px; padding: 10px 20px; font-size: 14px; font-weight: 700; cursor: pointer; background: var(--gold, #B08D4E); color: #2A1F0E; }
+.eid-btn[hidden] { display: none; }
+.eid-btn.eid-close { background: rgba(255,255,255,0.14); color: #fff; border: 1px solid rgba(255,255,255,0.3); }
+@keyframes eidFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes eidPop { from { opacity: 0; transform: scale(0.7) translateY(20px); } to { opacity: 1; transform: none; } }
+@keyframes eidFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }

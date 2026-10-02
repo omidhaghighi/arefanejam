@@ -5541,6 +5541,218 @@ function renderRamadanContent(r) {
     if (todayRow) todayRow.scrollIntoView({ block: 'nearest' });
   }
 }
+/* ---------- جشن عید فطر: آتش‌بازی + پیام تبریک + فایل صوتی ----------
+ * روز عید فطر = «یک روز بعد از تاریخ پایان ماه رمضان» که مدیر در پیشخوان (رمضان ویژه) تعیین کرده است.
+ * متن تبریک و فایل صوتی هم از همان صفحه می‌آید (eid_enabled / eid_title / eid_text / eid_audio_url / eid_repeat).
+ * فایل صوتی از چند روز قبل در گوشی ذخیره می‌شود تا در روز عید بدون اینترنت هم پخش شود. */
+const EID_AUDIO_CACHE_NAME = 'arefanejam-eid-audio-v1';
+const EID_SHOWN_KEY = 'arefanejam_eid_shown';
+let eidState = null;
+
+function eidTodayKey(r) {
+  const custom = ramadanCustomRange(r);
+  if (!custom) return '';
+  const eid = new Date(custom.end.getFullYear(), custom.end.getMonth(), custom.end.getDate() + 1);
+  const n = new Date();
+  const today = new Date(n.getFullYear(), n.getMonth(), n.getDate());
+  if (today.getTime() !== eid.getTime()) return '';
+  return eid.getFullYear() + '-' + String(eid.getMonth() + 1).padStart(2, '0') + '-' + String(eid.getDate()).padStart(2, '0');
+}
+
+async function eidPrefetchAudio(url) {
+  if (!url || !window.caches || !navigator.onLine) return;
+  try {
+    const cache = await caches.open(EID_AUDIO_CACHE_NAME);
+    if (await cache.match(url)) return;
+    const res = await fetch(url + (url.indexOf('?') > -1 ? '&' : '?') + '_=' + Date.now());
+    if (res.status !== 200) return;
+    const blob = await res.blob();
+    if (!blob.size) return;
+    await cache.put(url, new Response(blob, { status: 200, headers: { 'Content-Type': res.headers.get('Content-Type') || 'audio/mpeg' } }));
+    const keep = new URL(url, location.href).href;
+    const keys = await cache.keys();
+    for (const k of keys) { if (k.url !== keep) await cache.delete(k); }
+  } catch (e) { /* مهم نیست؛ در روز عید مستقیم از اینترنت پخش می‌شود */ }
+}
+
+async function eidMakeAudio(url) {
+  let src = url;
+  let blobUrl = '';
+  try {
+    if (window.caches) {
+      const cache = await caches.open(EID_AUDIO_CACHE_NAME);
+      const hit = await cache.match(url);
+      if (hit) {
+        const b = await hit.blob();
+        blobUrl = URL.createObjectURL(b);
+        src = blobUrl;
+      }
+    }
+  } catch (e) {}
+  const a = new Audio();
+  a.preload = 'auto';
+  a.src = src;
+  return { audio: a, blobUrl };
+}
+
+/* آتش‌بازی: موشک از پایین بالا می‌رود و به صورت گلِ رنگی منفجر می‌شود */
+function eidStartFireworks(canvas) {
+  const ctx = canvas.getContext('2d');
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let w = 0, h = 0, raf = 0, timer = 0, last = 0, stopped = false;
+  const rockets = [], sparks = [];
+  function resize() {
+    w = window.innerWidth; h = window.innerHeight;
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  resize();
+  window.addEventListener('resize', resize);
+  function launch() {
+    rockets.push({
+      x: w * (0.12 + Math.random() * 0.76), y: h + 8,
+      vx: (Math.random() - 0.5) * 1.2,
+      v: h * 0.0115 + Math.random() * h * 0.004,
+      ty: h * (0.12 + Math.random() * 0.34),
+      hue: Math.floor(Math.random() * 360),
+    });
+  }
+  function explode(x, y, hue) {
+    const ring = Math.random() < 0.4;
+    const n = ring ? 54 : 70 + Math.floor(Math.random() * 30);
+    const power = 3 + Math.random() * 2.2;
+    const gold = Math.random() < 0.3;
+    for (let i = 0; i < n; i++) {
+      const ang = ring ? (i / n) * Math.PI * 2 : Math.random() * Math.PI * 2;
+      const sp = ring ? power : power * (0.25 + Math.random() * 0.85);
+      sparks.push({
+        x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp,
+        life: 1, decay: 0.008 + Math.random() * 0.01,
+        hue: gold ? 42 + Math.random() * 10 : hue + (Math.random() - 0.5) * 30,
+        sat: gold ? 95 : 100, light: gold ? 62 : 58, size: 1.4 + Math.random() * 1.6,
+      });
+    }
+    if (sparks.length > 1100) sparks.splice(0, sparks.length - 1100);
+  }
+  function frame(t) {
+    if (stopped) return;
+    const dt = Math.min((t - (last || t)) / 16.67, 3);
+    last = t;
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.fillRect(0, 0, w, h);
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = rockets.length - 1; i >= 0; i--) {
+      const r = rockets[i];
+      r.x += r.vx * dt; r.y -= r.v * dt; r.v *= Math.pow(0.992, dt);
+      sparks.push({ x: r.x, y: r.y, vx: (Math.random() - 0.5) * 0.4, vy: 0.6, life: 0.7, decay: 0.05, hue: 40, sat: 90, light: 70, size: 1.6 });
+      if (r.y <= r.ty || r.v < 2) { explode(r.x, r.y, r.hue); rockets.splice(i, 1); }
+    }
+    for (let i = sparks.length - 1; i >= 0; i--) {
+      const s = sparks[i];
+      s.vx *= Math.pow(0.985, dt); s.vy = s.vy * Math.pow(0.985, dt) + 0.045 * dt;
+      s.x += s.vx * dt; s.y += s.vy * dt; s.life -= s.decay * dt;
+      if (s.life <= 0) { sparks.splice(i, 1); continue; }
+      ctx.fillStyle = 'hsla(' + s.hue + ',' + s.sat + '%,' + s.light + '%,' + s.life.toFixed(2) + ')';
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.size * (0.5 + s.life * 0.5), 0, 6.2832); ctx.fill();
+    }
+    raf = requestAnimationFrame(frame);
+  }
+  function loop() {
+    if (stopped) return;
+    const k = 1 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < k; i++) setTimeout(launch, i * 180);
+    timer = setTimeout(loop, 600 + Math.random() * 700);
+  }
+  for (let i = 0; i < 4; i++) setTimeout(launch, i * 250);
+  timer = setTimeout(loop, 1200);
+  raf = requestAnimationFrame(frame);
+  return function stop() {
+    stopped = true;
+    cancelAnimationFrame(raf); clearTimeout(timer);
+    window.removeEventListener('resize', resize);
+  };
+}
+
+function closeEidDirect() {
+  const st = eidState;
+  if (!st) return;
+  eidState = null;
+  try { st.stopFx(); } catch (e) {}
+  try { if (st.audio) { st.audio.pause(); st.audio.removeAttribute('src'); st.audio.load(); } } catch (e) {}
+  try { if (st.blobUrl) URL.revokeObjectURL(st.blobUrl); } catch (e) {}
+  try { st.el.remove(); } catch (e) {}
+}
+
+function showEidCelebration(r, key, audioUrl) {
+  if (eidState) return;
+  try { localStorage.setItem(EID_SHOWN_KEY, key); } catch (e) {}
+  const el = document.createElement('div');
+  el.className = 'eid-overlay';
+  el.setAttribute('dir', 'rtl');
+  el.innerHTML = '<canvas class="eid-canvas"></canvas>' +
+    '<div class="eid-card">' +
+    '<div class="eid-moon">🌙</div>' +
+    '<h2 class="eid-title"></h2>' +
+    '<p class="eid-text"></p>' +
+    '<div class="eid-actions"><button type="button" class="eid-btn eid-sound" hidden></button>' +
+    '<button type="button" class="eid-btn eid-close">بستن</button></div>' +
+    '</div>';
+  el.querySelector('.eid-title').textContent = r.eid_title || 'عید سعید فطر مبارک 🌙';
+  el.querySelector('.eid-text').textContent = r.eid_text || 'عید سعید فطر بر شما مبارک باد.\nطاعات و عبادات شما قبول درگاه حق.';
+  document.body.appendChild(el);
+  const st = { el, audio: null, blobUrl: '', stopFx: eidStartFireworks(el.querySelector('.eid-canvas')) };
+  eidState = st;
+  pushOverlay('eid', closeEidDirect);
+  el.querySelector('.eid-close').addEventListener('click', () => overlayGo('eid', 0, closeEidDirect));
+
+  if (!audioUrl) return;
+  const btn = el.querySelector('.eid-sound');
+  const setLabel = () => { btn.textContent = (st.audio && !st.audio.paused && !st.audio.ended) ? '🔇 قطع صدا' : '🔊 پخش صدا'; };
+  const tryPlay = () => {
+    if (!st.audio) return;
+    try { if (st.audio.ended) st.audio.currentTime = 0; } catch (e) {}
+    const p = st.audio.play();
+    if (p && p.then) p.then(setLabel).catch(setLabel); else setLabel();
+  };
+  eidMakeAudio(audioUrl).then((o) => {
+    if (eidState !== st) { try { if (o.blobUrl) URL.revokeObjectURL(o.blobUrl); } catch (e) {} return; }
+    st.audio = o.audio; st.blobUrl = o.blobUrl;
+    ['play', 'pause', 'ended'].forEach((ev) => st.audio.addEventListener(ev, setLabel));
+    btn.hidden = false;
+    setLabel();
+    tryPlay(); // اگر اندروید پخش خودکار را نپذیرفت، با لمس دکمه یا لمس صفحه پخش می‌شود
+  });
+  btn.addEventListener('click', () => {
+    if (!st.audio) return;
+    if (!st.audio.paused && !st.audio.ended) st.audio.pause(); else tryPlay();
+  });
+  let touched = false;
+  el.addEventListener('pointerdown', (e) => {
+    if (touched || e.target.closest('.eid-btn')) return;
+    touched = true;
+    if (st.audio && st.audio.paused && !st.audio.ended && st.audio.currentTime === 0) tryPlay();
+  });
+}
+
+async function checkEidCelebration(opts) {
+  opts = opts || {};
+  if (eidState) return;
+  try {
+    const r = await apiFetch('/ramadan');
+    if (!r || r.eid_enabled !== '1') return;
+    const audioUrl = normalizeAzanUrl(r.eid_audio_url || '');
+    if (audioUrl) eidPrefetchAudio(audioUrl);
+    const key = eidTodayKey(r);
+    if (!key) return;
+    let last = '';
+    try { last = localStorage.getItem(EID_SHOWN_KEY) || ''; } catch (e) {}
+    const repeat = r.eid_repeat === '1' && !opts.resume;
+    if (last === key && !repeat) return;
+    showEidCelebration(r, key, audioUrl);
+  } catch (e) { /* بدون اینترنت و بدون نسخهٔ ذخیره‌شده: چیزی نشان داده نمی‌شود */ }
+}
+
 /* ---------- جلسه خیرین ---------- */
 // این بخش باید بدون اینترنت هم دیده شود؛ پس هر بار که اطلاعاتش با موفقیت از سایت گرفته شد
 // در گوشی ذخیره می‌شود (متن‌ها در localStorage و تصاویر در کش مخصوص) و وقتی اینترنت نبود
@@ -7383,6 +7595,8 @@ loadDailyDeedsItems().then(checkDeedsPopupDue);
 loadCharitySettings();
 loadShariqSettings();
 loadNotes();
+setTimeout(checkEidCelebration, 2500);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkEidCelebration({ resume: true }); });
 
 if ('serviceWorker' in navigator) {
   // فقط سرویس‌ورکرهای قدیمیِ غیرمرتبط با نوتیفیکیشن پاک می‌شوند
@@ -7397,7 +7611,7 @@ if ('serviceWorker' in navigator) {
     // کش‌های «پخش آفلاین اذان» و «پوستهٔ اصلی اپ» حذف نشوند؛ قبلاً این خط با هر بار
     // باز شدن اپ همهٔ کش‌ها را پاک می‌کرد و در نتیجه چیزی برای کارکرد آفلاین باقی نمی‌ماند.
     caches.keys().then((keys) => keys.forEach((k) => {
-      if (k !== AZAN_OFFLINE_CACHE_NAME && k !== APP_SHELL_CACHE_NAME && k !== QURAN_AUDIO_CACHE_NAME && k !== ANNOUNCEMENT_AUDIO_CACHE_NAME && k !== CHARITY_MEDIA_CACHE_NAME && k !== SITE_MEDIA_CACHE_NAME) caches.delete(k);
+      if (k !== AZAN_OFFLINE_CACHE_NAME && k !== APP_SHELL_CACHE_NAME && k !== QURAN_AUDIO_CACHE_NAME && k !== ANNOUNCEMENT_AUDIO_CACHE_NAME && k !== CHARITY_MEDIA_CACHE_NAME && k !== SITE_MEDIA_CACHE_NAME && k !== EID_AUDIO_CACHE_NAME) caches.delete(k);
     }));
   }
 }

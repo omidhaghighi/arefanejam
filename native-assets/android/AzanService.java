@@ -5,8 +5,10 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.ServiceInfo;
 import android.content.res.AssetFileDescriptor;
 import android.media.AudioAttributes;
@@ -16,6 +18,8 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
+import android.os.SystemClock;
+import android.provider.Settings;
 
 import androidx.core.app.NotificationCompat;
 
@@ -32,6 +36,13 @@ public class AzanService extends Service {
     static final String CH = "azan-native-v1";
     static final int NID = 777000002;
     static final String ACTION_STOP = "com.arefanejam.quran.AZAN_STOP";
+
+    // pressing the phone's power button while the azan plays stops the azan
+    // (the button always produces a SCREEN_OFF if the screen was on, or a SCREEN_ON if it was off)
+    private static final long POWER_GUARD_MS = 2500L;   // ignore screen changes right after the azan starts
+    private BroadcastReceiver screenReceiver;
+    private long azanStartedAt;
+    private long screenOnAt;
 
     private MediaPlayer player;
     private PowerManager.WakeLock wakeLock;
@@ -77,7 +88,60 @@ public class AzanService extends Service {
             }
         } catch (Throwable ignore) { }
         playSound();
+        registerPowerButtonStop();
         return START_NOT_STICKY;
+    }
+
+    /**
+     * Stop the azan when the user presses the power button.
+     * - screen was off (locked phone): button -> SCREEN_ON  -> stop
+     * - screen was on:                 button -> SCREEN_OFF -> stop
+     * A SCREEN_OFF that comes from the normal screen timeout (screen stayed on for the whole timeout) is ignored,
+     * and so is any screen change in the first moments after the azan starts.
+     */
+    private void registerPowerButtonStop() {
+        if (screenReceiver != null) return;
+        try {
+            azanStartedAt = SystemClock.elapsedRealtime();
+            screenOnAt = azanStartedAt;
+            screenReceiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context c, Intent i) {
+                    String a = i == null ? null : i.getAction();
+                    if (a == null) return;
+                    long now = SystemClock.elapsedRealtime();
+                    if (Intent.ACTION_SCREEN_ON.equals(a)) {
+                        screenOnAt = now;
+                        if (now - azanStartedAt < POWER_GUARD_MS) return;
+                        AzanReceiver.logEvent(AzanService.this, "power button/screen on -> azan stopped");
+                        stopSelf();
+                    } else if (Intent.ACTION_SCREEN_OFF.equals(a)) {
+                        if (now - azanStartedAt < POWER_GUARD_MS) return;
+                        long timeout = 30000L;
+                        try {
+                            timeout = Settings.System.getInt(getContentResolver(), Settings.System.SCREEN_OFF_TIMEOUT, 30000);
+                        } catch (Throwable ignore) { }
+                        if (timeout > 0 && now - screenOnAt >= timeout - 2000L) {
+                            AzanReceiver.logEvent(AzanService.this, "screen off by timeout -> azan keeps playing");
+                            return;
+                        }
+                        AzanReceiver.logEvent(AzanService.this, "power button/screen off -> azan stopped");
+                        stopSelf();
+                    }
+                }
+            };
+            IntentFilter f = new IntentFilter();
+            f.addAction(Intent.ACTION_SCREEN_ON);
+            f.addAction(Intent.ACTION_SCREEN_OFF);
+            if (Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(screenReceiver, f, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                registerReceiver(screenReceiver, f);
+            }
+        } catch (Throwable t) {
+            screenReceiver = null;
+            AzanReceiver.logEvent(this, "power button stop: could not register (" + t + ")");
+        }
     }
 
     private Notification buildNotification(String label) {
@@ -208,6 +272,10 @@ public class AzanService extends Service {
 
     @Override
     public void onDestroy() {
+        try {
+            if (screenReceiver != null) unregisterReceiver(screenReceiver);
+        } catch (Throwable ignore) { }
+        screenReceiver = null;
         releasePlayer();
         try {
             if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
