@@ -181,8 +181,20 @@ function toPersianDigits(str) {
 function formatTime(date) {
   return toPersianDigits(date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }));
 }
+// آدرس عکس‌ها را https می‌کند (اپ روی https اجرا می‌شود و عکس http توسط وب‌ویو بلاک می‌شود)
+function secureUrl(u) {
+  if (!u || typeof u !== 'string') return u || '';
+  return u.replace(/^http:\/\//i, 'https://');
+}
+// پاسخ‌های API از کش HTTP گوشی نیایند تا تغییرات پیشخوان به همه برسد.
+// settings / charity / food-items عمداً بدون پارامتر اضافه می‌مانند چون سرویس‌ورکر برای حالت آفلاین با همین آدرس کش می‌کند.
 function apiFetch(path, options = {}) {
   const headers = Object.assign({ 'Content-Type': 'application/json' }, options.headers || {});
+  const isGet = !options.method || String(options.method).toUpperCase() === 'GET';
+  if (isGet && !options.cache) options = Object.assign({}, options, { cache: 'no-store' });
+  if (isGet && !/^\/(settings|charity|food-items)(\?|$)/.test(path)) {
+    path += (path.indexOf('?') === -1 ? '?' : '&') + '_t=' + Date.now();
+  }
   return fetch(state.apiUrl.replace(/\/$/, '') + path, Object.assign({}, options, { headers }))
     .then(async (res) => {
       const data = await res.json().catch(() => ({}));
@@ -6500,7 +6512,7 @@ const mokatibState = {
 async function loadMokatibIcon() {
   try {
     const { icon } = await apiFetch('/mokatib/icon');
-    if (icon) document.getElementById('mokatib-tile-badge').innerHTML = `<img src="${icon}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
+    if (icon) document.getElementById('mokatib-tile-badge').innerHTML = `<img src="${secureUrl(icon)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
   } catch (e) { /* ignore */ }
 }
 loadMokatibIcon();
@@ -6575,7 +6587,7 @@ document.getElementById('mokatib-public-btn1').addEventListener('click', () => {
   const wrapEl = document.getElementById('mokatib-public-btn1-popup-imgwrap');
   const textEl = document.getElementById('mokatib-public-btn1-popup-text');
   if (popup.image) {
-    imgEl.src = popup.image;
+    imgEl.src = secureUrl(popup.image);
     wrapEl.style.display = 'block';
     if (mokatibBtn1ImageViewer) mokatibBtn1ImageViewer.reset();
   } else {
@@ -6748,7 +6760,7 @@ function renderMokatibBtn2View() {
       const imgEl = document.getElementById('mokatib-btn2-detail-img');
       const wrapEl = document.getElementById('mokatib-btn2-detail-imgwrap');
       if (m.image_url) {
-        imgEl.src = m.image_url;
+        imgEl.src = secureUrl(m.image_url);
         wrapEl.style.display = 'block';
         if (mokatibBtn2ImageViewer) mokatibBtn2ImageViewer.reset();
       } else {
@@ -6825,6 +6837,12 @@ const MOKATIB_PUBLIC_CACHE_KEY = 'arefanejam_mokatib_public_cache';
 function applyMokatibPublicData(data) {
   document.getElementById('mokatib-public-head-name').textContent = (data.head && data.head.name) || 'دفتر مرکزی امور مکاتب';
   document.getElementById('mokatib-public-head-desc').textContent = (data.head && data.head.desc) || '';
+  const pubChart = document.getElementById('mokatib-public-chart-img');
+  if (pubChart) {
+    const chartUrl = secureUrl(data.head && data.head.chart);
+    if (chartUrl) { pubChart.src = chartUrl; pubChart.style.display = 'block'; }
+    else { pubChart.removeAttribute('src'); pubChart.style.display = 'none'; }
+  }
 
   const btns = data.public_buttons || {};
   const textEl = document.getElementById('mokatib-public-buttons-text');
@@ -6922,6 +6940,11 @@ function renderFamilyTreeLevel(parentId, isRootLevel) {
 function mokatibFetch(path, options = {}) {
   const headers = Object.assign({ 'Content-Type': 'application/json' }, options.headers || {});
   if (mokatibState.token) headers['X-Mokatib-Token'] = mokatibState.token;
+  const isGet = !options.method || String(options.method).toUpperCase() === 'GET';
+  if (isGet) {
+    options = Object.assign({}, options, { cache: 'no-store' });
+    path += (path.indexOf('?') === -1 ? '?' : '&') + '_t=' + Date.now();
+  }
   return fetch(state.apiUrl.replace(/\/$/, '') + path, Object.assign({}, options, { headers }))
     .then(async (res) => {
       const data = await res.json().catch(() => ({}));
@@ -6956,7 +6979,7 @@ async function loadMokatibHome() {
     document.getElementById('mokatib-head-name').textContent = head.name || 'دفتر مرکزی امور مکاتب';
     document.getElementById('mokatib-head-desc').textContent = head.desc || '';
     const chartImg = document.getElementById('mokatib-chart-img');
-    if (head.chart) { chartImg.src = head.chart; chartImg.style.display = 'block'; }
+    if (head.chart) { chartImg.src = secureUrl(head.chart); chartImg.style.display = 'block'; }
     mokatibState.allMosques = await mokatibFetch('/mokatib/mosques');
     renderMokatibTree(null, 'mokatib-tree-list');
   } catch (e) {

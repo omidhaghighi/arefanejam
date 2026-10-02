@@ -129,3 +129,19 @@
 - `build-apk.yml`، کلید امضا، `native-assets/` و `capacitor.config.json` تغییری نکردند.
 - باقی‌مانده برای مراحل بعد (هنوز دست نخورده): سرویس‌ورکر `app/push-worker.js` و کش‌های آفلاین مرتبط با آن (باید اول بررسی شود که پخش آفلاین قرآن/اذان داخل اپ به آن وابسته نیست)،
   تابع `showAzanFallbackNotification`، و سمت افزونه (`class-push.php`، تنظیمات PWABuilder/assetlinks، `/arefanejam-manifest.json`).
+
+
+## محتوای پیشخوان باید برای همهٔ گوشی‌ها برسد (مرحلهٔ ۱)
+- علت «چارت سازمانی فقط برای مدیر دیده می‌شود»: عکس چارت فقط در مسیر `/mokatib/head` بود که نیاز به توکن ناظر دارد. حالا در `/mokatib/public-tree` (عمومی) هم هست و در صفحهٔ عمومی مکاتب (`mokatib-public-chart-img` در `index.html`) نمایش داده می‌شود.
+- پاسخ GET همهٔ مسیرهای افزونه (`/arefanejam/v1/...`) هدر «بدون کش» می‌گیرد (`Arefanejam_Rest_Api::no_store_headers`). در اپ، `apiFetch` با `cache:'no-store'` می‌پرسد و برای مسیرهای غیر از `settings/charity/food-items` پارامتر زمان هم اضافه می‌کند (آن سه عمداً بدون پارامتر می‌مانند چون سرویس‌ورکر برای آفلاین با همان آدرس کش می‌کند).
+- آدرس عکس‌های مکاتب در اپ با `secureUrl` به https تبدیل می‌شود (عکس http در اپ اندروید بلاک می‌شود).
+- `AzanReceiver.downloadAsync`: اگر وسط یک دانلود، آدرس صدای اذان عوض شد، آدرس جدید فراموش نمی‌شود و بعد از پایان دانلود قبلی دانلود می‌شود. (کد بومی؛ برای اثر، APK جدید لازم است.)
+- `build-apk.yml`، کلید امضا (`debug.keystore`) و `capacitor.config.json` دست‌نخورده‌اند.
+
+## دانلود بروزرسانی در پس‌زمینه، فقط با اینترنت (مرحلهٔ ۲)
+- فایل جدید `native-assets/android/UpdateJobService.java` (JobScheduler، بدون وابستگی تازه): هر حدود ۶ ساعت و هر بار که اینترنت وصل شود، حتی با اپ بسته، از `/app-update` می‌پرسد. اگر «بروزرسانی خودکار» در پیشخوان روشن و نسخه جدیدتر بود، APK را در `cache/updates/arefanejam.apk` (همان فایل بروزرسانی داخل اپ) دانلود می‌کند.
+- فقط دانلود می‌کند؛ نصب مثل قبل با اپ است (نصب بی‌صدا هنگام خروج کاربر از اپ). دانلود نیمه‌کاره با `Range` ادامه پیدا می‌کند و فایل کامل قبل از «آماده» شدن با `getPackageArchiveInfo` بررسی می‌شود (نام بسته درست و نسخه جدیدتر).
+- بدون اینترنت هیچ کاری نمی‌کند؛ `AppUpdaterPlugin.download` هم بدون اینترنت `offline` برمی‌گرداند و در `native-bridge.js` این حالت «شکست» حساب نمی‌شود.
+- `status()` حالا `bgReady/bgJob/bgLog/online` برمی‌گرداند؛ `bgConfig({api})` آدرس سایت را به کار پس‌زمینه می‌دهد. کار در `MainActivity.onCreate` و بعد از بوت/بروزرسانی اپ (`AzanReceiver`) دوباره چیده می‌شود.
+- **تغییر در `build-apk.yml`**: مرحلهٔ جدید «Native background update download» (کپی فایل، مجوز ACCESS_NETWORK_STATE، ثبت `UpdateJobService` در مانیفست) و اضافه‌شدن فایل جدید به فهرست «Check project files». مرحله‌های امضا و `debug.keystore` دست‌نخورده‌اند.
+- اثر کامل فقط با APK جدید است (کد بومی). فایل جدید باید روی گیت‌هاب هم آپلود شود.

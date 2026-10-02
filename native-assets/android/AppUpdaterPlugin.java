@@ -84,6 +84,10 @@ public class AppUpdaterPlugin extends Plugin {
             call.reject("busy");
             return;
         }
+        if (!UpdateJobService.online(getContext())) {
+            call.reject("offline");
+            return;
+        }
         loaded = 0;
         total = 0;
         error = "";
@@ -338,7 +342,30 @@ public class AppUpdaterPlugin extends Plugin {
         r.put("installer", inst);
         r.put("selfInstaller", self);
         r.put("silentLikely", Build.VERSION.SDK_INT >= 31 && can && self);
+        // دانلود پس‌زمینه: نسخه‌ای که خود سیستم (بدون باز بودن اپ) دانلود کرده و آمادهٔ نصب است
+        r.put("bgReady", UpdateJobService.readyVersion(ctx));
+        r.put("bgJob", UpdateJobService.hasJob(ctx));
+        r.put("bgLog", UpdateJobService.prefs(ctx).getString("log", ""));
+        r.put("online", UpdateJobService.online(ctx));
         call.resolve(r);
+    }
+
+    /** آدرس API سایت را برای کار پس‌زمینه ذخیره می‌کند و کار دانلود را (اگر نبود) می‌چیند. */
+    @PluginMethod
+    public void bgConfig(PluginCall call) {
+        try {
+            Context ctx = getContext().getApplicationContext();
+            String api = call.getString("api", "");
+            if (api != null && api.startsWith("http")) {
+                UpdateJobService.prefs(ctx).edit().putString("api", api).apply();
+            }
+            UpdateJobService.schedule(ctx);
+            JSObject r = new JSObject();
+            r.put("job", UpdateJobService.hasJob(ctx));
+            call.resolve(r);
+        } catch (Throwable t) {
+            call.reject("bgConfig: " + t);
+        }
     }
 
 

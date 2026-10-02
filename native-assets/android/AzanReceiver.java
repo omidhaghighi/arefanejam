@@ -74,6 +74,8 @@ public class AzanReceiver extends BroadcastReceiver {
         } catch (Throwable ignore) { }
         // in every case (fire / boot / app update / time change) arm the next alarm
         try { arm(ctx); } catch (Throwable ignore) { }
+        // jobs are wiped by an app update: put the background update download job back
+        try { UpdateJobService.schedule(ctx); } catch (Throwable ignore) { }
     }
 
     /** Small on-phone diagnostic log (last 20 lines), shown in the hidden test panel. */
@@ -293,13 +295,14 @@ public class AzanReceiver extends BroadcastReceiver {
     }
 
     private static volatile boolean downloading = false;
+    private static volatile String pendingUrl = null;
 
     /** Downloads the azan audio (if we do not have it yet) in a background thread. Silent on failure. */
     static void downloadAsync(final Context appCtx, final String url) {
         if (url == null || !(url.startsWith("https://") || url.startsWith("http://"))) return;
         final File target = fileForUrl(appCtx, url);
         if (target.isFile() && target.length() > 2000) return;
-        if (downloading) return;
+        if (downloading) { pendingUrl = url; return; } // a download is running: remember the newest url, retry after it
         downloading = true;
         new Thread(new Runnable() {
             @Override
@@ -366,6 +369,9 @@ public class AzanReceiver extends BroadcastReceiver {
                     try { if (out != null) out.close(); } catch (Throwable ignore) { }
                     try { if (c != null) c.disconnect(); } catch (Throwable ignore) { }
                     downloading = false;
+                    String next = pendingUrl;
+                    pendingUrl = null;
+                    if (next != null && !next.equals(url)) downloadAsync(appCtx, next);
                 }
             }
         }).start();

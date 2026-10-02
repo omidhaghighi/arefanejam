@@ -501,8 +501,9 @@
 
     P.status().then(function (st) {
       stInfo = st || {};
-      var ready = stInfo.hasApk && lsGet(READY_KEY) === String(info.version);
+      var ready = stInfo.hasApk && (lsGet(READY_KEY) === String(info.version) || String(stInfo.bgReady || '') === String(info.version));
       if (ready) return;
+      if (navigator.onLine === false || stInfo.online === false) { throw new Error('offline'); }
       return P.download({ url: info.apk_url }).then(function () {
         stopPoll();
         lsSet(READY_KEY, String(info.version));
@@ -514,6 +515,7 @@
       stopPoll();
       hideToast();
       autoBusy = false;
+      if (String((e && (e.message || e)) || '').indexOf('offline') !== -1) return; // بدون اینترنت: شکست حساب نمی‌شود، با برگشتن اینترنت دوباره امتحان می‌شود
       addFail(info.version);
     });
   }
@@ -591,6 +593,7 @@
       var m = String((e && (e.message || e)) || '');
       if (m.indexOf('cancelled') !== -1) { busyUpdating = false; stopPoll(); closeModal(); return; }
       log(e);
+      if (String((e && (e.message || e)) || '').indexOf('offline') !== -1) { showError(info, 'اینترنت وصل نیست. بعد از اتصال دوباره تلاش کنید.'); return; }
       showError(info, 'دانلود انجام نشد. اتصال اینترنت را بررسی کنید و دوباره تلاش کنید.');
     });
   }
@@ -978,11 +981,16 @@
           else if (!s.canInstall) why = '⚠️ اجازهٔ نصب از این منبع داده نشده';
           else if (!s.selfInstaller) why = '⚠️ با اولین بروزرسانی از داخل اپ فعال می‌شود';
           vl.textContent += '  |  نصب بی‌صدا: ' + why;
+          vl.textContent += '  |  دانلود پس‌زمینه: ' + (s.bgJob ? '✅ فعال' : '⚠️ غیرفعال') + (s.bgReady ? (' (نسخهٔ ' + s.bgReady + ' آماده است)') : '');
         }).catch(function () {});
       } catch (e) {}
       showWebLine();
       setupAzanTest(vl);
     }
+    // آدرس سایت را به بخش بومی می‌دهیم تا دانلود پس‌زمینه (حتی با اپ بسته) از همان سایت بپرسد
+    try { var PB = AU(); if (PB && typeof PB.bgConfig === 'function') PB.bgConfig({ api: apiBase() }).catch(function () {}); } catch (eb) {}
+    // با برگشتن اینترنت، بدون منتظر ماندن برای زمان‌سنج، بررسی می‌شود
+    window.addEventListener('online', function () { setTimeout(function () { check(false); }, 2500); });
     watchBoot();
     var done = showDoneIfUpdated();
     // بررسی خودکار چند ثانیه بعد از باز شدن اپ (اگر آنلاین باشد)

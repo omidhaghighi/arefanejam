@@ -14,6 +14,8 @@ public class MainActivity extends BridgeActivity {
         // بروزرسانی ظاهر اپ از سایت: قبل از بالا آمدن Capacitor نسخهٔ آماده فعال یا نسخهٔ خراب برگردانده می‌شود
         AppUpdaterPlugin.webBoot(this);
         super.onCreate(savedInstanceState);
+        // دانلود بروزرسانی در پس‌زمینه (فقط با اینترنت، حتی وقتی اپ بسته است)
+        UpdateJobService.schedule(this);
     }
 
     @Override
