@@ -112,6 +112,14 @@ jobs:
           grep -q "UpdateJobService" "$M" || { echo "ERROR: update job service was not added to manifest"; exit 1; }
           cat "$M"
 
+      - name: Deep link for the dashboard azan test (arefanejam://azan-test)
+        run: |
+          M=android/app/src/main/AndroidManifest.xml
+          # یک intent-filter تازه داخل اولین activity (MainActivity) اضافه می‌شود؛ فیلتر اصلی LAUNCHER دست‌نخورده می‌ماند
+          sed -i '0,/<\/activity>/s#</activity>#            <intent-filter>\n                <action android:name="android.intent.action.VIEW" />\n                <category android:name="android.intent.category.DEFAULT" />\n                <category android:name="android.intent.category.BROWSABLE" />\n                <data android:scheme="arefanejam" android:host="azan-test" />\n            </intent-filter>\n        </activity>#' "$M"
+          grep -q 'android:scheme="arefanejam"' "$M" || { echo "ERROR: azan-test deep link was not added to manifest"; exit 1; }
+          cat "$M"
+
       - name: App icon and notification icon
         run: |
           sudo apt-get update -y
