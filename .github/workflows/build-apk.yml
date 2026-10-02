@@ -21,7 +21,7 @@ jobs:
                    native-assets/android/MainActivity.java native-assets/android/AppUpdaterPlugin.java \
                    native-assets/android/UpdateFileProvider.java native-assets/android/update_file_paths.xml \
                    native-assets/android/sticky_card.xml native-assets/android/AzanReceiver.java \
-                   native-assets/android/AzanService.java app/index.html app/js/app.js app/js/native-bridge.js; do
+                   native-assets/android/AzanService.java native-assets/android/UpdateJobService.java app/index.html app/js/app.js app/js/native-bridge.js; do
             if [ ! -f "$f" ]; then echo "ERROR: file is missing in the repository: $f"; MISSING=1; fi
           done
           if ! grep -q "Native azan player" .github/workflows/build-apk.yml; then echo "ERROR: build-apk.yml is an OLD version (no 'Native azan player' step)"; MISSING=1; fi
@@ -98,6 +98,18 @@ jobs:
           sed -i 's#</application>#        <receiver android:name="com.arefanejam.quran.AzanReceiver" android:exported="false">\n            <intent-filter>\n                <action android:name="android.intent.action.BOOT_COMPLETED" />\n                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />\n                <action android:name="android.intent.action.TIME_SET" />\n                <action android:name="android.intent.action.TIMEZONE_CHANGED" />\n            </intent-filter>\n        </receiver>\n        <service android:name="com.arefanejam.quran.AzanService" android:exported="false" android:foregroundServiceType="mediaPlayback" />\n    </application>#' "$M"
           grep -q "AzanService" "$M" || { echo "ERROR: azan service was not added to manifest"; exit 1; }
           grep -q "AzanReceiver" "$M" || { echo "ERROR: azan receiver was not added to manifest"; exit 1; }
+          cat "$M"
+
+      - name: Native background update download (only online, even when the app is closed)
+        run: |
+          MAIN=$(find android/app/src/main/java -name MainActivity.java | head -n 1)
+          JDIR=$(dirname "$MAIN")
+          echo "$JDIR" | grep -q "com/arefanejam/quran" || { echo "ERROR: package folder is not com/arefanejam/quran"; exit 1; }
+          cp native-assets/android/UpdateJobService.java "$JDIR/"
+          M=android/app/src/main/AndroidManifest.xml
+          sed -i 's#</manifest>#    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\n</manifest>#' "$M"
+          sed -i 's#</application>#        <service android:name="com.arefanejam.quran.UpdateJobService" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false" />\n    </application>#' "$M"
+          grep -q "UpdateJobService" "$M" || { echo "ERROR: update job service was not added to manifest"; exit 1; }
           cat "$M"
 
       - name: App icon and notification icon
