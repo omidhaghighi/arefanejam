@@ -17,6 +17,10 @@ const APP_SHELL_CACHE = 'arefanejam-app-shell-v4';
 // کش تصاویر بخش «کمک‌های مردمی» برای نمایش آفلاین؛ این اسم دقیقاً باید با CHARITY_MEDIA_CACHE_NAME
 // در js/app.js یکی باشد. خودِ اپ تصاویر را در آن ذخیره می‌کند و این سرویس‌ورکر فقط از آن می‌خواند.
 const CHARITY_MEDIA_CACHE = 'arefanejam-charity-media-v1';
+// کش عکس‌هایی که مدیر در پیشخوان گذاشته (مکاتب، چارت، اسلایدر، گالری ...)؛ هر عکسِ آپلودهای سایت که
+// یک بار با اینترنت دیده شود اینجا می‌ماند و آفلاین هم نمایش داده می‌شود. باید با SITE_MEDIA_CACHE_NAME در js/app.js یکی باشد.
+const SITE_MEDIA_CACHE = 'arefanejam-site-media-v1';
+const SITE_MEDIA_MAX = 120;
 
 // دو جایگاه ثابت و جدا در نوار اعلانات:
 // ۱) STICKY_TAG: تاریخ امروز + اذان بعدی — همیشه به‌روزرسانی می‌شود، بی‌صدا
@@ -180,6 +184,39 @@ async function charityMediaResponse(request) {
   return fetch(request);
 }
 
+// آیا این عکس از پوشهٔ آپلودِ همین سایت وردپرس است؟
+function isSiteUploadImage(url) {
+  try {
+    const u = new URL(url);
+    return u.hostname === new URL(DEFAULT_API_URL).hostname && u.pathname.indexOf('/wp-content/uploads/') !== -1;
+  } catch (e) { return false; }
+}
+// اول از کش گوشی (کش «کمک‌های مردمی» یا کش عکس‌های سایت)، وگرنه از شبکه و یک نسخه هم نگه می‌دارد
+async function siteImageResponse(request) {
+  try {
+    for (const name of [SITE_MEDIA_CACHE, CHARITY_MEDIA_CACHE]) {
+      const c = await caches.open(name);
+      const hit = await c.match(request.url);
+      if (hit) return hit;
+    }
+  } catch (e) { /* کش در دسترس نبود */ }
+  let res;
+  try {
+    try { res = await fetch(request.url, { mode: 'cors' }); if (!res.ok) throw new Error('bad'); }
+    catch (e1) { res = await fetch(request); }
+  } catch (e2) { return Response.error(); }
+  try {
+    if (res && (res.ok || res.type === 'opaque')) {
+      const copy = res.clone();
+      const c = await caches.open(SITE_MEDIA_CACHE);
+      await c.put(request.url, copy);
+      const keys = await c.keys();
+      if (keys.length > SITE_MEDIA_MAX) await Promise.all(keys.slice(0, keys.length - SITE_MEDIA_MAX).map((k) => c.delete(k)));
+    }
+  } catch (e3) { /* ذخیره نشد؛ نمایش عکس بی‌مشکل ادامه دارد */ }
+  return res;
+}
+
 // پوستهٔ اصلی اپ: خودِ صفحه (index.html، چه با آدرس کامل و چه با ناوبری مرورگر)
 // و فایل‌های ثابتِ ضروری برای نمایش آن. عمداً بر اساس نام فایل تشخیص داده
 // می‌شود (نه مسیر کامل)، چون شمارهٔ نسخهٔ ?v= آن‌ها با هر آپدیت تغییر می‌کند.
@@ -280,6 +317,11 @@ self.addEventListener('fetch', (event) => {
 
   if (isCharityDataRequest(url)) {
     event.respondWith(networkFirstThenCache(request, AZAN_OFFLINE_CACHE, false));
+    return;
+  }
+
+  if (request.destination === 'image' && isSiteUploadImage(url)) {
+    event.respondWith(siteImageResponse(request));
     return;
   }
 

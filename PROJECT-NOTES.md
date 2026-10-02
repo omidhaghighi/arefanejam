@@ -145,3 +145,14 @@
 - `status()` حالا `bgReady/bgJob/bgLog/online` برمی‌گرداند؛ `bgConfig({api})` آدرس سایت را به کار پس‌زمینه می‌دهد. کار در `MainActivity.onCreate` و بعد از بوت/بروزرسانی اپ (`AzanReceiver`) دوباره چیده می‌شود.
 - **تغییر در `build-apk.yml`**: مرحلهٔ جدید «Native background update download» (کپی فایل، مجوز ACCESS_NETWORK_STATE، ثبت `UpdateJobService` در مانیفست) و اضافه‌شدن فایل جدید به فهرست «Check project files». مرحله‌های امضا و `debug.keystore` دست‌نخورده‌اند.
 - اثر کامل فقط با APK جدید است (کد بومی). فایل جدید باید روی گیت‌هاب هم آپلود شود.
+
+## دکمه‌های «🧪 تست اذان» پیشخوان ← اذان بومی اپ (مرحلهٔ ۳)
+- روی گوشی اندروید، دکمه‌های صفحهٔ پیشخوان (`class-azan-test.php`) اپ را با `intent://azan-test?mode=now|test|stop&sec=N` باز می‌کنند؛ `MainActivity.handleAzanLink` همان مسیر بومی اذان واقعی (`AzanReceiver.scheduleTest` ← `AzanService`) را فعال می‌کند و اپ به پس‌زمینه می‌رود. «توقف» سرویس اذان را می‌بندد.
+- اگر اپ نصب نباشد (یا APK قدیمی باشد) اندروید به آدرس جایگزین (`?az_fb=...`) می‌رود و همان تست قدیمی مرورگر اجرا می‌شود؛ روی کامپیوتر هم همان تست مرورگر کار می‌کند.
+- **تغییر در `build-apk.yml`**: مرحلهٔ جدید «Deep link for the dashboard azan test» که یک intent-filter (`arefanejam://azan-test`) به MainActivity اضافه می‌کند. فیلتر LAUNCHER، مرحله‌های امضا و `debug.keystore` دست‌نخورده‌اند.
+- اثر فقط با APK جدید است.
+
+## ذخیرهٔ آفلاین محتوای پیشخوان (مرحلهٔ ۴)
+- `apiFetch` در `app.js`: پاسخ موفق مسیرهای عمومی (`API_OFFLINE_CACHE_RE`: مکاتب/اسلایدر/آیکون، اخبار، گالری، رویدادها، ادعیه و ...) در localStorage با کلید `arefanejam_api_cache:<مسیر>` ذخیره می‌شود و اگر اینترنت نبود (یا سرور خطای ۵xx داد) همان آخرین نسخه برمی‌گردد. خطای ۴xx سرور و مسیرهای شخصی/ورود (heartbeat، note-reminders، mokatib/login|head|mosques، charity-food) ذخیره/جایگزین نمی‌شوند. settings/charity/food-items مثل قبل با سرویس‌ورکر کش می‌شوند.
+- عکس‌ها: کش جدید `arefanejam-site-media-v1` (اسم در `app.js` و `push-worker.js` باید یکی باشد). سرویس‌ورکر هر عکسِ `/wp-content/uploads/` همین سایت را اول از کش می‌دهد و بعد از اولین دیدن با اینترنت نگه می‌دارد (حداکثر ۱۲۰ عکس). عکس‌های مکاتب (چارت، آیکون، پاپ‌آپ، اسلایدر) بعد از دریافت اطلاعات خودکار از قبل ذخیره می‌شوند (`prefetchSiteImages`).
+- `build-apk.yml` در این مرحله تغییر نکرده است. تغییرات `app/` با OTA به گوشی‌ها می‌رسد.

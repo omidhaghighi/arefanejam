@@ -191,16 +191,91 @@ function secureUrl(u) {
 function apiFetch(path, options = {}) {
   const headers = Object.assign({ 'Content-Type': 'application/json' }, options.headers || {});
   const isGet = !options.method || String(options.method).toUpperCase() === 'GET';
+  const basePath = String(path).split('?')[0];
   if (isGet && !options.cache) options = Object.assign({}, options, { cache: 'no-store' });
   if (isGet && !/^\/(settings|charity|food-items)(\?|$)/.test(path)) {
     path += (path.indexOf('?') === -1 ? '?' : '&') + '_t=' + Date.now();
   }
+  const cacheKey = isGet ? apiCacheKey(basePath) : '';
   return fetch(state.apiUrl.replace(/\/$/, '') + path, Object.assign({}, options, { headers }))
     .then(async (res) => {
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.message || 'خطا در ارتباط با سرور');
+      let parsed = true;
+      const data = await res.json().catch(() => { parsed = false; return {}; });
+      if (res.status >= 500 && cacheKey) {
+        const old = apiCacheRead(cacheKey);
+        if (old !== null) return old; // خطای سرور: آخرین نسخهٔ سالم
+      }
+      if (!res.ok) { const he = new Error(data.message || 'خطا در ارتباط با سرور'); he.httpError = true; throw he; }
+      if (cacheKey && parsed) {
+        apiCacheWrite(cacheKey, data);
+        if (/^\/mokatib\//.test(basePath)) setTimeout(() => { prefetchSiteImages(collectImageUrls(data)); }, 1500);
+      }
       return data;
+    })
+    .catch((err) => {
+      // بدون اینترنت / قطع ارتباط: آخرین نسخهٔ ذخیره‌شدهٔ همین اطلاعات از حافظهٔ گوشی (خطای ۴xx سرور مستثناست)
+      if (cacheKey && !(err && err.httpError)) {
+        const old = apiCacheRead(cacheKey);
+        if (old !== null) return old;
+      }
+      throw err;
     });
+}
+
+/* ---------- ذخیرهٔ آفلاینِ اطلاعات عمومی پیشخوان ----------
+ * هر بار که اطلاعات با موفقیت از سایت گرفته شود، در حافظهٔ گوشی می‌ماند و اگر بعداً اینترنت نبود
+ * (یا سرور خطا داد) همان آخرین نسخه نمایش داده می‌شود. فقط مسیرهای عمومیِ زیر؛ مسیرهای شخصی/ورود نه. */
+const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|social-links|theme|shariq\/settings)$/;
+function apiCacheKey(basePath) {
+  return API_OFFLINE_CACHE_RE.test(basePath) ? ('arefanejam_api_cache:' + basePath) : '';
+}
+function apiCacheRead(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    return (o && Object.prototype.hasOwnProperty.call(o, 'data')) ? o.data : null;
+  } catch (e) { return null; }
+}
+function apiCacheWrite(key, data) {
+  try {
+    const raw = JSON.stringify({ t: Date.now(), data: data });
+    if (raw.length > 1500000) return; // خیلی بزرگ: حافظهٔ محدود localStorage پر نشود
+    localStorage.setItem(key, raw);
+  } catch (e) { /* حافظه پر بود؛ مهم نیست */ }
+}
+
+/* ---------- ذخیرهٔ آفلاین عکس‌های پیشخوان ---------- */
+function collectImageUrls(obj) {
+  const out = [];
+  (function walk(v, depth) {
+    if (out.length >= 60 || depth > 8 || v == null) return;
+    if (typeof v === 'string') {
+      if (/^https?:\/\/\S+\.(png|jpe?g|gif|webp|svg)(\?\S*)?$/i.test(v)) out.push(v);
+    } else if (Array.isArray(v)) { v.forEach((x) => walk(x, depth + 1)); }
+    else if (typeof v === 'object') { Object.keys(v).forEach((k) => walk(v[k], depth + 1)); }
+  })(obj, 0);
+  return out;
+}
+let siteImagePrefetching = false;
+async function prefetchSiteImages(urls) {
+  if (!window.caches || !Array.isArray(urls) || !urls.length || siteImagePrefetching) return;
+  if (navigator.onLine === false) return;
+  siteImagePrefetching = true;
+  try {
+    const list = Array.from(new Set(urls.map((u) => secureUrl(u)).filter(Boolean))).slice(0, 40);
+    const cache = await caches.open(SITE_MEDIA_CACHE_NAME);
+    for (const u of list) {
+      try {
+        if (await cache.match(u)) continue;
+        let res;
+        try { res = await fetch(u, { mode: 'cors' }); if (!res.ok) throw new Error('bad'); }
+        catch (e1) { res = await fetch(u, { mode: 'no-cors' }); } // سرور هدر CORS نداد؛ پاسخ مبهم برای نمایش عکس کافی است
+        if (res && (res.ok || res.type === 'opaque')) await cache.put(u, res);
+      } catch (e2) { /* این عکس ذخیره نشد؛ بقیه ادامه پیدا کنند */ }
+    }
+  } catch (e) { /* کش در دسترس نبود */ }
+  siteImagePrefetching = false;
 }
 
 /* ---------- ناوبری تب‌ها (با پشتیبانی از برگشت دقیق و ماندگاری هنگام رفرش) ---------- */
@@ -466,6 +541,9 @@ const QURAN_AUDIO_CACHE_NAME = 'arefanejam-quran-audio-v1';
 const CHARITY_CACHE_KEY = 'arefanejam_charity_cache';
 const FOOD_ITEMS_CACHE_KEY = 'arefanejam_food_items_cache';
 const CHARITY_MEDIA_CACHE_NAME = 'arefanejam-charity-media-v1';
+// عکس‌هایی که مدیر در پیشخوان گذاشته (مکاتب، چارت، اسلایدر، گالری، ...) برای دیدن آفلاین؛
+// باید دقیقاً با SITE_MEDIA_CACHE در push-worker.js یکی باشد و از پاک‌سازی کش‌های قدیمی مستثنا بماند.
+const SITE_MEDIA_CACHE_NAME = 'arefanejam-site-media-v1';
 
 // فایل صوتی اذان را کامل (یک‌بار) دانلود و در حافظهٔ خودِ گوشی ذخیره می‌کند و آماده نگه می‌دارد؛
 // وقت اذان صدا از همین نسخهٔ محلی پخش می‌شود، پس بدون اینترنت هم کار می‌کند.
@@ -7219,7 +7297,7 @@ if ('serviceWorker' in navigator) {
     // کش‌های «پخش آفلاین اذان» و «پوستهٔ اصلی اپ» حذف نشوند؛ قبلاً این خط با هر بار
     // باز شدن اپ همهٔ کش‌ها را پاک می‌کرد و در نتیجه چیزی برای کارکرد آفلاین باقی نمی‌ماند.
     caches.keys().then((keys) => keys.forEach((k) => {
-      if (k !== AZAN_OFFLINE_CACHE_NAME && k !== APP_SHELL_CACHE_NAME && k !== QURAN_AUDIO_CACHE_NAME && k !== ANNOUNCEMENT_AUDIO_CACHE_NAME && k !== CHARITY_MEDIA_CACHE_NAME) caches.delete(k);
+      if (k !== AZAN_OFFLINE_CACHE_NAME && k !== APP_SHELL_CACHE_NAME && k !== QURAN_AUDIO_CACHE_NAME && k !== ANNOUNCEMENT_AUDIO_CACHE_NAME && k !== CHARITY_MEDIA_CACHE_NAME && k !== SITE_MEDIA_CACHE_NAME) caches.delete(k);
     }));
   }
 }
