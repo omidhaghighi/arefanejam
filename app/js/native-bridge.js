@@ -973,7 +973,12 @@
       vl.classList.remove('hidden');
       try {
         var PS = AU();
-        if (PS && typeof PS.status === 'function') PS.status().then(function (s) {
+        // اول کار پس‌زمینه ثبت می‌شود (bgConfig) و بعد وضعیت خوانده می‌شود؛ وگرنه ممکن بود وضعیت «غیرفعال» دیده شود
+        // چون هنوز ثبت نشده بود.
+        var preBg = (PS && typeof PS.bgConfig === 'function')
+          ? Promise.resolve(PS.bgConfig({ api: apiBase() })).catch(function () {})
+          : Promise.resolve();
+        if (PS && typeof PS.status === 'function') preBg.then(function () { return PS.status(); }).then(function (s) {
           var why = '';
           if (!s) return;
           if (s.silentLikely) why = '✅ فعال';
@@ -981,7 +986,9 @@
           else if (!s.canInstall) why = '⚠️ اجازهٔ نصب از این منبع داده نشده';
           else if (!s.selfInstaller) why = '⚠️ با اولین بروزرسانی از داخل اپ فعال می‌شود';
           vl.textContent += '  |  نصب بی‌صدا: ' + why;
-          vl.textContent += '  |  دانلود پس‌زمینه: ' + (s.bgJob ? '✅ فعال' : '⚠️ غیرفعال') + (s.bgReady ? (' (نسخهٔ ' + s.bgReady + ' آماده است)') : '');
+          var bgTxt = (typeof s.bgJob === 'undefined') ? '⚠️ نیاز به APK جدید (این APK بخش جدید را ندارد)'
+            : (s.bgJob ? '✅ فعال' : '⚠️ ثبت نشد (اپ را یک بار ببندید و باز کنید)');
+          vl.textContent += '  |  دانلود پس‌زمینه: ' + bgTxt + (s.bgReady ? (' (نسخهٔ ' + s.bgReady + ' آماده است)') : '');
         }).catch(function () {});
       } catch (e) {}
       showWebLine();
