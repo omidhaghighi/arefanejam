@@ -5,7 +5,12 @@ import android.app.job.JobParameters;
 import android.app.job.JobScheduler;
 import android.app.job.JobService;
 import android.content.ComponentName;
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.pm.PackageInstaller;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.net.ConnectivityManager;
@@ -31,7 +36,9 @@ import java.util.List;
  * (the Android system wakes this service by itself when internet is available).
  *
  * - It only DOWNLOADS the file into cache/updates/arefanejam.apk (the same file the in-app updater uses).
- * - Installing stays as before: the in-app updater installs it the next time the app is opened / left.
+ * - After the download it tries to INSTALL it silently (Android 12+ only, when the app is the registered installer,
+ *   the app is not on screen and no azan is near). If Android wants a confirmation it does NOT show any window:
+ *   the file just waits and the in-app updater installs it the next time the app is opened / left.
  * - It runs only if the website has "automatic update" turned on (field "auto" of /app-update).
  * - A half-finished download is kept and continued next time (HTTP Range).
  * - The finished file is checked (package name + newer version) before it is marked as ready.
@@ -259,9 +266,119 @@ public class UpdateJobService extends JobService {
             return false;
         }
         String cur = currentVersion(ctx);
-        if (!isNewer(version, cur)) { log(ctx, "up to date (" + cur + ")"); return false; }
-        if (version.equals(readyVersion(ctx))) { log(ctx, version + " is already downloaded"); return false; }
-        return download(ctx, sp, apkUrl, version);
+        if (!isNewer(version, cur)) {
+            log(ctx, "up to date (" + cur + ")");
+            try { File old = apkFile(ctx); if (old.exists()) old.delete(); } catch (Throwable ignore) { }
+            return false;
+        }
+        if (version.equals(readyVersion(ctx))) {
+            log(ctx, version + " is already downloaded");
+            maybeInstall(ctx, sp, version);
+            return false;
+        }
+        boolean again = download(ctx, sp, apkUrl, version);
+        if (!again && version.equals(readyVersion(ctx))) maybeInstall(ctx, sp, version);
+        return again;
+    }
+
+    /* ------------------------------ silent install ------------------------------ */
+
+    private static boolean selfInstaller(Context ctx) {
+        try {
+            String inst = "";
+            if (Build.VERSION.SDK_INT >= 30) {
+                android.content.pm.InstallSourceInfo si = ctx.getPackageManager().getInstallSourceInfo(ctx.getPackageName());
+                String p = si.getInstallingPackageName();
+                if (p != null) inst = p;
+            } else {
+                @SuppressWarnings("deprecation")
+                String p = ctx.getPackageManager().getInstallerPackageName(ctx.getPackageName());
+                if (p != null) inst = p;
+            }
+            return ctx.getPackageName().equals(inst);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** Installs the downloaded APK without any window - only when Android allows it and it is a good moment. */
+    private void maybeInstall(Context ctx, SharedPreferences sp, String version) {
+        try {
+            if (Build.VERSION.SDK_INT < 31) { log(ctx, "silent install needs Android 12+ - waits for the app"); return; }
+            if (MainActivity.inForeground) { log(ctx, "app is on screen - not installing now"); return; }
+            if (!ctx.getPackageManager().canRequestPackageInstalls()) { log(ctx, "install permission not given - waits for the app"); return; }
+            if (!selfInstaller(ctx)) { log(ctx, "app is not its own installer yet - the first update needs one confirmation"); return; }
+            if (AzanReceiver.azanNear(ctx, 10L * 60L * 1000L)) { log(ctx, "azan time is near - install later"); return; }
+            String key = "inst_" + version;
+            int tries = sp.getInt(key + "_n", 0);
+            long lastTry = sp.getLong(key + "_t", 0);
+            long now = System.currentTimeMillis();
+            if (tries >= 4) { log(ctx, "silent install gave up after 4 tries - the app will ask the user"); return; }
+            if (now - lastTry < 3L * 3600L * 1000L) { log(ctx, "silent install was tried a short time ago - later"); return; }
+            sp.edit().putInt(key + "_n", tries + 1).putLong(key + "_t", now).apply();
+            installSilently(ctx, apkFile(ctx), version);
+        } catch (Throwable t) {
+            log(ctx, "silent install error: " + t);
+        }
+    }
+
+    private void installSilently(final Context ctx, File apk, String version) throws Exception {
+        if (!validApk(ctx, apk)) { log(ctx, "file is not a valid newer APK - not installing"); return; }
+        PackageInstaller pi = ctx.getPackageManager().getPackageInstaller();
+        PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+        params.setAppPackageName(ctx.getPackageName());
+        if (Build.VERSION.SDK_INT >= 31) params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
+        final int id = pi.createSession(params);
+        PackageInstaller.Session session = pi.openSession(id);
+        final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        final String action = "com.arefanejam.quran.BG_INSTALL_RESULT";
+        final BroadcastReceiver rcv = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context c, Intent intent) {
+                try {
+                    int st = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, -1);
+                    if (st == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+                        // Android wants a confirmation: show NOTHING, cancel; the in-app updater will ask when the app is opened
+                        try { ctx.getPackageManager().getPackageInstaller().abandonSession(id); } catch (Throwable ignore) { }
+                        log(ctx, "Android asked for a confirmation - cancelled, waits for the app");
+                    } else if (st == PackageInstaller.STATUS_SUCCESS) {
+                        log(ctx, "installed silently");
+                    } else {
+                        log(ctx, "install failed: status " + st + " " + intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE));
+                    }
+                } finally {
+                    latch.countDown();
+                }
+            }
+        };
+        androidx.core.content.ContextCompat.registerReceiver(ctx, rcv, new IntentFilter(action),
+                androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
+        try {
+            InputStream in = new java.io.FileInputStream(apk);
+            OutputStream out = session.openWrite("arefanejam.apk", 0, apk.length());
+            try {
+                byte[] buf = new byte[64 * 1024];
+                int n;
+                while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+                session.fsync(out);
+            } finally {
+                try { in.close(); } catch (Throwable ignore) { }
+                try { out.close(); } catch (Throwable ignore) { }
+            }
+            Intent cb = new Intent(action).setPackage(ctx.getPackageName());
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= 31) flags |= PendingIntent.FLAG_MUTABLE;
+            PendingIntent pending = PendingIntent.getBroadcast(ctx, id, cb, flags);
+            log(ctx, "installing " + version + " silently...");
+            session.commit(pending.getIntentSender());
+            latch.await(90, java.util.concurrent.TimeUnit.SECONDS); // on success Android restarts the app process by itself
+        } catch (Throwable e) {
+            try { session.abandon(); } catch (Throwable ignore) { }
+            log(ctx, "install error: " + e);
+        } finally {
+            try { session.close(); } catch (Throwable ignore) { }
+            try { ctx.unregisterReceiver(rcv); } catch (Throwable ignore) { }
+        }
     }
 
     private static String httpText(String url) throws IOException {

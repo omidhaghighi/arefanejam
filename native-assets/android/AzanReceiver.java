@@ -175,6 +175,21 @@ public class AzanReceiver extends BroadcastReceiver {
         return PendingIntent.getBroadcast(ctx, 4711, i, flags);
     }
 
+    /** true if a real azan is about to play (within aheadMs) or has just played (last 6 minutes): do not restart the app now. */
+    static boolean azanNear(Context ctx, long aheadMs) {
+        try {
+            SharedPreferences p = prefs(ctx);
+            if (!p.getBoolean("enabled", true)) return false;
+            JSONArray arr = new JSONArray(p.getString("items", "[]"));
+            long now = System.currentTimeMillis();
+            for (int i = 0; i < arr.length(); i++) {
+                long t = arr.getJSONObject(i).optLong("t", 0);
+                if (t > 0 && t >= now - 6L * 60L * 1000L && t <= now + aheadMs) return true;
+            }
+        } catch (Throwable ignore) { }
+        return false;
+    }
+
     /** Arms ONE alarm for the next prayer time in the saved list (replaces the previous one). */
     static void arm(Context ctx) {
         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
