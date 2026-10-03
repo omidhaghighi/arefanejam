@@ -52,6 +52,11 @@ public class AzanReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context ctx, Intent intent) {
         String action = intent == null ? null : intent.getAction();
+        // بعد از روشن‌شدن گوشی یا بروزرسانی اپ، اعلان‌ها پاک شده‌اند: کارت ثابت باید بدون باز شدن اپ دوباره ساخته شود
+        final boolean restoreCard = "android.intent.action.BOOT_COMPLETED".equals(action)
+                || "android.intent.action.MY_PACKAGE_REPLACED".equals(action)
+                || "android.intent.action.QUICKBOOT_POWERON".equals(action)
+                || "com.htc.intent.action.QUICKBOOT_POWERON".equals(action);
         try {
             if (ACTION_TEST.equals(action)) {
                 logEvent(ctx, "TEST: alarm fired -> starting azan service");
@@ -80,7 +85,7 @@ public class AzanReceiver extends BroadcastReceiver {
         // «اذان بعدی» روی کارت نوتیفیکیشن ثابت را از فهرست داخل گوشی تازه کن (بدون اپ و بدون اینترنت)
         BroadcastReceiver.PendingResult pending = null;
         try { pending = goAsync(); } catch (Throwable ignore) { }
-        refreshStickyAsync(ctx, pending);
+        refreshStickyAsync(ctx, pending, restoreCard);
         // jobs are wiped by an app update: put the background update download job back
         try { UpdateJobService.schedule(ctx); } catch (Throwable ignore) { }
     }
@@ -238,11 +243,11 @@ public class AzanReceiver extends BroadcastReceiver {
     }
 
     /** Runs the sticky-card refresh off the main thread (the receiver is kept alive with goAsync). */
-    static void refreshStickyAsync(final Context ctx, final BroadcastReceiver.PendingResult pr) {
+    static void refreshStickyAsync(final Context ctx, final BroadcastReceiver.PendingResult pr, final boolean restore) {
         try {
             new Thread(new Runnable() {
                 @Override public void run() {
-                    try { AppUpdaterPlugin.stkRefreshNext(ctx.getApplicationContext()); } catch (Throwable ignore) { }
+                    try { AppUpdaterPlugin.stkRefreshNext(ctx.getApplicationContext(), restore); } catch (Throwable ignore) { }
                     try { if (pr != null) pr.finish(); } catch (Throwable ignore) { }
                 }
             }).start();

@@ -8,7 +8,7 @@
 <link rel="icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=70">
+<link rel="stylesheet" href="css/style.css?v=75">
 </head>
 <body>
 
@@ -731,6 +731,7 @@
         <p class="muted-text" id="ramadan-date-label">—</p>
       </div>
       <div id="ramadan-content-block"></div>
+      <div id="ramadan-gallery-block" style="display:none"></div>
       <div id="ramadan-special-block"></div>
     </section>
 
@@ -802,7 +803,7 @@
     <section id="tab-khatm" class="tab-panel">
       <div class="section-block">
         <h3 id="khatm-page-title">ختم قرآن</h3>
-        <p class="muted-text small">ختم جدید تعریف کنید (مثلاً هر نفر یک جزء)، یا در ختم‌های دیگران شرکت کنید. نیازی به ورود یا رمز نیست.</p>
+        <p class="muted-text small">ختم جدید تعریف کنید (مثلاً هر نفر یک جزء)، یا در ختم‌های دیگران شرکت کنید. هر نفر هم‌زمان فقط یک ختمِ ناتمام می‌تواند داشته باشد: یا باید ختم کامل شود یا آن را ببندید. نیازی به ورود یا رمز نیست.</p>
         <div class="shariq-top-actions">
           <button class="secondary-btn small-btn" id="khatm-new-btn">➕ درخواست ختم جدید</button>
           <button class="ghost-btn small-btn" id="khatm-mine-btn">درخواست‌های من <span id="khatm-mine-dot" class="khatm-dot hidden"></span></button>
@@ -830,12 +831,12 @@
           <button class="ghost-btn small-btn" id="khatm-view-pick-btn">یک بخش آزاد برای من</button>
         </div>
       </div>
-      <div id="khatm-view-mine" class="section-block khatm-mydone hidden"></div>
-      <div id="khatm-view-grid" class="khatm-grid"></div>
-      <div class="section-block" id="khatm-view-confirm-wrap">
+      <div class="section-block khatm-confirm-top" id="khatm-view-confirm-wrap">
         <p class="muted-text small" id="khatm-view-msg"></p>
         <button id="khatm-view-confirm-btn" class="secondary-btn" style="width:100%">تأیید مشارکت من</button>
       </div>
+      <div id="khatm-view-mine" class="section-block khatm-mydone hidden"></div>
+      <div id="khatm-view-grid" class="khatm-grid"></div>
     </section>
 
   </main>
@@ -1048,6 +1049,6 @@
 <script src="js/iran-cities.js?v=14"></script>
 <script src="js/native-config.js"></script>
 <script src="js/native-bridge.js?v=18"></script>
-<script src="js/app.js?v=105"></script>
+<script src="js/app.js?v=112"></script>
 </body>
 </html>

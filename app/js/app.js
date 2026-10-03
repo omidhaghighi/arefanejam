@@ -225,7 +225,7 @@ function apiFetch(path, options = {}) {
 /* ---------- ذخیرهٔ آفلاینِ اطلاعات عمومی پیشخوان ----------
  * هر بار که اطلاعات با موفقیت از سایت گرفته شود، در حافظهٔ گوشی می‌ماند و اگر بعداً اینترنت نبود
  * (یا سرور خطا داد) همان آخرین نسخه نمایش داده می‌شود. فقط مسیرهای عمومیِ زیر؛ مسیرهای شخصی/ورود نه. */
-const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|social-links|theme|shariq\/settings)$/;
+const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|social-links|theme|shariq\/settings|khatm\/settings)$/;
 function apiCacheKey(basePath) {
   return API_OFFLINE_CACHE_RE.test(basePath) ? ('arefanejam_api_cache:' + basePath) : '';
 }
@@ -2308,9 +2308,10 @@ function updateStickyNotification(upcoming) {
   const stkBgUrl = secureUrl(String(s.sticky_bg_url || ''));
   const stkTileUrl = secureUrl(String(s.sticky_tile_url || ''));
   const stkIconUrl = secureUrl(String(s.sticky_icon_url || ''));
+  const stkSmallIconUrl = secureUrl(String(s.sticky_small_icon_url || '')); // آیکون کوچک دایره‌ای کنار نام اپ در اعلان
   const stkBgDim = Math.max(0, Math.min(90, parseInt(s.sticky_bg_dim, 10) || 0));
   const stkTileOpacity = Math.max(5, Math.min(100, parseInt(s.sticky_tile_opacity, 10) || 35));
-  const body = lines.join('\n') + '|' + [stkBgUrl, stkTileUrl, stkIconUrl, stkBgDim, stkTileOpacity].join('|');
+  const body = lines.join('\n') + '|' + [stkBgUrl, stkTileUrl, stkIconUrl, stkSmallIconUrl, stkBgDim, stkTileOpacity].join('|');
   if (body === lastStickyBody) return; // چیزی تغییر نکرده، دوباره ننویس
   lastStickyBody = body;
 
@@ -2338,6 +2339,7 @@ function updateStickyNotification(upcoming) {
         bgUrl: stkBgUrl,
         tileUrl: stkTileUrl,
         iconUrl: stkIconUrl,
+        smallIconUrl: stkSmallIconUrl,
         bgDim: stkBgDim,
         tileAlpha: stkTileOpacity,
       },
@@ -4092,7 +4094,7 @@ function onQuranListOpened() {
   // و از مسیرهای دیگر (مثل پاپ‌آپ) فهرست خالی می‌ماند. loadSurahList خودش هم
   // آفلاین کار می‌کند: اول از کش localStorage و در نبود آن از متن آفلاین ذخیره‌شدهٔ قرآن می‌خواند.
   if (!document.getElementById('quran-surah-list').children.length) loadSurahList();
-  else renderContinueReadingButton();
+  else { renderContinueReadingButton(); refreshSurahAudioIcons(); }
 }
 document.querySelectorAll('#quran-mode-switch button').forEach((b) => {
   b.addEventListener('click', () => {
@@ -4249,6 +4251,7 @@ async function downloadAudioForOffline() {
   else if (ctl.cancelled) setAudioOfflineMsg('ذخیره‌سازی متوقف شد؛ آیه‌های ذخیره‌شده حفظ شده‌اند.');
   else setAudioOfflineMsg('صوت این بخش ذخیره شد و بدون اینترنت پخش می‌شود.');
   refreshAudioOfflineStatus();
+  refreshSurahAudioIcons();
 }
 document.getElementById('audio-offline-btn').addEventListener('click', downloadAudioForOffline);
 
@@ -4545,12 +4548,134 @@ function renderSurahList(surahs, filter) {
         <span class="qs-name"></span>
         <span class="qs-meta"><span class="qs-en"></span>${rev}<span class="qs-count">${toPersianDigits(s.numberOfAyahs)} آیه</span></span>
       </span>
+      <button type="button" class="qs-dl" data-n="${s.number}" aria-label="دانلود صوت این سوره" title="دانلود صوت این سوره">⬇</button>
       <span class="qs-chev">‹</span>`;
     row.querySelector('.qs-name').textContent = s.name;
+    const dlBtn = row.querySelector('.qs-dl');
+    dlBtn.dataset.name = s.name || '';
+    dlBtn.addEventListener('click', (ev) => { ev.stopPropagation(); onSurahAudioClick(dlBtn); });
     row.querySelector('.qs-en').textContent = s.englishName || '';
     row.addEventListener('click', () => openSurahReader(s.number, s.name));
     el.appendChild(row);
   });
+  refreshSurahAudioIcons();
+}
+
+/* ---------- دانلود صوت یک سورهٔ کامل (آیکون ⬇ جلوی هر سوره) ----------
+   صوت هر آیه با همان قاریِ انتخاب‌شده در همان کش «arefanejam-quran-audio-v1» ذخیره می‌شود که پخش‌کنندهٔ سوره هم از آن می‌خواند؛
+   پس بعد از دانلود، سوره بدون اینترنت پخش می‌شود و دوباره دانلود نمی‌شود. ⬇ = دانلود نشده، ✅ = کامل ذخیره است (لمس = حذف)،
+   وسط دانلود درصد نمایش داده می‌شود (لمس = توقف). */
+let surahAudioDl = null; // { num, cancelled }
+function surahAudioRange(n) {
+  const list = (qsAllSurahs || []).slice().sort((a, b) => a.number - b.number);
+  if (list.length < 114) return null;
+  let start = 0;
+  for (const s of list) {
+    const c = Number(s.numberOfAyahs) || 0;
+    if (s.number === n) return c ? { from: start + 1, count: c } : null;
+    start += c;
+  }
+  return null;
+}
+function currentReciterName() {
+  const opt = document.querySelector('#reciter-select option[value="' + currentReciter + '"]');
+  return opt ? opt.textContent.trim() : currentReciter;
+}
+function setSurahDlState(b, st, have, total, pct) {
+  b.classList.remove('is-done', 'is-part', 'is-busy');
+  if (st === 'done') { b.textContent = '✅'; b.classList.add('is-done'); b.title = 'صوت این سوره روی گوشی ذخیره است (برای حذف بزنید)'; }
+  else if (st === 'busy') { b.textContent = toPersianDigits(pct) + '٪'; b.classList.add('is-busy'); b.title = 'در حال دانلود (برای توقف بزنید)'; }
+  else if (st === 'part') { b.textContent = '⬇'; b.classList.add('is-part'); b.title = 'ادامهٔ دانلود صوت (' + toPersianDigits(have) + ' از ' + toPersianDigits(total) + ' آیه ذخیره است)'; }
+  else { b.textContent = '⬇'; b.title = 'دانلود صوت این سوره'; }
+}
+async function refreshSurahAudioIcons() {
+  try {
+    const btns = document.querySelectorAll('#quran-surah-list .qs-dl');
+    if (!btns.length) return;
+    const have = await getCachedAyahSet(currentReciter);
+    btns.forEach((b) => {
+      const n = Number(b.dataset.n);
+      if (surahAudioDl && surahAudioDl.num === n) return;
+      const r = surahAudioRange(n);
+      if (!r) return;
+      let c = 0;
+      for (let i = 0; i < r.count; i++) if (have.has(r.from + i)) c++;
+      setSurahDlState(b, c === r.count ? 'done' : (c > 0 ? 'part' : 'none'), c, r.count);
+    });
+  } catch (e) { /* بی‌صدا */ }
+}
+async function onSurahAudioClick(btn) {
+  const n = Number(btn.dataset.n);
+  const name = btn.dataset.name || ('سورهٔ ' + toPersianDigits(n));
+  if (surahAudioDl) {
+    if (surahAudioDl.num === n) surahAudioDl.cancelled = true;
+    else alert('دانلود صوت یک سورهٔ دیگر هنوز در حال انجام است.');
+    return;
+  }
+  if (!window.caches) { alert('این دستگاه امکان ذخیرهٔ صوت را ندارد.'); return; }
+  const r = surahAudioRange(n);
+  if (!r) { alert('فهرست کامل سوره‌ها هنوز بارگذاری نشده است؛ چند لحظه بعد دوباره امتحان کنید.'); return; }
+  const reciter = currentReciter;
+  const have = await getCachedAyahSet(reciter);
+  const todo = [];
+  for (let i = 0; i < r.count; i++) if (!have.has(r.from + i)) todo.push(r.from + i);
+
+  if (!todo.length) { // کامل ذخیره شده: فقط حذف
+    if (!confirm('صوت سورهٔ ' + name + ' با قاری «' + currentReciterName() + '» روی گوشی ذخیره است. برای آزاد شدن حافظه حذف شود؟')) return;
+    try {
+      const cache = await caches.open(QURAN_AUDIO_CACHE_NAME);
+      const keys = await cache.keys();
+      for (const k of keys) {
+        const m = /\/quran\/audio\/\d+\/([^/]+)\/(\d+)\.mp3/.exec(k.url);
+        if (m && m[1] === reciter) { const g = Number(m[2]); if (g >= r.from && g < r.from + r.count) await cache.delete(k); }
+      }
+    } catch (e) {}
+    refreshSurahAudioIcons();
+    refreshAudioOfflineStatus();
+    return;
+  }
+  if (!navigator.onLine) { alert('برای دانلود صوت باید به اینترنت وصل باشید.'); return; }
+  if (!confirm('صوت سورهٔ ' + name + ' با قاری «' + currentReciterName() + '» (' + toPersianDigits(todo.length) + ' آیه) دانلود و روی گوشی ذخیره می‌شود تا دیگر نیازی به دانلود دوباره نباشد. ممکن است از چند مگابایت تا چند ده مگابایت اینترنت مصرف کند. ادامه می‌دهید؟')) return;
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+
+  const ctl = { num: n, cancelled: false };
+  surahAudioDl = ctl;
+  setSurahDlState(btn, 'busy', 0, todo.length, 0);
+  let done = 0, failed = 0;
+  try {
+    const cache = await caches.open(QURAN_AUDIO_CACHE_NAME);
+    const queue = todo.slice();
+    const worker = async () => {
+      while (queue.length && !ctl.cancelled) {
+        const g = queue.shift();
+        let ok = false;
+        for (const b of [128, 64]) {
+          try {
+            const url = buildAudioUrl(reciter, b, g);
+            const res = await fetch(url);
+            if (res.ok) {
+              const blob = await res.blob();
+              if (blob.size > 0) {
+                await cache.put(url, new Response(blob, { status: 200, headers: { 'Content-Type': res.headers.get('Content-Type') || 'audio/mpeg' } }));
+                ok = true;
+                break;
+              }
+            }
+          } catch (e) {}
+        }
+        if (ok) done++; else failed++;
+        setSurahDlState(btn, 'busy', done, todo.length, Math.min(99, Math.round((done + failed) * 100 / todo.length)));
+        if (done === 0 && failed >= 4) ctl.cancelled = true; // احتمالاً اینترنت قطع است
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+  } catch (e) { /* بی‌صدا */ }
+  surahAudioDl = null;
+  await refreshSurahAudioIcons();
+  refreshAudioOfflineStatus();
+  if (done === 0 && failed > 0) alert('دانلود انجام نشد؛ اتصال اینترنت را بررسی کنید و دوباره تلاش کنید.');
+  else if (failed > 0) alert('صوت ' + toPersianDigits(failed) + ' آیه دانلود نشد؛ دوباره آیکون را بزنید تا تکمیل شود.');
+  else if (ctl.cancelled) alert('دانلود متوقف شد؛ بخش‌های دانلودشده حفظ شده‌اند و با زدن دوباره ادامه پیدا می‌کند.');
 }
 
 document.getElementById('quran-search-input').addEventListener('input', (e) => {
@@ -4566,6 +4691,7 @@ document.getElementById('reciter-select').addEventListener('change', (e) => {
   currentReciter = e.target.value;
   localStorage.setItem('arefanejam_reciter', currentReciter);
   refreshAudioOfflineStatus();
+  refreshSurahAudioIcons();
 });
 
 const savedFontSize = localStorage.getItem('arefanejam_arabic_font_size') || '22';
@@ -5456,6 +5582,242 @@ recitationAudio.addEventListener('pause', () => { document.getElementById('mini-
 recitationAudio.addEventListener('play', () => { document.getElementById('mini-player-toggle').textContent = '⏸'; });
 
 /* ---------- رمضان: شمارش + برنامه ویژه ---------- */
+/* ---------- گالری عکس‌های رمضان: قاب مربع + اسلاید چپ/راست + جستجو با نام + زوم ---------- */
+// متن را برای جستجو یکدست می‌کند (ی/ک عربی، اعراب، ارقام فارسی و عربی، نیم‌فاصله، حروف بزرگ و کوچک)
+function rmzNorm(t) {
+  return String(t || '').toLowerCase()
+    .replace(/[يى]/g, 'ی').replace(/ك/g, 'ک')
+    .replace(/[ً-ٟـ]/g, '')
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06F0))
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[‌‍‎‏]/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+}
+function renderRamadanGallery(r) {
+  const block = document.getElementById('ramadan-gallery-block');
+  if (!block) return;
+  const items = (Array.isArray(r.gal_items) ? r.gal_items : []).filter((it) => it && it.url);
+  block.innerHTML = '';
+  if (!items.length) { block.style.display = 'none'; return; }
+  block.style.display = '';
+
+  const widthPct = ({ small: 45, medium: 70, large: 100 })[r.gal_size] || 70;
+  const align = ['left', 'center', 'right'].indexOf(r.gal_align) > -1 ? r.gal_align : 'center';
+  const fit = r.gal_fit === 'contain' ? 'contain' : 'cover';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'rmz-gal';
+  if (r.gal_hint && String(r.gal_hint).trim()) {
+    const hint = document.createElement('p');
+    hint.className = 'rmz-gal-hint';
+    hint.textContent = r.gal_hint;
+    wrap.appendChild(hint);
+  }
+  const searchRow = document.createElement('div');
+  searchRow.className = 'rmz-gal-search';
+  const input = document.createElement('input');
+  input.type = 'search';
+  input.placeholder = 'نام عکس را بنویسید...';
+  input.setAttribute('aria-label', 'جستجوی عکس');
+  searchRow.appendChild(input);
+  wrap.appendChild(searchRow);
+
+  const frame = document.createElement('div');
+  frame.className = 'rmz-gal-frame';
+  frame.style.width = widthPct + '%';
+  if (align === 'left') { frame.style.marginLeft = '0'; frame.style.marginRight = 'auto'; }
+  else if (align === 'right') { frame.style.marginLeft = 'auto'; frame.style.marginRight = '0'; }
+  else { frame.style.marginLeft = 'auto'; frame.style.marginRight = 'auto'; }
+  frame.innerHTML =
+    '<div class="rmz-gal-square">' +
+      '<div class="rmz-gal-scroller" dir="ltr"></div>' +
+      '<button type="button" class="rmz-gal-arrow rmz-gal-prev" aria-label="قبلی">‹</button>' +
+      '<button type="button" class="rmz-gal-arrow rmz-gal-next" aria-label="بعدی">›</button>' +
+      '<span class="rmz-gal-count"></span>' +
+    '</div>' +
+    '<div class="rmz-gal-dots"></div>' +
+    '<p class="rmz-gal-caption"></p>';
+  wrap.appendChild(frame);
+  const empty = document.createElement('p');
+  empty.className = 'rmz-gal-empty hidden';
+  empty.textContent = 'عکسی با این نام پیدا نشد.';
+  wrap.appendChild(empty);
+  block.appendChild(wrap);
+
+  const scroller = frame.querySelector('.rmz-gal-scroller');
+  const dotsEl = frame.querySelector('.rmz-gal-dots');
+  const captionEl = frame.querySelector('.rmz-gal-caption');
+  const countEl = frame.querySelector('.rmz-gal-count');
+  const prevBtn = frame.querySelector('.rmz-gal-prev');
+  const nextBtn = frame.querySelector('.rmz-gal-next');
+  let shown = [];
+  let cur = 0;
+
+  function updateInfo() {
+    const n = shown.length;
+    if (!n) return;
+    cur = Math.max(0, Math.min(n - 1, Math.round(scroller.scrollLeft / Math.max(1, scroller.clientWidth))));
+    const it = shown[cur];
+    captionEl.textContent = it.name || '';
+    captionEl.style.display = it.name ? '' : 'none';
+    countEl.textContent = n > 1 ? toPersianDigits(cur + 1) + ' / ' + toPersianDigits(n) : '';
+    countEl.style.display = n > 1 ? '' : 'none';
+    dotsEl.querySelectorAll('.rmz-gal-dot').forEach((d, i) => d.classList.toggle('active', i === cur));
+    prevBtn.style.display = n > 1 ? '' : 'none';
+    nextBtn.style.display = n > 1 ? '' : 'none';
+  }
+  function show(list) {
+    shown = list;
+    scroller.innerHTML = '';
+    dotsEl.innerHTML = '';
+    empty.classList.toggle('hidden', list.length > 0);
+    frame.style.display = list.length ? '' : 'none';
+    list.forEach((it, i) => {
+      const slide = document.createElement('div');
+      slide.className = 'rmz-slide';
+      const img = document.createElement('img');
+      img.src = secureUrl(it.url);
+      img.alt = it.name || '';
+      img.draggable = false;
+      img.style.objectFit = fit;
+      img.loading = 'lazy';
+      slide.appendChild(img);
+      slide.addEventListener('click', () => openRmzZoom(it.url, it.name || ''));
+      scroller.appendChild(slide);
+      if (list.length > 1 && list.length <= 10) {
+        const d = document.createElement('span');
+        d.className = 'rmz-gal-dot';
+        d.addEventListener('click', () => { scroller.scrollTo({ left: i * scroller.clientWidth, behavior: 'smooth' }); });
+        dotsEl.appendChild(d);
+      }
+    });
+    scroller.scrollLeft = 0;
+    cur = 0;
+    updateInfo();
+  }
+  let raf = 0;
+  scroller.addEventListener('scroll', () => {
+    if (raf) return;
+    raf = requestAnimationFrame(() => { raf = 0; updateInfo(); });
+  });
+  prevBtn.addEventListener('click', () => scroller.scrollBy({ left: -scroller.clientWidth, behavior: 'smooth' }));
+  nextBtn.addEventListener('click', () => scroller.scrollBy({ left: scroller.clientWidth, behavior: 'smooth' }));
+
+  input.addEventListener('input', () => {
+    const q = rmzNorm(input.value);
+    if (!q) { show(items); return; }
+    const qc = q.replace(/ /g, '');
+    show(items.filter((it) => {
+      const nm = rmzNorm(it.name);
+      return nm.indexOf(q) > -1 || nm.replace(/ /g, '').indexOf(qc) > -1;
+    }));
+  });
+  show(items);
+}
+
+/* نمایش تمام‌صفحهٔ یک عکس با زوم (دو انگشت، دوبار لمس، چرخ ماوس) و جابه‌جایی با کشیدن */
+let rmzZoomEl = null;
+function closeRmzZoomDirect() {
+  if (rmzZoomEl) { rmzZoomEl.remove(); rmzZoomEl = null; }
+}
+function openRmzZoom(url, name) {
+  if (!url) return;
+  closeRmzZoomDirect();
+  const root = document.createElement('div');
+  root.className = 'rmz-zoom';
+  root.innerHTML =
+    '<div class="rmz-zoom-top"><button type="button" class="rmz-zoom-close" aria-label="بستن">✕</button><span class="rmz-zoom-name"></span></div>' +
+    '<div class="rmz-zoom-stage"><img alt="" draggable="false"></div>' +
+    '<div class="rmz-zoom-help">دو انگشت یا دوبار لمس برای زوم</div>';
+  root.querySelector('.rmz-zoom-name').textContent = name || '';
+  const stage = root.querySelector('.rmz-zoom-stage');
+  const img = stage.querySelector('img');
+  img.src = secureUrl(url);
+  document.body.appendChild(root);
+  rmzZoomEl = root;
+  pushOverlay('rmzoom', closeRmzZoomDirect);
+  root.querySelector('.rmz-zoom-close').addEventListener('click', () => overlayGo('rmzoom', 0, closeRmzZoomDirect));
+  root.addEventListener('contextmenu', (e) => e.preventDefault());
+  setTimeout(() => { const h = root.querySelector('.rmz-zoom-help'); if (h) h.style.opacity = '0'; }, 2500);
+
+  let scale = 1, tx = 0, ty = 0;
+  const MAX = 6;
+  const pointers = new Map();
+  let startDist = 0, startScale = 1;
+  let dragX = 0, dragY = 0, dragTX = 0, dragTY = 0, moved = 0;
+  let lastTap = { t: 0, x: 0, y: 0 };
+
+  function apply() { img.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + scale + ')'; }
+  function clamp() {
+    const mx = Math.max(0, (img.clientWidth * scale - stage.clientWidth) / 2);
+    const my = Math.max(0, (img.clientHeight * scale - stage.clientHeight) / 2);
+    tx = Math.max(-mx, Math.min(mx, tx));
+    ty = Math.max(-my, Math.min(my, ty));
+  }
+  // نقطهٔ (px,py) نسبت به مرکز قاب، حین زوم ثابت می‌ماند
+  function zoomAt(newScale, px, py) {
+    newScale = Math.max(1, Math.min(MAX, newScale));
+    const ratio = newScale / scale;
+    tx = px - (px - tx) * ratio;
+    ty = py - (py - ty) * ratio;
+    scale = newScale;
+    if (scale === 1) { tx = 0; ty = 0; }
+    clamp(); apply();
+  }
+  function rel(x, y) {
+    const b = stage.getBoundingClientRect();
+    return [x - (b.left + b.width / 2), y - (b.top + b.height / 2)];
+  }
+
+  stage.addEventListener('pointerdown', (e) => {
+    try { stage.setPointerCapture(e.pointerId); } catch (x) {}
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 1) { dragX = e.clientX; dragY = e.clientY; dragTX = tx; dragTY = ty; moved = 0; }
+    else if (pointers.size === 2) {
+      const p = Array.from(pointers.values());
+      startDist = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+      startScale = scale; moved = 99;
+    }
+  });
+  stage.addEventListener('pointermove', (e) => {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2 && startDist > 0) {
+      const p = Array.from(pointers.values());
+      const dist = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+      const m = rel((p[0].x + p[1].x) / 2, (p[0].y + p[1].y) / 2);
+      zoomAt(startScale * (dist / startDist), m[0], m[1]);
+    } else if (pointers.size === 1) {
+      const dx = e.clientX - dragX, dy = e.clientY - dragY;
+      moved = Math.max(moved, Math.hypot(dx, dy));
+      if (scale > 1) { tx = dragTX + dx; ty = dragTY + dy; clamp(); apply(); }
+    }
+  });
+  function endPtr(e) {
+    const wasSingle = pointers.size === 1;
+    pointers.delete(e.pointerId);
+    if (pointers.size === 1) {
+      const p = Array.from(pointers.values())[0];
+      dragX = p.x; dragY = p.y; dragTX = tx; dragTY = ty;
+    }
+    if (wasSingle && moved < 10 && e.type === 'pointerup') {
+      const now = Date.now();
+      if (now - lastTap.t < 320 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 40) {
+        const m = rel(e.clientX, e.clientY);
+        if (scale > 1) zoomAt(1, 0, 0); else zoomAt(2.5, m[0], m[1]);
+        lastTap = { t: 0, x: 0, y: 0 };
+      } else { lastTap = { t: now, x: e.clientX, y: e.clientY }; }
+    }
+  }
+  stage.addEventListener('pointerup', endPtr);
+  stage.addEventListener('pointercancel', endPtr);
+  stage.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const m = rel(e.clientX, e.clientY);
+    zoomAt(scale * (e.deltaY < 0 ? 1.2 : 1 / 1.2), m[0], m[1]);
+  }, { passive: false });
+}
+
 async function loadRamadanPage() {
   renderRamadanCountdown(null);
   try {
@@ -5472,12 +5834,19 @@ function renderRamadanContent(r) {
     card.className = 'verse-card';
     card.style.margin = '10px 18px';
     let html = '';
-    if (r.image_url) html += `<img src="${r.image_url}" style="width:100%;border-radius:10px;margin-bottom:10px">`;
+    if (r.image_url) {
+      const sqW = ({ small: 45, medium: 70, large: 100 })[r.sq_size] || 70;
+      const sqA = r.sq_align === 'left' ? 'margin:0 auto 10px 0' : (r.sq_align === 'right' ? 'margin:0 0 10px auto' : 'margin:0 auto 10px');
+      const sqF = r.sq_fit === 'contain' ? 'contain' : 'cover';
+      html += `<div class="rmz-sq" style="width:${sqW}%;${sqA}"><img id="ramadan-main-img" src="${secureUrl(r.image_url)}" style="object-fit:${sqF}"></div>`;
+    }
     if (r.video_url) html += `<video id="ramadan-video-el" src="${r.video_url}" controls style="width:100%;border-radius:10px;margin-bottom:10px"></video>`;
     if (r.text) html += `<p class="verse-translation">${r.text}</p>`;
     if (r.link_url) html += `<button class="secondary-btn small-btn" id="ramadan-link-btn" style="margin-top:8px">مشاهده لینک</button>`;
     card.innerHTML = html;
     contentBlock.appendChild(card);
+    const mainImg = card.querySelector('#ramadan-main-img');
+    if (mainImg) mainImg.addEventListener('click', () => openRmzZoom(r.image_url, ''));
     if (r.link_url) {
       document.getElementById('ramadan-link-btn').addEventListener('click', () => {
         trackClick('ramadan_link');
@@ -5487,6 +5856,8 @@ function renderRamadanContent(r) {
     const ramadanVideoEl = document.getElementById('ramadan-video-el');
     if (ramadanVideoEl) ramadanVideoEl.addEventListener('play', () => trackClick('ramadan_video'), { once: true });
   }
+
+  renderRamadanGallery(r);
 
   const specialBlock = document.getElementById('ramadan-special-block');
   specialBlock.innerHTML = '';
@@ -7071,7 +7442,13 @@ function khatmMeta() {
   }
   return khatmMetaPromise;
 }
-function khatmSurahName(meta, n) { return (meta.names && meta.names[n - 1]) || ('سوره ' + toPersianDigits(n)); }
+// اسم سوره بدون پیشوند «سُورَةُ» (در متن داخل اپ اسم‌ها با آن شروع می‌شوند و اینجا «سوره» جداگانه نوشته می‌شود)
+function khatmSurahName(meta, n) {
+  let nm = (meta.names && meta.names[n - 1]) || '';
+  const m = nm.match(/^(\S+)\s+(.+)$/);
+  if (m && m[1].replace(/[\u064B-\u065F\u0670]/g, '') === 'سورة') nm = m[2];
+  return nm || toPersianDigits(n);
+}
 // شمارهٔ کلی آیه (۱ تا ۶۲۳۶) ← «سوره و شمارهٔ آیه»
 function khatmAyahLoc(meta, g) {
   if (!meta.counts || meta.counts.length !== 114) return null;
@@ -7091,21 +7468,55 @@ function khatmLabel(unit, per, k, meta) {
   if (unit === 'juz') return a === b ? 'جزء ' + fa(a) : 'جزء ' + fa(a) + ' تا ' + fa(b);
   if (unit === 'page') return a === b ? 'صفحه ' + fa(a) : 'صفحه ' + fa(a) + ' تا ' + fa(b);
   if (unit === 'surah') {
-    return a === b ? khatmSurahName(meta, a) : khatmSurahName(meta, a) + ' تا ' + khatmSurahName(meta, b);
+    return a === b ? 'سوره ' + khatmSurahName(meta, a) : 'سوره ' + khatmSurahName(meta, a) + ' تا سوره ' + khatmSurahName(meta, b);
   }
-  // آیه
-  const base = a === b ? 'آیه ' + fa(a) : 'آیه ' + fa(a) + ' تا ' + fa(b);
+  // آیه: فقط «سوره و شمارهٔ آیه» نوشته می‌شود (نه شمارهٔ کلی ۱ تا ۶۲۳۶) تا کاربر دقیقاً بفهمد کجا را بخواند
   const la = khatmAyahLoc(meta, a), lb = khatmAyahLoc(meta, b);
   if (la && lb) {
-    if (la.s === lb.s) return base + ' (' + khatmSurahName(meta, la.s) + '، آیه ' + fa(la.a) + (la.a === lb.a ? '' : ' تا ' + fa(lb.a)) + ')';
-    return base + ' (' + khatmSurahName(meta, la.s) + ' آیه ' + fa(la.a) + ' تا ' + khatmSurahName(meta, lb.s) + ' آیه ' + fa(lb.a) + ')';
+    const cnt = (s) => meta.counts[s - 1];
+    const nm = (s) => khatmSurahName(meta, s);
+    if (la.s === lb.s) {
+      if (la.a === 1 && lb.a === cnt(lb.s)) return 'سوره ' + nm(la.s) + ' (کامل)';
+      if (la.a === lb.a) return 'سوره ' + nm(la.s) + '، آیه ' + fa(la.a);
+      return 'سوره ' + nm(la.s) + '، آیه ' + fa(la.a) + ' تا ' + fa(lb.a);
+    }
+    const from = la.a === 1 ? 'ابتدای سوره ' + nm(la.s) : 'سوره ' + nm(la.s) + '، آیه ' + fa(la.a);
+    const to = lb.a === cnt(lb.s) ? 'پایان سوره ' + nm(lb.s) : 'سوره ' + nm(lb.s) + '، آیه ' + fa(lb.a);
+    return 'از ' + from + '\nتا ' + to;
   }
-  return base;
+  // اگر متن قرآن داخل اپ نبود، ناچار شمارهٔ کلی آیه
+  return a === b ? 'آیهٔ شمارهٔ ' + fa(a) + ' قرآن' : 'آیهٔ شمارهٔ ' + fa(a) + ' تا ' + fa(b) + ' قرآن';
+}
+
+// متن دکمه‌ها: پیش‌فرض‌ها اینجاست و مدیر از پیشخوان (ختم قرآن ← متن دکمه‌ها) می‌تواند عوض کند
+const KHATM_L_DEFAULT = {
+  btn_new: '➕ درخواست ختم جدید', btn_mine: 'درخواست‌های من', btn_join: '🤲 شرکت در این ختم',
+  btn_pick: 'یک بخش آزاد برای من', btn_confirm: 'تأیید مشارکت من ({n} بخش)', btn_confirm_empty: 'تأیید',
+  btn_done: '✔ انجام دادم', btn_done_state: '✅ انجام شد', btn_done_all: '✔ همهٔ بخش‌های من را انجام دادم',
+  btn_ask: '🔔 استعلام: انجام دادید؟', btn_ask_all: '🔔 استعلام از همه', btn_close: 'بستن درخواست',
+  btn_submit: 'ثبت و اعلام به همه'
+};
+let KHATM_L = Object.assign({}, KHATM_L_DEFAULT);
+function khatmApplyLabels(labels) {
+  KHATM_L = Object.assign({}, KHATM_L_DEFAULT);
+  if (labels && typeof labels === 'object') {
+    Object.keys(KHATM_L_DEFAULT).forEach((k) => {
+      if (typeof labels[k] === 'string' && labels[k].trim()) KHATM_L[k] = labels[k].trim();
+    });
+  }
+  const setT = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+  setT('khatm-new-btn', KHATM_L.btn_new);
+  const mineBtn = document.getElementById('khatm-mine-btn');
+  if (mineBtn) { const dot = document.getElementById('khatm-mine-dot'); mineBtn.textContent = KHATM_L.btn_mine + ' '; if (dot) mineBtn.appendChild(dot); }
+  setT('khatm-view-pick-btn', KHATM_L.btn_pick);
+  setT('khatm-new-submit-btn', KHATM_L.btn_submit);
+  try { if (typeof khatmUpdateConfirmState === 'function') khatmUpdateConfirmState(); } catch (e) {}
 }
 
 async function loadKhatmSettings() {
   try {
     const s = await apiFetch('/khatm/settings');
+    khatmApplyLabels(s && s.labels);
     const tile = document.getElementById('khatm-more-tile');
     if (tile) tile.classList.toggle('hidden', s && s.enabled === false);
     if (s && s.nav_label) {
@@ -7150,7 +7561,7 @@ async function loadKhatmList() {
         <div class="khatm-meta"><span>👤 ${who}</span><span>🕒 ${khatmAgo(r.age)}</span><span>📚 ${khatmDescribe(r)}</span></div>
         ${khatmProgressHtml(taken, total, doneN)}
         <div class="khatm-meta"><span>${khatmCountsText(taken, total, doneN)}${full ? ' — ظرفیت تکمیل است' : ''}</span>${badge}</div>
-        <div class="khatm-actions"><button type="button" class="secondary-btn small-btn khatm-open-btn">${full ? 'مشاهده' : '🤲 شرکت در این ختم'}</button></div>`;
+        <div class="khatm-actions"><button type="button" class="secondary-btn small-btn khatm-open-btn">${full ? 'مشاهده' : shariqEsc(KHATM_L.btn_join)}</button></div>`;
       card.querySelector('.khatm-open-btn').addEventListener('click', () => openKhatmView(r.id));
       el.appendChild(card);
     });
@@ -7175,7 +7586,7 @@ function khatmUpdateConfirmState() {
   let changed = mineNow.size !== khatmSel.size;
   if (!changed) khatmSel.forEach((p) => { if (!mineNow.has(p)) changed = true; });
   btn.disabled = !changed || d.status !== 'open';
-  btn.textContent = khatmSel.size ? `تأیید مشارکت من (${toPersianDigits(khatmSel.size)} بخش)` : 'تأیید';
+  btn.textContent = khatmSel.size ? KHATM_L.btn_confirm.replace(/\{n\}/g, toPersianDigits(khatmSel.size)) : KHATM_L.btn_confirm_empty;
   msg.textContent = d.status !== 'open'
     ? 'این ختم بسته شده است.'
     : 'بخش‌هایی را که می‌خواهید بخوانید تیک بزنید و «تأیید» را بزنید. برای انصراف از یک بخش، تیکش را بردارید و دوباره تأیید کنید.';
@@ -7216,7 +7627,7 @@ function renderKhatmMyDone() {
     const row = document.createElement('div');
     row.className = 'khatm-mydone-row' + (t.done ? ' is-done' : '');
     row.innerHTML = `<span class="khatm-mydone-txt">${shariqEsc(khatmLabel(d.unit, d.per_person, t.p, meta))}</span>
-      <button type="button" class="${t.done ? 'ghost-btn' : 'secondary-btn'} small-btn khatm-mydone-btn">${t.done ? '✅ انجام شد' : '✔ انجام دادم'}</button>`;
+      <button type="button" class="${t.done ? 'ghost-btn' : 'secondary-btn'} small-btn khatm-mydone-btn">${shariqEsc(t.done ? KHATM_L.btn_done_state : KHATM_L.btn_done)}</button>`;
     row.querySelector('.khatm-mydone-btn').addEventListener('click', () => khatmMarkDone([t.p], !t.done));
     box.appendChild(row);
   });
@@ -7224,7 +7635,7 @@ function renderKhatmMyDone() {
     const all = document.createElement('button');
     all.type = 'button';
     all.className = 'secondary-btn khatm-mydone-all';
-    all.textContent = '✔ همهٔ بخش‌های من را انجام دادم';
+    all.textContent = KHATM_L.btn_done_all;
     all.addEventListener('click', () => khatmMarkDone(pending.map((t) => t.p), true));
     box.appendChild(all);
   }
@@ -7343,21 +7754,21 @@ async function loadKhatmMine() {
           ? '<span class="khatm-badge">✅ ختم خود را انجام داد</span>'
           : '<span class="khatm-badge is-wait">' + toPersianDigits(gDone) + ' از ' + toPersianDigits(g.parts.length) + ' انجام شده' + (gAsked ? ' — استعلام شد' : '') + '</span>';
         const askBtn = (open && gDone < g.parts.length)
-          ? `<button type="button" class="ghost-btn small-btn khatm-ask-btn" data-who="${shariqEsc(w)}">🔔 استعلام: انجام دادید؟</button>` : '';
+          ? `<button type="button" class="ghost-btn small-btn khatm-ask-btn" data-who="${shariqEsc(w)}">${shariqEsc(KHATM_L.btn_ask)}</button>` : '';
         return `<div class="khatm-who"><div class="khatm-who-head"><b>${nm}</b>${status}</div><div class="khatm-who-parts">${parts}</div>${askBtn}</div>`;
       }).join('');
       card.innerHTML = `
         <div class="khatm-title">${shariqEsc(r.title)}</div>
         ${r.note ? `<div class="khatm-note">${shariqText(r.note)}</div>` : ''}
-        <div class="khatm-meta"><span>🕒 ${khatmAgo(r.age)}</span><span>📚 ${khatmDescribe(r)}</span>${open ? '' : '<span class="khatm-badge is-wait">بسته شده</span>'}</div>
+        <div class="khatm-meta"><span>🕒 ${khatmAgo(r.age)}</span><span>📚 ${khatmDescribe(r)}</span>${open ? '' : (r.completed ? '<span class="khatm-badge">✅ ختم کامل شد</span>' : '<span class="khatm-badge is-wait">بسته شده</span>')}</div>
         ${khatmProgressHtml(taken.length, total, doneN)}
         <div class="khatm-meta"><span>${taken.length ? '🤲 ' : '⏳ '}${khatmCountsText(taken.length, total, doneN)}</span></div>
         ${taken.length ? `<div class="khatm-meta"><span>${doneN >= taken.length ? '✅ همهٔ برداشت‌کنندگان ختم خود را انجام داده‌اند' : '⏳ ' + toPersianDigits(pendingN) + ' بخش هنوز انجام نشده'}</span></div>` : ''}
         ${lines ? `<div class="khatm-accepts">${lines}</div>` : ''}
         <div class="khatm-actions">
           <button type="button" class="secondary-btn small-btn khatm-view-btn">مشاهدهٔ بخش‌ها</button>
-          ${(open && pendingN > 0) ? '<button type="button" class="ghost-btn small-btn khatm-ask-all-btn">🔔 استعلام از همه</button>' : ''}
-          ${open ? '<button type="button" class="ghost-btn small-btn khatm-close-btn">بستن درخواست</button>' : ''}
+          ${(open && pendingN > 0) ? '<button type="button" class="ghost-btn small-btn khatm-ask-all-btn">' + shariqEsc(KHATM_L.btn_ask_all) + '</button>' : ''}
+          ${open ? '<button type="button" class="ghost-btn small-btn khatm-close-btn">' + shariqEsc(KHATM_L.btn_close) + '</button>' : ''}
         </div>`;
       card.querySelector('.khatm-view-btn').addEventListener('click', () => openKhatmView(r.id));
       const cb = card.querySelector('.khatm-close-btn');
@@ -7452,7 +7863,17 @@ function khatmUpdatePreview() {
     $('khatm-mine-btn').addEventListener('click', () => switchToTab('khatm-mine', { push: true }));
 
     // ثبت درخواست جدید
-    $('khatm-new-btn').addEventListener('click', () => {
+    $('khatm-new-btn').addEventListener('click', async () => {
+      // فقط یک ختمِ ناتمام: اگر ختم باز و کامل‌نشده‌ای دارد، همین‌جا جلویش گرفته می‌شود (بدون اینترنت، سرور هم بررسی می‌کند)
+      try {
+        const device_id = await ensureDeviceId();
+        const mine = shariqAsArray(await shariqGet('/khatm/mine?device_id=' + encodeURIComponent(device_id)));
+        if (mine.some((r) => r.status === 'open' && !r.completed)) {
+          alert('شما یک ختم ناتمام دارید. تا زمانی که قرآنِ آن کامل خوانده نشود (همهٔ بخش‌ها برداشته و انجام شود) یا آن را نبندید، نمی‌توانید درخواست جدید ثبت کنید.');
+          switchToTab('khatm-mine', { push: true });
+          return;
+        }
+      } catch (e) { /* بدون اینترنت: سرور هنگام ثبت بررسی می‌کند */ }
       $('khatm-new-title').value = '';
       $('khatm-new-note').value = '';
       $('khatm-new-name').value = localStorage.getItem(KHATM_NAME_KEY) || '';

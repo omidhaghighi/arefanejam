@@ -847,6 +847,49 @@ public class AppUpdaterPlugin extends Plugin {
         return new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     }
 
+    /**
+     * آیکون کوچک اعلان باید یک «شکل» باشد (فقط کانال آلفا مهم است و سفید کشیده می‌شود). اگر تصویر شفافیت دارد،
+     * همان شکل شفاف استفاده می‌شود؛ اگر تصویر تمام‌رنگ و بدون شفافیت است، رنگ گوشه‌ها را «زمینه» فرض می‌کنیم و
+     * هرچه با زمینه فرق دارد شکل می‌شود. اگر نتیجه خیلی خالی یا خیلی پر بود، null برمی‌گردد (آیکون پیش‌فرض می‌ماند).
+     */
+    private static Bitmap stkSilhouette(Bitmap img, int size) {
+        try {
+            Bitmap sq = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+            stkDrawCover(new Canvas(sq), img, new RectF(0f, 0f, size, size), stkImgPaint());
+            int n = size * size;
+            int[] px = new int[n];
+            sq.getPixels(px, 0, size, 0, 0, size, size);
+            int translucent = 0;
+            for (int i = 0; i < n; i++) if (((px[i] >>> 24) & 255) < 235) translucent++;
+            int[] outA = new int[n];
+            if (translucent > n * 0.03) {
+                for (int i = 0; i < n; i++) outA[i] = (px[i] >>> 24) & 255;
+            } else {
+                int[] corners = { px[0], px[size - 1], px[n - size], px[n - 1] };
+                int br = 0, bg = 0, bb = 0;
+                for (int i = 0; i < 4; i++) { br += (corners[i] >> 16) & 255; bg += (corners[i] >> 8) & 255; bb += corners[i] & 255; }
+                br /= 4; bg /= 4; bb /= 4;
+                for (int i = 0; i < n; i++) {
+                    int dr = ((px[i] >> 16) & 255) - br, dg = ((px[i] >> 8) & 255) - bg, db = (px[i] & 255) - bb;
+                    float d = (float) Math.sqrt(dr * dr + dg * dg + db * db) / 441f;
+                    float t = (d - 0.08f) / (0.30f - 0.08f);
+                    if (t < 0f) t = 0f; if (t > 1f) t = 1f;
+                    outA[i] = Math.round(t * t * (3f - 2f * t) * 255f);
+                }
+            }
+            long sum = 0;
+            for (int i = 0; i < n; i++) sum += outA[i];
+            float cover = sum / (255f * n);
+            if (cover < 0.03f || cover > 0.92f) return null;
+            for (int i = 0; i < n; i++) px[i] = (outA[i] << 24) | 0x00FFFFFF;
+            Bitmap out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+            out.setPixels(px, 0, size, 0, 0, size, size);
+            return out;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     private static int stkMix(int a, int b, float t) {
         int ar = (a >> 16) & 255, ag = (a >> 8) & 255, ab = a & 255;
         int br = (b >> 16) & 255, bg = (b >> 8) & 255, bb = b & 255;
@@ -1293,6 +1336,7 @@ public class AppUpdaterPlugin extends Plugin {
             String bgUrl = call.getString("bgUrl", "");
             String tileUrl = call.getString("tileUrl", "");
             String iconUrl = call.getString("iconUrl", "");
+            String smallIconUrl = call.getString("smallIconUrl", "");
             Integer bgDimV = call.getInt("bgDim", 45);
             Integer tileAlphaV = call.getInt("tileAlpha", 35);
             int bgDim = bgDimV == null ? 45 : bgDimV.intValue();
@@ -1304,12 +1348,12 @@ public class AppUpdaterPlugin extends Plugin {
                 sv.put("brand", brand); sv.put("weekday", weekday); sv.put("day", day); sv.put("month", month);
                 sv.put("jalali", jalali); sv.put("hijri", hijri); sv.put("gregorian", greg); sv.put("custom", custom);
                 sv.put("next", next); sv.put("nextName", nextName); sv.put("nextTime", nextTime);
-                sv.put("bgUrl", bgUrl); sv.put("tileUrl", tileUrl); sv.put("iconUrl", iconUrl);
+                sv.put("bgUrl", bgUrl); sv.put("tileUrl", tileUrl); sv.put("iconUrl", iconUrl); sv.put("smallIconUrl", smallIconUrl);
                 sv.put("bgDim", bgDim); sv.put("tileAlpha", tileAlpha);
                 ctx.getSharedPreferences(STK_PREFS, Context.MODE_PRIVATE).edit().putString("card", sv.toString()).apply();
             } catch (Throwable ignore) { }
             stkRender(ctx, brand, weekday, day, month, jalali, hijri, greg, custom, next, nextName, nextTime,
-                      bgUrl, tileUrl, iconUrl, bgDim, tileAlpha, true);
+                      bgUrl, tileUrl, iconUrl, smallIconUrl, bgDim, tileAlpha, true);
             call.resolve();
         } catch (Throwable t) {
             call.reject("sticky: " + t);
@@ -1321,12 +1365,13 @@ public class AppUpdaterPlugin extends Plugin {
     /** کارت/نوار نوتیفیکیشن ثابت را می‌سازد و نشان می‌دهد. allowNet=false یعنی هیچ دانلودی انجام نشود. */
     private static void stkRender(Context ctx, String brand, String weekday, String day, String month, String jalali,
                                   String hijri, String greg, String custom, String next, String nextName, String nextTime,
-                                  String bgUrl, String tileUrl, String iconUrl, int bgDim, int tileAlpha, boolean allowNet) throws Exception {
+                                  String bgUrl, String tileUrl, String iconUrl, String smallIconUrl, int bgDim, int tileAlpha, boolean allowNet) throws Exception {
             String pkg = ctx.getPackageName();
             Bitmap bgImg = stkLoadImage(ctx, bgUrl, 1280, allowNet);
             Bitmap tileImg = stkLoadImage(ctx, tileUrl, 450, allowNet);
             Bitmap iconImg = stkLoadImage(ctx, iconUrl, 256, allowNet);
-            stkCleanupImages(ctx, bgUrl, tileUrl, iconUrl);
+            Bitmap smallImg = stkLoadImage(ctx, smallIconUrl, 256, allowNet);
+            stkCleanupImages(ctx, bgUrl, tileUrl, iconUrl, smallIconUrl);
 
             NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
             if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(STK_CH) == null) {
@@ -1357,15 +1402,16 @@ public class AppUpdaterPlugin extends Plugin {
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setContentIntent(pi);
 
-            // آیکون کوچک بالای اعلان (کنار نام اپ): اگر مدیر تصویر گذاشته باشد همان؛ وگرنه آیکون ماهِ پیش‌فرض.
-            // توجه: اندروید روی بیشتر گوشی‌ها فقط شکل (آلفا)ی این تصویر را سفید نشان می‌دهد؛ تصویر رنگی روی خود کارت کشیده می‌شود.
-            if (iconImg != null && Build.VERSION.SDK_INT >= 23) {
+            // آیکون کوچک بالای اعلان (دایرهٔ کنار نام اپ): فقط از «آیکون کوچک اعلان» پیشخوان گرفته می‌شود؛ اگر خالی بود آیکون ماهِ پیش‌فرض.
+            // اندروید این آیکون را همیشه تک‌رنگ (سفید) نشان می‌دهد؛ پس تصویر قبل از استفاده به یک شکل سفید تبدیل می‌شود (stkSilhouette).
+            if (smallImg != null && Build.VERSION.SDK_INT >= 23) {
                 try {
-                    Bitmap sm = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888);
-                    stkDrawCover(new Canvas(sm), iconImg, new RectF(0f, 0f, 96f, 96f), stkImgPaint());
-                    Class<?> iconCompat = Class.forName("androidx.core.graphics.drawable.IconCompat");
-                    Object icon = iconCompat.getMethod("createWithBitmap", Bitmap.class).invoke(null, sm);
-                    b.getClass().getMethod("setSmallIcon", iconCompat).invoke(b, icon);
+                    Bitmap sm = stkSilhouette(smallImg, 96);
+                    if (sm != null) {
+                        Class<?> iconCompat = Class.forName("androidx.core.graphics.drawable.IconCompat");
+                        Object icon = iconCompat.getMethod("createWithBitmap", Bitmap.class).invoke(null, sm);
+                        b.getClass().getMethod("setSmallIcon", iconCompat).invoke(b, icon);
+                    }
                 } catch (Throwable ignore) { }
             }
 
@@ -1409,12 +1455,19 @@ public class AppUpdaterPlugin extends Plugin {
      * ذخیره‌شدهٔ خود گوشی می‌خواند و کارت را دوباره می‌کشد. نه اپ باز لازم است نه اینترنت.
      * فقط وقتی کارت هنوز روی گوشی هست به‌روز می‌کند (اگر کاربر کنارش زده باشد دوباره ساخته نمی‌شود).
      */
-    static void stkRefreshNext(Context ctx) {
+    static void stkRefreshNext(Context ctx) { stkRefreshNext(ctx, false); }
+
+    /**
+     * force=true (بعد از روشن‌شدن گوشی / بروزرسانی اپ): اعلان بعد از ریبوت از بین رفته است، پس کارت را بدون شرط
+     * «هنوز روی گوشی هست» از مشخصات ذخیره‌شده دوباره می‌سازد. اگر مدیر نوتیفیکیشن ثابت را خاموش کرده باشد
+     * (hideSticky مشخصات را پاک می‌کند) چیزی ساخته نمی‌شود.
+     */
+    static void stkRefreshNext(Context ctx, boolean force) {
         try {
             SharedPreferences sp = ctx.getSharedPreferences(STK_PREFS, Context.MODE_PRIVATE);
             String raw = sp.getString("card", "");
             if (raw == null || raw.length() == 0) return;
-            if (Build.VERSION.SDK_INT >= 23) {
+            if (!force && Build.VERSION.SDK_INT >= 23) {
                 try {
                     NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
                     boolean present = false;
@@ -1442,15 +1495,15 @@ public class AppUpdaterPlugin extends Plugin {
                 nextTime = stkFa(String.format(java.util.Locale.US, "%02d:%02d", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE)));
                 nextName = bestLabel;
                 next = "\u0627\u0630\u0627\u0646 \u0628\u0639\u062f\u06cc: " + bestLabel + " \u2014 \u0633\u0627\u0639\u062a " + nextTime;
-                if (nextName.equals(o.optString("nextName", "")) && nextTime.equals(o.optString("nextTime", ""))) return; // تغییری نکرده
+                if (!force && nextName.equals(o.optString("nextName", "")) && nextTime.equals(o.optString("nextTime", ""))) return; // تغییری نکرده
                 o.put("next", next); o.put("nextName", nextName); o.put("nextTime", nextTime);
                 sp.edit().putString("card", o.toString()).apply();
-            } else {
+            } else if (!force) {
                 return; // فهرستی در گوشی نیست؛ همان کارت قبلی بماند
             }
             stkRender(ctx, o.optString("brand", ""), o.optString("weekday", ""), o.optString("day", ""), o.optString("month", ""),
                       o.optString("jalali", ""), o.optString("hijri", ""), o.optString("gregorian", ""), o.optString("custom", ""),
-                      next, nextName, nextTime, o.optString("bgUrl", ""), o.optString("tileUrl", ""), o.optString("iconUrl", ""),
+                      next, nextName, nextTime, o.optString("bgUrl", ""), o.optString("tileUrl", ""), o.optString("iconUrl", ""), o.optString("smallIconUrl", ""),
                       o.optInt("bgDim", 45), o.optInt("tileAlpha", 35), false);
         } catch (Throwable ignore) { }
     }
