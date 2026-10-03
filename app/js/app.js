@@ -164,6 +164,22 @@ function getCalendarStrings(date) {
 
 const DEFAULT_API_URL = 'https://arefanejam.com/wp-json/arefanejam/v1';
 const KAABA = { lat: 21.4225, lng: 39.8262 };
+
+// وضعیت قبله‌نما: همین‌جا (بالای فایل) تعریف می‌شود تا هر تابعی در هر زمانی بدون خطا از آن استفاده کند
+let qiblaBearing = null;            // زاویهٔ قبله از شمال حقیقی (فقط وقتی موقعیت مشخص است)
+let qiblaListenerAttached = false;
+let motionPermissionGranted = false; // (قبلاً تعریف نشده بود و قبله‌نما را از کار انداخته بود)
+let calibrationFlipped = localStorage.getItem('arefanejam_qibla_flip') === '1';
+let qiblaDeclination = 0;           // انحراف مغناطیسی (درجه، شرقی مثبت): شمال مغناطیسی ← شمال حقیقی
+let qiblaDeclinationKey = '';
+let qbHeading = null;               // جهت صاف‌شدهٔ گوشی (درجه، پیوسته)
+let qbLastHeadingTs = 0;
+let qbAligned = false;
+let qbAcquiring = false;
+let qbPromptKind = '';
+let qbPermAsked = false;
+let gotAbsoluteOrientation = false;
+let gotWebkitCompass = false;
 const NOTES_STORAGE_KEY = 'arefanejam_local_notes';
 
 const state = {
@@ -305,7 +321,7 @@ function switchToTab(tabName, opts) {
   if (leavingSurahNumber && tabName !== 'quran-reader') maybeShowQuranSurahExitPopup(leavingSurahNumber);
   if (tabName === 'lesson') loadVerseOfDay();
   if (tabName === 'about') renderAboutPage();
-  if (tabName === 'qibla') autoStartQibla();
+  if (tabName === 'qibla') autoStartQibla(); else qbStopSensors();
   if (tabName === 'quran-list') onQuranListOpened();
   if (tabName === 'quran-juz') renderJuzList();
   if (tabName === 'quran-bookmarks') renderBookmarksPage();
@@ -1159,17 +1175,6 @@ function setLocationLabel(text) {
   if (qiblaEl) qiblaEl.textContent = text;
 }
 
-// هر جا مختصات جدیدی به دست بیاید (GPS، شهر دستی، یا موقعیت پیش‌فرض ادمین)، بلافاصله و
-// در پس‌زمینه زاویهٔ قبله را با جدیدترین مختصات هماهنگ می‌کند — بدون نیاز به بستن/بازکردن اپ
-// یا رفتن به تب قبله. اگر کاربر همان لحظه در تب قبله باشد، عقربه فوراً روی جهت درست می‌رود.
-function refreshQiblaCompassIfReady() {
-  updateHomeLocationBtnState();
-  if (!state.coords) return;
-  qiblaBearing = bearingToQibla(state.coords.lat, state.coords.lng);
-  updateQiblaDeclination();
-  const degEl = document.getElementById('qibla-degree');
-  if (degEl) degEl.textContent = 'زاویه قبله از شمال: ' + toPersianDigits(qiblaBearing.toFixed(1)).replace('.', '٫') + '°';
-}
 
 // دکمهٔ کوچک «موقعیت من» در صفحهٔ خانه: تا وقتی موقعیت مشخص نشده کمی می‌تپد تا توجه کاربر جلب شود؛
 // به‌محض مشخص‌شدن مختصات (حتی از پیش‌فرض ادمین)، حالت آرام می‌گیرد و متنش نام شهر را نشان می‌دهد.
@@ -1376,25 +1381,6 @@ document.getElementById('home-location-btn').addEventListener('click', (e) => {
   document.getElementById('city-modal').classList.remove('hidden');
 });
 
-document.getElementById('qibla-gps-btn').addEventListener('click', () => {
-  const btn = document.getElementById('qibla-gps-btn');
-  const textEl = btn.querySelector('.location-chip-text');
-  const original = textEl.textContent;
-  textEl.textContent = 'در حال یافتن...';
-  btn.classList.add('is-loading');
-  btn.disabled = true;
-  fetchExactGPSLocation((error) => {
-    btn.classList.remove('is-loading');
-    btn.disabled = false;
-    textEl.textContent = original;
-    if (error) {
-      document.getElementById('qibla-status').textContent = error;
-    } else {
-      btn.classList.add('is-success');
-      setTimeout(() => btn.classList.remove('is-success'), 650);
-    }
-  });
-});
 
 try {
   const savedCity = JSON.parse(localStorage.getItem('arefanejam_manual_city') || 'null');
@@ -3494,12 +3480,16 @@ document.getElementById('deeds-popup-later').addEventListener('click', closeDeed
 setInterval(checkDeedsPopupDue, 60 * 1000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) checkDeedsPopupDue(); });
 
-/* ---------- قبله‌نما (خودکار، بدون نیاز به دکمه) ---------- */
-let qiblaBearing = null;
-let qiblaListenerAttached = false;
-let calibrationFlipped = localStorage.getItem('arefanejam_qibla_flip') === '1';
-let qiblaDeclination = 0;      // انحراف مغناطیسی (درجه، شرقی مثبت): شمال مغناطیسی ← شمال حقیقی
-let qiblaDeclinationKey = '';
+/* ---------- قبله‌نما (بدون متن؛ با هشدار روشن‌کردن مکان) ---------- */
+// نکته: متغیرهای وضعیت قبله‌نما (qiblaBearing، motionPermissionGranted، qbHeading، ...) بالای فایل، کنار KAABA، تعریف شده‌اند.
+// علت خراب‌بودن قبله‌نما: motionPermissionGranted هیچ‌جا تعریف نشده بود و autoStartQibla همان ابتدا خطا می‌داد.
+
+function qbEl(id) { return document.getElementById(id); }
+function qbNative() {
+  try { return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AppUpdater) || null; } catch (e) { return null; }
+}
+// «موقعیت مشخص‌شده» یعنی شهر انتخابی یا موقعیت ذخیره‌شدهٔ GPS؛ شهر پیش‌فرض ادمین حساب نمی‌شود
+function qbHasLocation() { return !!(state.manualCity || loadCachedCoords()); }
 
 function bearingToQibla(lat, lng) {
   const toRad = (d) => d * Math.PI / 180;
@@ -3522,7 +3512,7 @@ function updateQiblaDeclination() {
   const lat = state.coords.lat, lng = state.coords.lng;
   qiblaDeclination = (lat > 24 && lat < 40 && lng > 43 && lng < 64) ? 5 : 0;
   try {
-    const AUp = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AppUpdater;
+    const AUp = qbNative();
     if (AUp && AUp.magneticDeclination) {
       AUp.magneticDeclination({ lat: lat, lng: lng, alt: (loadCachedCoords() || {}).alt || 0 }).then((r) => {
         if (r && typeof r.declination === 'number' && qiblaDeclinationKey === key) qiblaDeclination = r.declination;
@@ -3531,55 +3521,64 @@ function updateQiblaDeclination() {
   } catch (e) {}
 }
 
-async function autoStartQibla() {
-  const statusEl = document.getElementById('qibla-status');
-
-  // اگر شهر دستی انتخاب شده یا مختصاتی از قبل (GPS/کش/پیش‌فرض ادمین) موجود است،
-  // از همان استفاده می‌شود؛ در غیر این صورت مختصات را (از طریق همان مسیر یکتای
-  // resolveCoordinates، بدون تکرار جداگانهٔ GPS) به دست می‌آوریم.
-  if (state.manualCity) {
-    state.coords = { lat: state.manualCity.lat, lng: state.manualCity.lng };
-  } else if (!state.coords) {
-    statusEl.textContent = 'در حال یافتن موقعیت دقیق...';
-    const coords = await resolveCoordinates();
-    if (!coords) {
-      statusEl.textContent = 'موقعیت مکانی پیدا نشد. از دکمه‌های بالا شهر خود را انتخاب کنید.';
-      return;
-    }
-  }
-
-  refreshQiblaCompassIfReady();
-  statusEl.textContent = 'گوشی را صاف نگه دارید و بچرخانید...';
-
-  if (!motionPermissionGranted) {
-    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-      try {
-        const perm = await DeviceOrientationEvent.requestPermission();
-        if (perm !== 'granted') { statusEl.textContent = 'اجازه دسترسی به قطب‌نما داده نشد.'; return; }
-        motionPermissionGranted = true;
-      } catch (e) { statusEl.textContent = 'دستگاه شما از قطب‌نما پشتیبانی نمی‌کند.'; return; }
-    } else {
-      motionPermissionGranted = true;
-    }
-  }
-
-  if (!qiblaListenerAttached) {
-    qiblaListenerAttached = true;
-    window.addEventListener('deviceorientationabsolute', handleOrientationAbs, true);
-    window.addEventListener('deviceorientation', handleOrientation, true);
-    // اگر سنسور مطلق (قطب‌نمای واقعی) نیامد، به‌جای نشان‌دادن جهت غلط، پیام بدهیم
-    setTimeout(() => {
-      if (!gotAbsoluteOrientation && !gotWebkitCompass && currentTab === 'qibla') {
-        document.getElementById('qibla-status').textContent = 'سنسور قطب‌نمای این گوشی در دسترس نیست یا نیاز به کالیبره دارد (گوشی را به شکل ∞ بچرخانید).';
-      }
-    }, 3500);
-  }
+/* ----- نمایش ----- */
+function qbSetAligned(on) {
+  if (on === qbAligned) return;
+  qbAligned = on;
+  const s = qbEl('qb-scene');
+  if (s) s.classList.toggle('is-aligned', on);
+  if (on) { try { if (navigator.vibrate) navigator.vibrate([20, 50, 30]); } catch (e) {} }
 }
 
-let smoothedHeading = null;
-let gotAbsoluteOrientation = false;
-let gotWebkitCompass = false;
+function qbRender() {
+  const s = qbEl('qb-scene');
+  if (!s) return;
+  const has = qiblaBearing !== null && qbHasLocation();
+  s.classList.toggle('no-loc', !has);
+  if (!has) qbSetAligned(false);
+  qbDraw();
+}
 
+// صفحهٔ قطب‌نما با شمال می‌چرخد؛ نشان کعبه روی همان صفحه در زاویهٔ قبله است.
+// وقتی نشان کعبه به نشانگر ثابت بالا برسد، رو به قبله‌اید.
+function qbDraw() {
+  const dial = qbEl('qb-dial');
+  const kmark = qbEl('qb-kmark');
+  const kbadge = qbEl('qb-kbadge');
+  if (!dial || !kmark || !kbadge) return;
+  const hasHeading = qbHeading !== null;
+  const h = hasHeading ? qbHeading : 0;
+  dial.style.transform = 'rotate(' + (-h).toFixed(2) + 'deg)';
+  const tl = qbEl('qb-turn-l'), tr = qbEl('qb-turn-r');
+  if (qiblaBearing === null) {
+    if (tl) tl.style.opacity = '0';
+    if (tr) tr.style.opacity = '0';
+    return;
+  }
+  const rel = qiblaBearing - h;
+  kmark.style.transform = 'rotate(' + rel.toFixed(2) + 'deg)';
+  kbadge.style.transform = 'rotate(' + (-rel).toFixed(2) + 'deg)';
+  if (!hasHeading) { qbSetAligned(false); return; }
+  // اختلاف نسبت به بالا، در بازهٔ ۱۸۰- تا ۱۸۰ (مثبت = نشان کعبه سمت راست = گوشی را به راست بچرخانید)
+  const d = ((rel % 360) + 540) % 360 - 180;
+  const ad = Math.abs(d);
+  if (!qbAligned && ad <= 3) qbSetAligned(true);
+  else if (qbAligned && ad > 5) qbSetAligned(false);
+  const k = qbAligned ? 0 : Math.min(1, Math.max(0, (ad - 3) / 22));
+  if (tr) tr.style.opacity = d > 0 ? String(k) : '0';
+  if (tl) tl.style.opacity = d < 0 ? String(k) : '0';
+}
+
+// هر جا مختصات جدیدی به دست بیاید (GPS، شهر دستی)، بلافاصله و در پس‌زمینه زاویهٔ قبله هماهنگ می‌شود
+function refreshQiblaCompassIfReady() {
+  updateHomeLocationBtnState();
+  if (!state.coords || !qbHasLocation()) { qiblaBearing = null; qbRender(); return; }
+  qiblaBearing = bearingToQibla(state.coords.lat, state.coords.lng);
+  updateQiblaDeclination();
+  qbRender();
+}
+
+/* ----- سنسور جهت ----- */
 // جهت «رو به‌روی گوشی» نسبت به شمال مغناطیسی، با جبران کج‌بودن گوشی (alpha/beta/gamma).
 // گوشی تقریباً افقی: جهتِ بالای گوشی؛ گوشی ایستاده: جهتِ پشت گوشی.
 function headingFromEuler(alphaDeg, betaDeg, gammaDeg) {
@@ -3622,47 +3621,200 @@ function handleOrientation(event) {
 }
 
 function applyHeading(magHeading) {
-  if (qiblaBearing === null) return;
+  qbLastHeadingTs = Date.now();
   // شمال مغناطیسی ← شمال حقیقی
-  const heading = (magHeading + qiblaDeclination + 360) % 360;
-
-  // فیلتر نرم‌کننده روی زاویه (میانگین دایره‌ای)؛ تغییر بزرگ سریع‌تر دنبال می‌شود، لرزش کوچک حذف می‌شود
-  if (smoothedHeading === null) {
-    smoothedHeading = heading;
+  const target = (magHeading + qiblaDeclination + 360) % 360;
+  if (qbHeading === null) {
+    qbHeading = target;
   } else {
-    let diff = heading - smoothedHeading;
+    // فیلتر نرم‌کننده روی زاویه؛ زاویه «پیوسته» نگه داشته می‌شود تا در گذر از ۰/۳۶۰ صفحه یک دور کامل نچرخد
+    const cur = ((qbHeading % 360) + 360) % 360;
+    let diff = target - cur;
     if (diff > 180) diff -= 360;
     if (diff < -180) diff += 360;
     const k = Math.min(0.5, 0.07 + Math.abs(diff) / 120);
-    smoothedHeading = (smoothedHeading + k * diff + 360) % 360;
+    qbHeading += k * diff;
   }
+  const s = qbEl('qb-scene');
+  if (s && s.classList.contains('is-calib')) s.classList.remove('is-calib');
+  qbDraw();
+}
 
-  const rotation = qiblaBearing - smoothedHeading;
-  document.getElementById('compass-needle').style.transform = `rotate(${rotation}deg)`;
+async function qbStartSensors() {
+  if (qiblaListenerAttached) return;
+  try {
+    if (!motionPermissionGranted) {
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        const perm = await DeviceOrientationEvent.requestPermission();
+        if (perm !== 'granted') return;
+      }
+      motionPermissionGranted = true;
+    }
+  } catch (e) { return; }
+  if (qiblaListenerAttached) return;
+  qiblaListenerAttached = true;
+  qbLastHeadingTs = Date.now();
+  window.addEventListener('deviceorientationabsolute', handleOrientationAbs, true);
+  window.addEventListener('deviceorientation', handleOrientation, true);
+}
 
-  // نرمال‌سازی اختلاف به بازهٔ ۱۸۰- تا ۱۸۰ برای تشخیص «رو به قبله بودن»
-  let diffFromTarget = ((rotation % 360) + 360) % 360;
-  if (diffFromTarget > 180) diffFromTarget -= 360;
-  const absDiff = Math.abs(diffFromTarget);
+function qbStopSensors() {
+  if (!qiblaListenerAttached) return;
+  qiblaListenerAttached = false;
+  try {
+    window.removeEventListener('deviceorientationabsolute', handleOrientationAbs, true);
+    window.removeEventListener('deviceorientation', handleOrientation, true);
+  } catch (e) {}
+}
 
-  const kaabaEl = document.getElementById('qibla-kaaba-icon');
-  const targetKaabaEl = document.getElementById('qibla-target-kaaba');
-  const statusEl = document.getElementById('qibla-status');
-  if (absDiff <= 3) {
-    kaabaEl.classList.add('is-aligned');
-    targetKaabaEl.classList.add('is-aligned');
-    kaabaEl.style.opacity = '';
-    statusEl.textContent = 'جهت درست کعبه ✓';
-  } else {
-    kaabaEl.classList.remove('is-aligned');
-    targetKaabaEl.classList.remove('is-aligned');
-    kaabaEl.style.opacity = '';
-    statusEl.textContent = 'تا قبله ' + toPersianDigits(Math.round(absDiff)) + ' درجه ' + (diffFromTarget > 0 ? 'به راست' : 'به چپ') + ' بچرخید';
+// اگر چند ثانیه هیچ جهتی نرسید (سنسور نیاز به کالیبره دارد)، نشانهٔ ∞ نمایش داده می‌شود
+setInterval(() => {
+  try {
+    const s = qbEl('qb-scene');
+    if (!s || currentTab !== 'qibla') return;
+    s.classList.toggle('is-calib', qiblaListenerAttached && qbHasLocation() && (Date.now() - qbLastHeadingTs > 3500));
+  } catch (e) {}
+}, 1000);
+
+/* ----- هشدار روشن‌کردن مکان ----- */
+function qbPromptOpen() {
+  const box = qbEl('qibla-loc-prompt');
+  return !!(box && !box.classList.contains('hidden'));
+}
+function qbHidePrompt() {
+  const box = qbEl('qibla-loc-prompt');
+  if (box) box.classList.add('hidden');
+}
+function qbShowPrompt(kind) {
+  qbPromptKind = kind;
+  const box = qbEl('qibla-loc-prompt');
+  if (!box) return;
+  const A = qbNative();
+  const canOpen = !!(A && A.openLocationSettings);
+  const texts = {
+    off: {
+      title: 'مکان گوشی خاموش است',
+      text: canOpen
+        ? 'برای پیدا کردن قبله، مکان (Location) گوشی را روشن کنید و دوباره به اپ برگردید.'
+        : 'نوار بالای گوشی را پایین بکشید، دکمهٔ «مکان / Location» را روشن کنید و دوباره به اپ برگردید.',
+      btn: canOpen ? 'روشن کردن مکان' : 'روشن کردم، دوباره بررسی کن'
+    },
+    perm: {
+      title: 'اجازهٔ مکان داده نشده',
+      text: canOpen
+        ? 'اپ اجازهٔ دسترسی به مکان ندارد. «باز کردن تنظیمات» را بزنید، مجوز «مکان» را روی «مجاز» بگذارید و برگردید.'
+        : 'از تنظیمات گوشی ← برنامه‌ها ← عارفان جام ← مجوزها، «مکان» را روی «مجاز» بگذارید و برگردید.',
+      btn: canOpen ? 'باز کردن تنظیمات' : 'دوباره بررسی کن'
+    },
+    weak: {
+      title: 'موقعیت پیدا نشد',
+      text: 'اگر مکان گوشی روشن است، کنار پنجره یا بیرون از ساختمان بروید و دوباره تلاش کنید.',
+      btn: 'تلاش دوباره'
+    }
+  };
+  const t = texts[kind] || texts.weak;
+  const card = box.querySelector('.qb-prompt-card');
+  if (card) card.setAttribute('data-kind', kind);
+  qbEl('qb-prompt-title').textContent = t.title;
+  qbEl('qb-prompt-text').textContent = t.text;
+  qbEl('qb-prompt-primary').textContent = t.btn;
+  box.classList.remove('hidden');
+}
+
+function qbLocStatus() {
+  const A = qbNative();
+  if (!A || !A.locationStatus) return Promise.resolve(null);
+  try { return Promise.resolve(A.locationStatus()).then((r) => r || null).catch(() => null); } catch (e) { return Promise.resolve(null); }
+}
+
+// دکمهٔ اصلی هشدار: باز کردن تنظیمات مکان / تنظیمات مجوز اپ (اگر APK جدید باشد)، وگرنه فقط دوباره بررسی می‌کند
+function qbPromptPrimary() {
+  const A = qbNative();
+  const canOpen = !!(A && A.openLocationSettings);
+  try {
+    if (qbPromptKind === 'off' && canOpen) { Promise.resolve(A.openLocationSettings({})).catch(() => {}); return; }
+    if (qbPromptKind === 'perm' && canOpen && qbPermAsked) { Promise.resolve(A.openLocationSettings({ app: true })).catch(() => {}); return; }
+  } catch (e) {}
+  qbFetchGps(true);
+}
+
+// گرفتن موقعیت دقیق برای قبله‌نما. اگر نشد، هشدار مناسب نشان داده می‌شود.
+async function qbFetchGps(userInitiated) {
+  if (qbAcquiring) return false;
+  qbAcquiring = true;
+  const btn = qbEl('qibla-gps-btn');
+  const scene = qbEl('qb-scene');
+  if (btn) { btn.classList.add('is-loading'); btn.disabled = true; }
+  if (scene) scene.classList.add('is-locating');
+  let st = null;
+  try {
+    st = await qbLocStatus();
+    if (st && st.enabled === false) { qbShowPrompt('off'); return false; }
+    if (!navigator.geolocation) { qbShowPrompt('off'); return false; }
+    const fix = await getPreciseFix(st ? 12000 : 8000);
+    applyPreciseFix(fix, false);
+    qbHidePrompt();
+    qbPermAsked = false;
+    if (btn) { btn.classList.add('is-success'); setTimeout(() => btn.classList.remove('is-success'), 700); }
+    if (currentTab === 'qibla') qbStartSensors();
+    return true;
+  } catch (err) {
+    const code = err && err.code;
+    if (code === 1) {
+      qbPermAsked = true;
+      try { localStorage.setItem('arefanejam_geo_denied', '1'); } catch (e) {}
+      qbShowPrompt('perm');
+    } else if (code === 3 || (code === 2 && st && st.enabled === true)) {
+      qbShowPrompt('weak');
+    } else {
+      qbShowPrompt('off');
+    }
+    return false;
+  } finally {
+    qbAcquiring = false;
+    if (btn) { btn.classList.remove('is-loading'); btn.disabled = false; }
+    if (scene) scene.classList.remove('is-locating');
   }
 }
 
-document.getElementById('qibla-flip-toggle').checked = calibrationFlipped;
-document.getElementById('qibla-flip-toggle').addEventListener('change', (e) => {
+async function autoStartQibla() {
+  try {
+    const c = state.manualCity || loadCachedCoords();
+    if (c) {
+      // موقعیت از قبل مشخص است (شهر انتخابی یا GPS ذخیره‌شده): همان استفاده می‌شود
+      state.coords = { lat: c.lat, lng: c.lng };
+      qbHidePrompt();
+      refreshQiblaCompassIfReady();
+      await qbStartSensors();
+      return;
+    }
+    // موقعیتی از قبل مشخص نشده: تا مشخص شدن، قبله‌ای نشان داده نمی‌شود و اگر مکان خاموش بود هشدار می‌آید
+    qiblaBearing = null;
+    qbRender();
+    if (qbAcquiring) return;
+    await qbFetchGps(false);
+  } catch (e) {
+    try { console.warn('qibla', e); } catch (e2) {}
+  }
+}
+
+qbEl('qibla-gps-btn').addEventListener('click', () => { qbFetchGps(true); });
+qbEl('qb-prompt-primary').addEventListener('click', qbPromptPrimary);
+qbEl('qb-prompt-close').addEventListener('click', qbHidePrompt);
+qbEl('qb-prompt-city').addEventListener('click', () => {
+  populateCityList('');
+  document.getElementById('city-modal').classList.remove('hidden');
+});
+// برگشت از تنظیمات گوشی (مثلاً بعد از روشن‌کردن مکان): اگر هشدار باز است خودکار دوباره بررسی می‌شود
+document.addEventListener('visibilitychange', () => {
+  if (currentTab !== 'qibla') return;
+  if (document.hidden) { qbStopSensors(); return; }
+  if (qbHasLocation()) qbStartSensors();
+  else if (qbPromptOpen()) qbFetchGps(false);
+});
+
+qbEl('qibla-flip-toggle').checked = calibrationFlipped;
+qbEl('qibla-flip-toggle').addEventListener('change', (e) => {
   calibrationFlipped = e.target.checked;
   localStorage.setItem('arefanejam_qibla_flip', calibrationFlipped ? '1' : '0');
 });

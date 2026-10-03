@@ -1324,42 +1324,196 @@ body.dark-mode .prayer-row { background: linear-gradient(160deg, color-mix(in sr
 .checklist-row label { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
 .checklist-row input[type="checkbox"] { width: 20px; height: 20px; }
 
-/* Qibla */
+/* ===== قبله‌نما: بدون متن، فقط تصویر و حرکت ===== */
 .center-block { text-align: center; }
-.compass-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 22px 0 10px; gap: 4px; }
-.compass-stage { position: relative; width: 240px; margin: 44px auto 0; }
-.qibla-target-kaaba {
-  position: absolute; top: -42px; left: 0; right: 0; text-align: center;
-  font-size: 28px; line-height: 1; opacity: 0.3;
-  transition: opacity 0.25s ease-out, transform 0.25s ease-out;
-  transform: scale(1); pointer-events: none;
+#tab-qibla { position: relative; }
+#tab-qibla.active { display: flex; flex-direction: column; min-height: 100%; }
+.qb-scene {
+  --d: min(78vw, 330px, 56vh);
+  --qb-glow: 176,141,78;
+  flex: 1; position: relative; overflow: hidden;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: clamp(26px, 6vh, 44px); padding: 30px 0 28px;
 }
-.qibla-target-kaaba.is-aligned { opacity: 1; transform: scale(1.15); }
-.compass-ring {
-  width: 240px; height: 240px; border-radius: 50%;
-  border: 3px solid var(--emerald);
-  background: radial-gradient(circle, #fff 60%, var(--paper-alt) 100%);
-  position: relative;
+.qb-compass { position: relative; width: var(--d); height: var(--d); flex: none; }
+.qb-compass::before {
+  content: ""; position: absolute; inset: 2%; border-radius: 50%; z-index: 0;
+  box-shadow: 0 20px 38px rgba(var(--sh-color), 0.34), 0 4px 10px rgba(var(--sh-color), 0.22);
 }
-.compass-n {
-  position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
-  font-weight: 800; color: var(--gold); font-size: 13px;
+.qb-aura {
+  position: absolute; left: 50%; top: 50%; width: 170%; height: 170%; z-index: 0;
+  transform: translate(-50%, -50%); border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, rgba(var(--qb-glow), 0.34) 0%, rgba(var(--qb-glow), 0.12) 40%, rgba(var(--qb-glow), 0) 66%);
+  transition: opacity .5s ease;
 }
-.compass-line {
-  position: absolute; top: 0; bottom: 50%; left: 50%;
-  width: 2px;
-  background: repeating-linear-gradient(var(--gold) 0 6px, transparent 6px 11px);
-  transform: translateX(-50%);
-  pointer-events: none;
+.qb-scene.is-aligned { --qb-glow: 46,204,140; }
+.qb-dial, .qb-fixed-svg, .qb-kmark, .qb-sweep { position: absolute; inset: 0; pointer-events: none; }
+.qb-dial-svg, .qb-fixed-svg { display: block; width: 100%; height: 100%; }
+.qb-fixed-svg { z-index: 3; }
+.qb-dial { z-index: 1; transition: transform .1s linear, opacity .4s ease, filter .4s ease; will-change: transform; }
+.qb-scene.no-loc .qb-dial { opacity: .55; filter: saturate(.55); }
+.qb-kmark { z-index: 2; transition: transform .1s linear, opacity .35s ease; will-change: transform; }
+.qb-scene.no-loc .qb-kmark { opacity: 0; }
+.qb-kbadge {
+  position: absolute; left: 43.75%; top: 10%; width: 12.5%; height: 12.5%;
+  transition: transform .1s linear; will-change: transform;
 }
-.compass-needle {
-  position: absolute; inset: 0;
-  display: flex; align-items: flex-start; justify-content: center;
-  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
-  transform-origin: center center;
+.qb-kbadge-in {
+  width: 100%; height: 100%; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 35% 28%, #2F8173 0%, #123A33 62%, #0A2420 100%);
+  box-shadow: 0 0 0 2px #D9BD87, 0 0 0 4px rgba(217,189,135,.28), 0 5px 12px rgba(0,0,0,.5);
+  transition: transform .4s cubic-bezier(.34,1.56,.64,1), box-shadow .35s ease;
 }
-.kaaba-dot { margin-top: 24px; font-size: 28px; opacity: 0.3; transition: opacity 0.25s ease-out, transform 0.25s ease-out; }
-.kaaba-dot.is-aligned { opacity: 1; transform: scale(1.15); }
+.qb-kbadge-in svg { width: 74%; height: 74%; display: block; }
+.qb-scene.is-aligned .qb-kbadge-in {
+  transform: scale(1.24);
+  box-shadow: 0 0 0 2px #F6E4B4, 0 0 0 5px rgba(46,204,140,.6), 0 0 22px 7px rgba(46,204,140,.6), 0 5px 12px rgba(0,0,0,.5);
+  animation: qb-beat 1.5s ease-in-out infinite;
+}
+@keyframes qb-beat {
+  0%, 100% { box-shadow: 0 0 0 2px #F6E4B4, 0 0 0 5px rgba(46,204,140,.6), 0 0 18px 5px rgba(46,204,140,.5), 0 5px 12px rgba(0,0,0,.5); }
+  50%      { box-shadow: 0 0 0 2px #F6E4B4, 0 0 0 7px rgba(46,204,140,.35), 0 0 30px 11px rgba(46,204,140,.75), 0 5px 12px rgba(0,0,0,.5); }
+}
+.qb-axis { stroke-opacity: .32; transition: stroke-opacity .3s ease, stroke .3s ease; }
+.qb-scene.is-aligned .qb-axis { stroke: #7CF0BF; stroke-opacity: .95; }
+.qb-core { transition: fill .3s ease; }
+.qb-scene.is-aligned .qb-core { fill: #4DE0A0; }
+.qb-pulse {
+  position: absolute; inset: 1%; border-radius: 50%; z-index: 0; pointer-events: none;
+  border: 2px solid rgba(46,204,140,.7); opacity: 0;
+}
+.qb-scene.is-aligned .qb-pulse { animation: qb-pulse 2.2s ease-out infinite; }
+.qb-scene.is-aligned .qb-pulse-2 { animation-delay: 1.1s; }
+@keyframes qb-pulse { 0% { transform: scale(1); opacity: .75; } 100% { transform: scale(1.4); opacity: 0; } }
+
+/* پیدا کردن موقعیت: جاروب رادار روی صفحه */
+.qb-sweep {
+  z-index: 2; inset: 3%; border-radius: 50%; opacity: 0; transition: opacity .3s ease;
+  background: conic-gradient(from 0deg, rgba(243,221,170,0) 0deg, rgba(243,221,170,0) 240deg, rgba(243,221,170,.5) 358deg, rgba(243,221,170,0) 360deg);
+}
+.qb-scene.is-locating .qb-sweep { opacity: 1; animation: qb-spin 1.6s linear infinite; }
+@keyframes qb-spin { to { transform: rotate(360deg); } }
+
+/* راهنمای چرخش (فقط پیکان، بدون نوشته) */
+.qb-turn {
+  position: absolute; top: 50%; z-index: 4; pointer-events: none;
+  width: calc(var(--d) * 0.095); height: calc(var(--d) * 0.095); margin-top: calc(var(--d) * -0.0475);
+  opacity: 0; transition: opacity .18s ease; color: var(--gold);
+}
+.qb-turn-l { right: 100%; margin-right: 5px; }
+.qb-turn-r { left: 100%; margin-left: 5px; transform: scaleX(-1); }
+.qb-turn svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.qb-turn path { fill: none; stroke: currentColor; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; opacity: .25; animation: qb-chev 1s ease-in-out infinite; }
+.qb-turn path:nth-child(2) { animation-delay: .16s; }
+.qb-turn path:nth-child(3) { animation-delay: .32s; }
+@keyframes qb-chev { 0%, 100% { opacity: .2; } 50% { opacity: 1; } }
+
+/* کالیبره: نشانهٔ ∞ (گوشی را به شکل هشت بچرخانید) */
+.qb-calib {
+  position: absolute; left: 50%; top: 50%; z-index: 5; width: 46%; height: 28%; pointer-events: none;
+  transform: translate(-50%, -50%) scale(.9); opacity: 0; border-radius: 999px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(6,26,22,.8); box-shadow: 0 0 0 1px rgba(217,189,135,.5), 0 8px 20px rgba(0,0,0,.4);
+  transition: opacity .3s ease, transform .3s ease;
+}
+.qb-scene.is-calib .qb-calib { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+.qb-calib svg { width: 74%; height: auto; display: block; }
+.qb-calib path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.qb-calib .base { stroke: rgba(217,189,135,.35); stroke-width: 3.2; }
+.qb-calib .run { stroke: #F6E4B4; stroke-width: 3.6; stroke-dasharray: 22 118; animation: qb-dash 1.6s linear infinite; }
+@keyframes qb-dash { to { stroke-dashoffset: -140; } }
+
+/* دکمه‌های گرد (بدون نوشته) */
+.qb-actions { display: flex; gap: 20px; position: relative; z-index: 2; }
+.qb-btn {
+  width: 56px; height: 56px; padding: 0; border-radius: 50%; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  border: 1.5px solid rgba(176,141,78,.6);
+  background: linear-gradient(160deg, var(--card-bg), var(--paper-alt));
+  color: var(--emerald); box-shadow: var(--raised-md);
+  transition: transform .18s cubic-bezier(.34,1.56,.64,1), box-shadow .2s ease;
+}
+body.dark-mode .qb-btn { color: var(--gold-light); }
+.qb-btn svg { width: 27px; height: 27px; display: block; }
+.qb-btn:active { transform: scale(.9); }
+.qb-btn:disabled { opacity: .75; }
+.qb-btn--accent {
+  background: linear-gradient(135deg, var(--emerald), var(--emerald-light));
+  border-color: var(--gold); color: #F6E4B4; box-shadow: 0 6px 16px rgba(20,60,54,.4);
+}
+body.dark-mode .qb-btn--accent { color: #F6E4B4; }
+.qb-btn.is-loading svg { animation: qb-spin 1.1s linear infinite; }
+.qb-btn.is-success { animation: qb-success .65s ease; }
+@keyframes qb-success {
+  0% { box-shadow: 0 0 0 0 rgba(176,141,78,.6); }
+  70% { box-shadow: 0 0 0 14px rgba(176,141,78,0); }
+  100% { box-shadow: 0 0 0 0 rgba(176,141,78,0); }
+}
+.qb-scene.no-loc .qb-btn--accent { animation: qb-attn 1.6s ease-in-out infinite; }
+@keyframes qb-attn {
+  0%, 100% { box-shadow: 0 6px 16px rgba(20,60,54,.4), 0 0 0 0 rgba(217,189,135,.6); }
+  50% { box-shadow: 0 6px 16px rgba(20,60,54,.4), 0 0 0 13px rgba(217,189,135,0); }
+}
+
+/* هشدار روشن‌کردن مکان */
+.qb-prompt {
+  position: absolute; inset: 0; z-index: 8;
+  display: flex; align-items: center; justify-content: center; padding: 22px;
+  background: rgba(8,28,24,.58); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  animation: qb-fade .25s ease-out;
+}
+@keyframes qb-fade { from { opacity: 0; } to { opacity: 1; } }
+.qb-prompt-card {
+  position: relative; width: 100%; max-width: 330px; text-align: center;
+  background: var(--card-bg); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 28px;
+  padding: 30px 22px 18px; box-shadow: var(--raised-lg), 0 24px 50px rgba(0,0,0,.35);
+  animation: qb-pop .38s cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes qb-pop { from { transform: translateY(18px) scale(.92); opacity: 0; } to { transform: none; opacity: 1; } }
+.qb-prompt-x {
+  position: absolute; top: 10px; left: 12px; width: 32px; height: 32px; border-radius: 50%;
+  border: none; background: var(--paper-alt); color: var(--ink); font-size: 14px; cursor: pointer; line-height: 1;
+}
+.qb-prompt-icon {
+  position: relative; width: 84px; height: 84px; margin: 0 auto 14px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; color: #F6E4B4;
+  background: linear-gradient(145deg, var(--emerald-light), var(--emerald));
+  box-shadow: 0 8px 20px rgba(20,60,54,.4), 0 0 0 3px rgba(217,189,135,.55);
+}
+.qb-prompt-icon svg { width: 42px; height: 42px; position: relative; z-index: 1; }
+.qb-prompt-icon .qb-slash { stroke: #E4735A; stroke-width: 2.2; }
+.qb-prompt-card:not([data-kind="off"]) .qb-slash { display: none; }
+.qb-ripple {
+  position: absolute; inset: 0; border-radius: 50%; border: 2px solid rgba(217,189,135,.7);
+  opacity: 0; animation: qb-ripple 2.4s ease-out infinite;
+}
+.qb-ripple.r2 { animation-delay: .8s; }
+.qb-ripple.r3 { animation-delay: 1.6s; }
+@keyframes qb-ripple { 0% { transform: scale(1); opacity: .8; } 100% { transform: scale(1.9); opacity: 0; } }
+.qb-prompt-card h4 { margin: 0 0 8px; font-size: 17px; font-weight: 800; color: var(--emerald); }
+body.dark-mode .qb-prompt-card h4 { color: var(--gold-light); }
+.qb-prompt-card p { margin: 0 0 18px; font-size: 13.5px; line-height: 2; color: #6B6458; }
+body.dark-mode .qb-prompt-card p { color: #B9B3A6; }
+.qb-prompt-btn {
+  width: 100%; border: none; cursor: pointer; border-radius: 999px; padding: 13px 18px;
+  font-size: 15px; font-weight: 800; color: #F6E4B4;
+  background: linear-gradient(135deg, var(--emerald), var(--emerald-light));
+  box-shadow: 0 6px 16px rgba(20,60,54,.38), 0 0 0 1.5px var(--gold) inset;
+}
+.qb-prompt-btn:disabled { opacity: .7; }
+.qb-prompt-link {
+  display: block; width: 100%; margin-top: 8px; padding: 10px; border: none; background: transparent;
+  color: #8A6A2C; font-size: 13.5px; font-weight: 700; cursor: pointer;
+}
+body.dark-mode .qb-prompt-link { color: var(--gold-light); }
+
+@media (prefers-reduced-motion: reduce) {
+  .qb-dial, .qb-kmark, .qb-kbadge, .qb-kbadge-in { transition: none; }
+  .qb-pulse, .qb-ripple, .qb-sweep, .qb-turn path, .qb-calib .run, .qb-btn--accent { animation: none !important; }
+}
+
 .secondary-btn {
   background: var(--emerald); color: #fff; border: none; border-radius: 9px;
   padding: 11px 18px; font-size: 14px; font-weight: 700; cursor: pointer;

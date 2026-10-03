@@ -1546,6 +1546,49 @@ public class AppUpdaterPlugin extends Plugin {
         }
     }
 
+    /** Qibla: is the phone's Location switch on, and may this app use location? Returns {enabled, granted}. */
+    @PluginMethod
+    public void locationStatus(PluginCall call) {
+        try {
+            Context ctx = getContext();
+            boolean enabled = false;
+            try {
+                android.location.LocationManager lm = (android.location.LocationManager) ctx.getSystemService(Context.LOCATION_SERVICE);
+                if (lm != null) enabled = androidx.core.location.LocationManagerCompat.isLocationEnabled(lm);
+            } catch (Throwable ignore) { }
+            boolean granted =
+                ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                || ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED;
+            JSObject r = new JSObject();
+            r.put("enabled", enabled);
+            r.put("granted", granted);
+            call.resolve(r);
+        } catch (Throwable t) {
+            call.reject("locationStatus: " + t);
+        }
+    }
+
+    /** Qibla: opens the phone's Location settings (default) or, with {app:true}, this app's permission settings page. */
+    @PluginMethod
+    public void openLocationSettings(PluginCall call) {
+        try {
+            Context ctx = getContext();
+            boolean appPage = Boolean.TRUE.equals(call.getBoolean("app", false));
+            Intent i;
+            if (appPage) {
+                i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                i.setData(Uri.parse("package:" + ctx.getPackageName()));
+            } else {
+                i = new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS);
+            }
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(i);
+            call.resolve();
+        } catch (Throwable t) {
+            call.reject("openLocationSettings: " + t);
+        }
+    }
+
     @PluginMethod
     public void batteryStatus(PluginCall call) {
         try {
