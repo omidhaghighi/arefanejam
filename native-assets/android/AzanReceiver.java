@@ -42,6 +42,7 @@ public class AzanReceiver extends BroadcastReceiver {
 
     public static final String ACTION_FIRE = "com.arefanejam.quran.AZAN_FIRE";
     public static final String ACTION_TEST = "com.arefanejam.quran.AZAN_TEST";
+    public static final String ACTION_STICKY = "com.arefanejam.quran.STICKY_REFRESH";
     static final String PREFS = "arefanejam_native_azan";
     static final String FALLBACK_CH = "azan-native-fallback-v1";
     static final int FALLBACK_ID = 777000003;
@@ -68,12 +69,18 @@ public class AzanReceiver extends BroadcastReceiver {
                     p.edit().putLong("last_fired", t).apply();
                     startAzan(ctx, label);
                 }
+            } else if (ACTION_STICKY.equals(action)) {
+                // فقط تازه‌کردن کارت اذان بعدی (پایین انجام می‌شود)
             } else if (action != null) {
                 logEvent(ctx, "re-armed after " + action);
             }
         } catch (Throwable ignore) { }
         // in every case (fire / boot / app update / time change) arm the next alarm
         try { arm(ctx); } catch (Throwable ignore) { }
+        // «اذان بعدی» روی کارت نوتیفیکیشن ثابت را از فهرست داخل گوشی تازه کن (بدون اپ و بدون اینترنت)
+        BroadcastReceiver.PendingResult pending = null;
+        try { pending = goAsync(); } catch (Throwable ignore) { }
+        refreshStickyAsync(ctx, pending);
         // jobs are wiped by an app update: put the background update download job back
         try { UpdateJobService.schedule(ctx); } catch (Throwable ignore) { }
     }
@@ -194,6 +201,7 @@ public class AzanReceiver extends BroadcastReceiver {
     static void arm(Context ctx) {
         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
         if (am == null) return;
+        try { armSticky(ctx, am); } catch (Throwable ignore) { }
         SharedPreferences p = prefs(ctx);
         boolean enabled = p.getBoolean("enabled", true);
         long now = System.currentTimeMillis();
@@ -226,6 +234,49 @@ public class AzanReceiver extends BroadcastReceiver {
             try {
                 am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, bestT, fire);
             } catch (Throwable ignore) { }
+        }
+    }
+
+    /** Runs the sticky-card refresh off the main thread (the receiver is kept alive with goAsync). */
+    static void refreshStickyAsync(final Context ctx, final BroadcastReceiver.PendingResult pr) {
+        try {
+            new Thread(new Runnable() {
+                @Override public void run() {
+                    try { AppUpdaterPlugin.stkRefreshNext(ctx.getApplicationContext()); } catch (Throwable ignore) { }
+                    try { if (pr != null) pr.finish(); } catch (Throwable ignore) { }
+                }
+            }).start();
+        } catch (Throwable e) {
+            try { if (pr != null) pr.finish(); } catch (Throwable ignore) { }
+        }
+    }
+
+    /**
+     * One extra alarm (independent of the azan on/off switch): 3 seconds after the next prayer time it wakes the
+     * receiver so the "next azan" on the sticky card moves on to the following prayer, even with the app closed
+     * and no internet.
+     */
+    static void armSticky(Context ctx, AlarmManager am) {
+        int sf = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0);
+        Intent i = new Intent(ctx, AzanReceiver.class);
+        i.setAction(ACTION_STICKY);
+        PendingIntent pi = PendingIntent.getBroadcast(ctx, 4732, i, sf);
+        try { am.cancel(pi); } catch (Throwable ignore) { }
+        long now = System.currentTimeMillis();
+        long bestT = 0;
+        try {
+            JSONArray arr = new JSONArray(prefs(ctx).getString("items", "[]"));
+            for (int k = 0; k < arr.length(); k++) {
+                long t = arr.getJSONObject(k).optLong("t", 0);
+                if (t > now && (bestT == 0 || t < bestT)) bestT = t;
+            }
+        } catch (Throwable ignore) { }
+        if (bestT == 0) return;
+        long at = bestT + 3000L;
+        try {
+            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
+        } catch (Throwable e) {
+            try { am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi); } catch (Throwable ignore) { }
         }
     }
 

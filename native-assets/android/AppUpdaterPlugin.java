@@ -739,6 +739,11 @@ public class AppUpdaterPlugin extends Plugin {
 
     /** تصویر را از آدرس می‌گیرد و در پوشهٔ خصوصی اپ نگه می‌دارد (بعداً آفلاین هم کار می‌کند). اگر نشد null برمی‌گرداند. */
     private static Bitmap stkLoadImage(Context ctx, String rawUrl, int maxSide) {
+        return stkLoadImage(ctx, rawUrl, maxSide, true);
+    }
+
+    /** allowNet=false: فقط از تصویرِ ذخیره‌شده روی گوشی می‌خواند و هرگز اینترنت را صدا نمی‌زند (برای به‌روزرسانی بومی کارت) */
+    private static Bitmap stkLoadImage(Context ctx, String rawUrl, int maxSide, boolean allowNet) {
         try {
             String url = stkNorm(rawUrl);
             if (url.length() == 0) return null;
@@ -746,6 +751,7 @@ public class AppUpdaterPlugin extends Plugin {
             if (!dir.exists()) dir.mkdirs();
             File f = new File(dir, stkImgName(url));
             if (!f.exists() || f.length() == 0) {
+                if (!allowNet) return null;
                 Long failAt = STK_FAIL.get(url);
                 if (failAt != null && System.currentTimeMillis() - failAt < 5 * 60 * 1000L) return null;
                 File tmp = new File(dir, stkImgName(url) + ".tmp");
@@ -1291,9 +1297,35 @@ public class AppUpdaterPlugin extends Plugin {
             Integer tileAlphaV = call.getInt("tileAlpha", 35);
             int bgDim = bgDimV == null ? 45 : bgDimV.intValue();
             int tileAlpha = tileAlphaV == null ? 35 : tileAlphaV.intValue();
-            Bitmap bgImg = stkLoadImage(ctx, bgUrl, 1280);
-            Bitmap tileImg = stkLoadImage(ctx, tileUrl, 450);
-            Bitmap iconImg = stkLoadImage(ctx, iconUrl, 256);
+            // آخرین مشخصات کارت را نگه می‌داریم تا بعد از هر اذان، بدون باز شدن اپ و بدون اینترنت،
+            // «اذان بعدی» روی کارت از فهرست ذخیره‌شدهٔ اذان‌ها به‌روز شود (stkRefreshNext)
+            try {
+                JSONObject sv = new JSONObject();
+                sv.put("brand", brand); sv.put("weekday", weekday); sv.put("day", day); sv.put("month", month);
+                sv.put("jalali", jalali); sv.put("hijri", hijri); sv.put("gregorian", greg); sv.put("custom", custom);
+                sv.put("next", next); sv.put("nextName", nextName); sv.put("nextTime", nextTime);
+                sv.put("bgUrl", bgUrl); sv.put("tileUrl", tileUrl); sv.put("iconUrl", iconUrl);
+                sv.put("bgDim", bgDim); sv.put("tileAlpha", tileAlpha);
+                ctx.getSharedPreferences(STK_PREFS, Context.MODE_PRIVATE).edit().putString("card", sv.toString()).apply();
+            } catch (Throwable ignore) { }
+            stkRender(ctx, brand, weekday, day, month, jalali, hijri, greg, custom, next, nextName, nextTime,
+                      bgUrl, tileUrl, iconUrl, bgDim, tileAlpha, true);
+            call.resolve();
+        } catch (Throwable t) {
+            call.reject("sticky: " + t);
+        }
+    }
+
+    private static final String STK_PREFS = "arefanejam_sticky_state";
+
+    /** کارت/نوار نوتیفیکیشن ثابت را می‌سازد و نشان می‌دهد. allowNet=false یعنی هیچ دانلودی انجام نشود. */
+    private static void stkRender(Context ctx, String brand, String weekday, String day, String month, String jalali,
+                                  String hijri, String greg, String custom, String next, String nextName, String nextTime,
+                                  String bgUrl, String tileUrl, String iconUrl, int bgDim, int tileAlpha, boolean allowNet) throws Exception {
+            String pkg = ctx.getPackageName();
+            Bitmap bgImg = stkLoadImage(ctx, bgUrl, 1280, allowNet);
+            Bitmap tileImg = stkLoadImage(ctx, tileUrl, 450, allowNet);
+            Bitmap iconImg = stkLoadImage(ctx, iconUrl, 256, allowNet);
             stkCleanupImages(ctx, bgUrl, tileUrl, iconUrl);
 
             NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
@@ -1360,15 +1392,73 @@ public class AppUpdaterPlugin extends Plugin {
                     .setSummaryText(line));
             }
             nm.notify(STK_ID, b.build());
-            call.resolve();
-        } catch (Throwable t) {
-            call.reject("sticky: " + t);
+    }
+
+    private static String stkFa(String s) {
+        String fa = "\u06f0\u06f1\u06f2\u06f3\u06f4\u06f5\u06f6\u06f7\u06f8\u06f9";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            sb.append(c >= '0' && c <= '9' ? fa.charAt(c - '0') : c);
         }
+        return sb.toString();
+    }
+
+    /**
+     * بعد از هر اذان (یا بوت/تغییر ساعت) از AzanReceiver صدا زده می‌شود: «اذان بعدی» کارت را از فهرست اذان‌های
+     * ذخیره‌شدهٔ خود گوشی می‌خواند و کارت را دوباره می‌کشد. نه اپ باز لازم است نه اینترنت.
+     * فقط وقتی کارت هنوز روی گوشی هست به‌روز می‌کند (اگر کاربر کنارش زده باشد دوباره ساخته نمی‌شود).
+     */
+    static void stkRefreshNext(Context ctx) {
+        try {
+            SharedPreferences sp = ctx.getSharedPreferences(STK_PREFS, Context.MODE_PRIVATE);
+            String raw = sp.getString("card", "");
+            if (raw == null || raw.length() == 0) return;
+            if (Build.VERSION.SDK_INT >= 23) {
+                try {
+                    NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+                    boolean present = false;
+                    android.service.notification.StatusBarNotification[] act = nm.getActiveNotifications();
+                    for (int i = 0; i < act.length; i++) if (act[i].getId() == STK_ID) present = true;
+                    if (!present) return;
+                } catch (Throwable ignore) { }
+            }
+            JSONObject o = new JSONObject(raw);
+            long now = System.currentTimeMillis();
+            long bestT = 0;
+            String bestLabel = "";
+            org.json.JSONArray arr = new org.json.JSONArray(AzanReceiver.prefs(ctx).getString("items", "[]"));
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject it = arr.getJSONObject(i);
+                long t = it.optLong("t", 0);
+                if (t > now && (bestT == 0 || t < bestT)) { bestT = t; bestLabel = it.optString("l", ""); }
+            }
+            String next = o.optString("next", "");
+            String nextName = o.optString("nextName", "");
+            String nextTime = o.optString("nextTime", "");
+            if (bestT > 0) {
+                java.util.Calendar cal = java.util.Calendar.getInstance();
+                cal.setTimeInMillis(bestT);
+                nextTime = stkFa(String.format(java.util.Locale.US, "%02d:%02d", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE)));
+                nextName = bestLabel;
+                next = "\u0627\u0630\u0627\u0646 \u0628\u0639\u062f\u06cc: " + bestLabel + " \u2014 \u0633\u0627\u0639\u062a " + nextTime;
+                if (nextName.equals(o.optString("nextName", "")) && nextTime.equals(o.optString("nextTime", ""))) return; // تغییری نکرده
+                o.put("next", next); o.put("nextName", nextName); o.put("nextTime", nextTime);
+                sp.edit().putString("card", o.toString()).apply();
+            } else {
+                return; // فهرستی در گوشی نیست؛ همان کارت قبلی بماند
+            }
+            stkRender(ctx, o.optString("brand", ""), o.optString("weekday", ""), o.optString("day", ""), o.optString("month", ""),
+                      o.optString("jalali", ""), o.optString("hijri", ""), o.optString("gregorian", ""), o.optString("custom", ""),
+                      next, nextName, nextTime, o.optString("bgUrl", ""), o.optString("tileUrl", ""), o.optString("iconUrl", ""),
+                      o.optInt("bgDim", 45), o.optInt("tileAlpha", 35), false);
+        } catch (Throwable ignore) { }
     }
 
     @PluginMethod
     public void hideSticky(PluginCall call) {
         try {
+            try { getContext().getSharedPreferences(STK_PREFS, Context.MODE_PRIVATE).edit().remove("card").apply(); } catch (Throwable ignore) { }
             NotificationManager nm = (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
             nm.cancel(STK_ID);
             call.resolve();

@@ -8,7 +8,7 @@
 <link rel="icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=67">
+<link rel="stylesheet" href="css/style.css?v=70">
 </head>
 <body>
 
@@ -188,6 +188,10 @@
         <button class="menu-tile tile-shariq" id="shariq-more-tile" data-goto="shariq">
           <span class="menu-tile-badge" id="shariq-tile-badge">❓</span>
           <span class="menu-tile-label" id="shariq-tile-label">سوالات شرعی</span>
+        </button>
+        <button class="menu-tile tile-khatm" id="khatm-more-tile" data-goto="khatm">
+          <span class="menu-tile-badge" id="khatm-tile-badge">📖</span>
+          <span class="menu-tile-label" id="khatm-tile-label">ختم قرآن</span>
         </button>
         <button class="menu-tile tile-charity" id="charity-tile" data-goto="charity">
           <span class="menu-tile-badge">🤝</span>
@@ -794,6 +798,46 @@
       <div id="shariq-mine-content" class="shariq-list"></div>
     </section>
 
+    <!-- ختم قرآن (بدون نام کاربری و رمز) -->
+    <section id="tab-khatm" class="tab-panel">
+      <div class="section-block">
+        <h3 id="khatm-page-title">ختم قرآن</h3>
+        <p class="muted-text small">ختم جدید تعریف کنید (مثلاً هر نفر یک جزء)، یا در ختم‌های دیگران شرکت کنید. نیازی به ورود یا رمز نیست.</p>
+        <div class="shariq-top-actions">
+          <button class="secondary-btn small-btn" id="khatm-new-btn">➕ درخواست ختم جدید</button>
+          <button class="ghost-btn small-btn" id="khatm-mine-btn">درخواست‌های من <span id="khatm-mine-dot" class="khatm-dot hidden"></span></button>
+        </div>
+      </div>
+      <div id="khatm-list-content" class="shariq-list"></div>
+    </section>
+
+    <section id="tab-khatm-mine" class="tab-panel">
+      <div class="section-block">
+        <h3>درخواست‌های من</h3>
+        <p class="muted-text small">اینجا می‌بینید کدام بخش‌ها را چه کسانی برداشته‌اند و هر کس ختم خود را انجام داده یا نه. با «استعلام» می‌توانید از برداشت‌کنندگان بپرسید.</p>
+      </div>
+      <div id="khatm-mine-content" class="shariq-list"></div>
+    </section>
+
+    <section id="tab-khatm-view" class="tab-panel">
+      <div class="section-block">
+        <h3 id="khatm-view-title">—</h3>
+        <p class="muted-text small" id="khatm-view-note"></p>
+        <p class="muted-text small" id="khatm-view-info"></p>
+        <div class="khatm-progress"><div class="khatm-progress-bar" id="khatm-view-bar"></div><div class="khatm-progress-done" id="khatm-view-bar-done"></div></div>
+        <input type="text" id="khatm-view-name" placeholder="نام شما (اختیاری، برای دیگران نمایش داده می‌شود)" maxlength="60" style="margin-top:10px">
+        <div class="shariq-top-actions" style="margin-top:10px">
+          <button class="ghost-btn small-btn" id="khatm-view-pick-btn">یک بخش آزاد برای من</button>
+        </div>
+      </div>
+      <div id="khatm-view-mine" class="section-block khatm-mydone hidden"></div>
+      <div id="khatm-view-grid" class="khatm-grid"></div>
+      <div class="section-block" id="khatm-view-confirm-wrap">
+        <p class="muted-text small" id="khatm-view-msg"></p>
+        <button id="khatm-view-confirm-btn" class="secondary-btn" style="width:100%">تأیید مشارکت من</button>
+      </div>
+    </section>
+
   </main>
 
   <div id="mini-player" class="mini-player hidden">
@@ -847,6 +891,32 @@
     <div class="modal-actions">
       <button id="shariq-ask-cancel-btn" class="ghost-btn small-btn">انصراف</button>
       <button id="shariq-ask-submit-btn" class="secondary-btn small-btn">ارسال سوال</button>
+    </div>
+  </div>
+</div>
+
+<div id="khatm-new-modal" class="modal hidden">
+  <div class="modal-box khatm-new-box">
+    <h3>درخواست ختم قرآن</h3>
+    <input type="text" id="khatm-new-title" placeholder="عنوان (مثلاً: ختم قرآن برای شفای بیماران)" maxlength="200" style="margin-bottom:8px">
+    <textarea id="khatm-new-note" rows="3" placeholder="توضیح (اختیاری)" maxlength="1000"></textarea>
+    <input type="text" id="khatm-new-name" placeholder="نام شما (اختیاری)" maxlength="60" style="margin-top:8px">
+
+    <p class="khatm-totals">قرآن: <b>۳۰</b> جزء — <b>۱۱۴</b> سوره — <b>۶۰۴</b> صفحه — <b>۶۲۳۶</b> آیه</p>
+    <label class="khatm-label">قرآن را بر چه اساسی تقسیم کنیم؟</label>
+    <div class="khatm-unit-row" id="khatm-unit-row">
+      <button type="button" class="shariq-chip" data-unit="juz">جزء</button>
+      <button type="button" class="shariq-chip" data-unit="surah">سوره</button>
+      <button type="button" class="shariq-chip" data-unit="page">صفحه</button>
+      <button type="button" class="shariq-chip" data-unit="ayah">آیه</button>
+    </div>
+    <label class="khatm-label" id="khatm-per-label">هر نفر چند جزء بخواند؟</label>
+    <input type="number" id="khatm-new-per" min="1" value="1" inputmode="numeric">
+    <p class="khatm-preview" id="khatm-new-preview"></p>
+    <p class="muted-text small hidden" id="khatm-new-error"></p>
+    <div class="modal-actions">
+      <button id="khatm-new-cancel-btn" class="ghost-btn small-btn">انصراف</button>
+      <button id="khatm-new-submit-btn" class="secondary-btn small-btn">ثبت و اعلام به همه</button>
     </div>
   </div>
 </div>
@@ -978,6 +1048,6 @@
 <script src="js/iran-cities.js?v=14"></script>
 <script src="js/native-config.js"></script>
 <script src="js/native-bridge.js?v=18"></script>
-<script src="js/app.js?v=101"></script>
+<script src="js/app.js?v=105"></script>
 </body>
 </html>
