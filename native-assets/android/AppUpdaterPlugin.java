@@ -10,11 +10,13 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageInstaller;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RadialGradient;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.Typeface;
@@ -713,6 +715,132 @@ public class AppUpdaterPlugin extends Plugin {
     private static final String STK_CH = "sticky-v1";
     private static final int STK_GOLD = 0xFFF3D98A;
 
+    // ---------- تصاویر دلخواه مدیر (پس‌زمینهٔ کارت، پس‌زمینهٔ کاشی تاریخ، تصویر ماه) ----------
+    private static final java.util.HashMap<String, Long> STK_FAIL = new java.util.HashMap<String, Long>();
+
+    private static String stkImgName(String url) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-1");
+            byte[] d = md.digest(url.getBytes("UTF-8"));
+            StringBuilder sb = new StringBuilder("img_");
+            for (int i = 0; i < d.length; i++) sb.append(String.format("%02x", d[i] & 255));
+            return sb.toString();
+        } catch (Throwable t) {
+            return "img_" + Math.abs(url.hashCode());
+        }
+    }
+
+    private static String stkNorm(String url) {
+        if (url == null) return "";
+        url = url.trim();
+        if (url.toLowerCase().startsWith("http://")) url = "https://" + url.substring(7);
+        return url;
+    }
+
+    /** تصویر را از آدرس می‌گیرد و در پوشهٔ خصوصی اپ نگه می‌دارد (بعداً آفلاین هم کار می‌کند). اگر نشد null برمی‌گرداند. */
+    private static Bitmap stkLoadImage(Context ctx, String rawUrl, int maxSide) {
+        try {
+            String url = stkNorm(rawUrl);
+            if (url.length() == 0) return null;
+            File dir = new File(ctx.getFilesDir(), "sticky");
+            if (!dir.exists()) dir.mkdirs();
+            File f = new File(dir, stkImgName(url));
+            if (!f.exists() || f.length() == 0) {
+                Long failAt = STK_FAIL.get(url);
+                if (failAt != null && System.currentTimeMillis() - failAt < 5 * 60 * 1000L) return null;
+                File tmp = new File(dir, stkImgName(url) + ".tmp");
+                HttpURLConnection conn = null;
+                InputStream in = null;
+                OutputStream out = null;
+                boolean ok = false;
+                try {
+                    conn = (HttpURLConnection) new URL(url).openConnection();
+                    conn.setConnectTimeout(8000);
+                    conn.setReadTimeout(12000);
+                    conn.setInstanceFollowRedirects(true);
+                    if (conn.getResponseCode() == 200) {
+                        in = conn.getInputStream();
+                        out = new FileOutputStream(tmp);
+                        byte[] buf = new byte[16384];
+                        long total = 0;
+                        int n;
+                        while ((n = in.read(buf)) != -1) {
+                            total += n;
+                            if (total > 12L * 1024 * 1024) throw new IOException("too big");
+                            out.write(buf, 0, n);
+                        }
+                        out.flush();
+                        ok = true;
+                    }
+                } catch (Throwable e) {
+                    ok = false;
+                } finally {
+                    try { if (in != null) in.close(); } catch (Exception ignore) { }
+                    try { if (out != null) out.close(); } catch (Exception ignore) { }
+                    try { if (conn != null) conn.disconnect(); } catch (Exception ignore) { }
+                }
+                if (ok && tmp.length() > 0) {
+                    tmp.renameTo(f);
+                    STK_FAIL.remove(url);
+                } else {
+                    tmp.delete();
+                    STK_FAIL.put(url, System.currentTimeMillis());
+                    return null;
+                }
+            }
+            BitmapFactory.Options o = new BitmapFactory.Options();
+            o.inJustDecodeBounds = true;
+            BitmapFactory.decodeFile(f.getAbsolutePath(), o);
+            if (o.outWidth <= 0 || o.outHeight <= 0) { f.delete(); return null; }
+            int sample = 1;
+            while (o.outWidth / (sample * 2) >= maxSide && o.outHeight / (sample * 2) >= maxSide) sample *= 2;
+            BitmapFactory.Options o2 = new BitmapFactory.Options();
+            o2.inSampleSize = sample;
+            o2.inPreferredConfig = Bitmap.Config.ARGB_8888;
+            return BitmapFactory.decodeFile(f.getAbsolutePath(), o2);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** فایل‌های تصویرِ قدیمی (که دیگر در تنظیمات نیستند) را پاک می‌کند */
+    private static void stkCleanupImages(Context ctx, String... urls) {
+        try {
+            File dir = new File(ctx.getFilesDir(), "sticky");
+            File[] all = dir.listFiles();
+            if (all == null) return;
+            java.util.HashSet<String> keep = new java.util.HashSet<String>();
+            for (int i = 0; i < urls.length; i++) {
+                String u = stkNorm(urls[i]);
+                if (u.length() > 0) keep.add(stkImgName(u));
+            }
+            for (int i = 0; i < all.length; i++) {
+                if (all[i].getName().startsWith("img_") && !keep.contains(all[i].getName())) all[i].delete();
+            }
+        } catch (Throwable ignore) { }
+    }
+
+    /** تصویر را وسط‌چین و برش‌خورده (cover) داخل مستطیل مقصد می‌کشد */
+    private static void stkDrawCover(Canvas c, Bitmap img, RectF dst, Paint p) {
+        float sw = img.getWidth(), sh = img.getHeight();
+        float dr = dst.width() / dst.height(), sr = sw / sh;
+        Rect src;
+        if (sr > dr) {
+            int w = Math.round(sh * dr);
+            int l = (int) ((sw - w) / 2f);
+            src = new Rect(l, 0, l + w, (int) sh);
+        } else {
+            int h = Math.round(sw / dr);
+            int t = (int) ((sh - h) / 2f);
+            src = new Rect(0, t, (int) sw, t + h);
+        }
+        c.drawBitmap(img, src, dst, p);
+    }
+
+    private static Paint stkImgPaint() {
+        return new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    }
+
     private static int stkMix(int a, int b, float t) {
         int ar = (a >> 16) & 255, ag = (a >> 8) & 255, ab = a & 255;
         int br = (b >> 16) & 255, bg = (b >> 8) & 255, bb = b & 255;
@@ -736,7 +864,7 @@ public class AppUpdaterPlugin extends Plugin {
     }
 
     /** کاشی تقویمِ سه‌بعدی: سربرگ سبز براق، حلقه‌های طلایی، عدد برجسته با عمق و سایه */
-    private static Bitmap stkTile(int s, String day, String month, String weekday) {
+    private static Bitmap stkTile(int s, String day, String month, String weekday, Bitmap img, int imgAlphaPct) {
         Bitmap bmp = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(bmp);
         float pad = s * 0.07f;
@@ -751,6 +879,18 @@ public class AppUpdaterPlugin extends Plugin {
         Paint bp = new Paint(Paint.ANTI_ALIAS_FLAG);
         bp.setShader(new LinearGradient(0, body.top, 0, body.bottom, 0xFFFFFFFF, 0xFFE4DCC6, Shader.TileMode.CLAMP));
         c.drawRoundRect(body, rad, rad, bp);
+
+        // تصویر دلخواه مدیر، کمرنگ پشت تاریخ (سربرگ سبز و عدد روی آن می‌آیند)
+        if (img != null) {
+            Path imgClip = new Path();
+            imgClip.addRoundRect(body, rad, rad, Path.Direction.CW);
+            c.save();
+            c.clipPath(imgClip);
+            Paint ip = stkImgPaint();
+            ip.setAlpha(Math.max(0, Math.min(100, imgAlphaPct)) * 255 / 100);
+            stkDrawCover(c, img, body, ip);
+            c.restore();
+        }
 
         float headH = body.height() * 0.30f;
         Path clip = new Path();
@@ -896,8 +1036,29 @@ public class AppUpdaterPlugin extends Plugin {
     }
 
     /** پس‌زمینهٔ کارت: سبز عمیق، درخشش طلایی، نقش خاتم و لبهٔ طلایی */
-    private static void stkBackground(Canvas c, int w, int h, float radius, float patternStep) {
+    private static void stkBackground(Canvas c, int w, int h, float radius, float patternStep, Bitmap bgImg, int dimPct) {
         RectF r = new RectF(0f, 0f, w, h);
+        if (bgImg != null) {
+            // تصویر دلخواه مدیر + لایهٔ تیرهٔ ملایم تا نوشته‌ها خوانا بمانند
+            Path bclip = new Path();
+            bclip.addRoundRect(r, radius, radius, Path.Direction.CW);
+            c.save();
+            c.clipPath(bclip);
+            stkDrawCover(c, bgImg, r, stkImgPaint());
+            int d = Math.max(0, Math.min(90, dimPct));
+            int a0 = (int) (255 * d / 100f * 0.8f);
+            int a1 = Math.min(255, (int) (255 * d / 100f * 1.25f));
+            Paint scrim = new Paint(Paint.ANTI_ALIAS_FLAG);
+            scrim.setShader(new LinearGradient(0f, 0f, 0f, h, (a0 << 24) | 0x041A16, (a1 << 24) | 0x041A16, Shader.TileMode.CLAMP));
+            c.drawRect(r, scrim);
+            c.restore();
+            Paint bed = new Paint(Paint.ANTI_ALIAS_FLAG);
+            bed.setStyle(Paint.Style.STROKE);
+            bed.setStrokeWidth(Math.max(2f, h * 0.007f));
+            bed.setShader(new LinearGradient(0f, 0f, 0f, h, 0xBBF3D98A, 0x33F3D98A, Shader.TileMode.CLAMP));
+            c.drawRoundRect(new RectF(1.5f, 1.5f, w - 1.5f, h - 1.5f), radius, radius, bed);
+            return;
+        }
         Paint bg = new Paint(Paint.ANTI_ALIAS_FLAG);
         bg.setShader(new LinearGradient(0f, 0f, w, h,
                 new int[] { 0xFF04201B, 0xFF0E5446, 0xFF1D7F6B }, new float[] { 0f, 0.6f, 1f }, Shader.TileMode.CLAMP));
@@ -930,23 +1091,41 @@ public class AppUpdaterPlugin extends Plugin {
 
     /** کارت بزرگ (حالت بازشدهٔ نوتیفیکیشن): همهٔ اطلاعات داخل خود تصویر است */
     private static Bitmap stkCard(int w, int h, Bitmap tile, String brand, String jalali, String hijri,
-                                  String greg, String next, String nextName, String nextTime, String dua) {
+                                  String greg, String next, String nextName, String nextTime, String dua,
+                                  Bitmap bgImg, int bgDim, Bitmap iconImg) {
         Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(bmp);
-        stkBackground(c, w, h, h * 0.10f, h * 0.2f);
+        stkBackground(c, w, h, h * 0.10f, h * 0.2f, bgImg, bgDim);
 
-        // هلال و ستارهٔ بالا-چپ
+        // هلال و ستارهٔ بالا-چپ (اگر مدیر تصویر دلخواه گذاشته باشد، همان تصویر به‌جای هلال)
         float mr = h * 0.075f, mcx = h * 0.17f, mcy = h * 0.15f;
-        stkCrescent(c, mcx, mcy, mr);
-        stkStar5(c, mcx + mr * 0.62f, mcy - mr * 0.12f, mr * 0.28f);
+        if (iconImg != null) {
+            float ir = mr * 1.45f;
+            Path cp = new Path();
+            cp.addCircle(mcx, mcy, ir, Path.Direction.CW);
+            c.save();
+            c.clipPath(cp);
+            stkDrawCover(c, iconImg, new RectF(mcx - ir, mcy - ir, mcx + ir, mcy + ir), stkImgPaint());
+            c.restore();
+            Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
+            ring.setStyle(Paint.Style.STROKE);
+            ring.setStrokeWidth(Math.max(2f, h * 0.006f));
+            ring.setColor(0xAAF3D98A);
+            c.drawCircle(mcx, mcy, ir, ring);
+        } else {
+            stkCrescent(c, mcx, mcy, mr);
+            stkStar5(c, mcx + mr * 0.62f, mcy - mr * 0.12f, mr * 0.28f);
+        }
 
-        // خط آسمان مسجد پایین-چپ (کمرنگ)
-        Path clip = new Path();
-        clip.addRoundRect(new RectF(0f, 0f, w, h), h * 0.10f, h * 0.10f, Path.Direction.CW);
-        c.save();
-        c.clipPath(clip);
-        stkSkyline(c, w * 0.05f, h * 0.93f, h * 0.05f, h, 0x2A000000);
-        c.restore();
+        // خط آسمان مسجد پایین-چپ (کمرنگ؛ با تصویر پس‌زمینهٔ دلخواه نمایش داده نمی‌شود)
+        if (bgImg == null) {
+            Path clip = new Path();
+            clip.addRoundRect(new RectF(0f, 0f, w, h), h * 0.10f, h * 0.10f, Path.Direction.CW);
+            c.save();
+            c.clipPath(clip);
+            stkSkyline(c, w * 0.05f, h * 0.93f, h * 0.05f, h, 0x2A000000);
+            c.restore();
+        }
 
         // کاشی سه‌بعدی سمت راست
         int ts = tile.getWidth();
@@ -1047,10 +1226,10 @@ public class AppUpdaterPlugin extends Plugin {
 
     /** نوار باریک (حالت بسته‌شدهٔ نوتیفیکیشن): کاشی تاریخ + تاریخ‌ها + اذان بعدی */
     private static Bitmap stkBar(int w, int h, Bitmap tile, String jalali, String hijri,
-                                 String next, String nextName, String nextTime) {
+                                 String next, String nextName, String nextTime, Bitmap bgImg, int bgDim) {
         Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(bmp);
-        stkBackground(c, w, h, h * 0.28f, h * 0.55f);
+        stkBackground(c, w, h, h * 0.28f, h * 0.55f, bgImg, bgDim);
 
         int ts = tile.getWidth();
         float tl = w - ts - h * 0.03f;
@@ -1104,6 +1283,18 @@ public class AppUpdaterPlugin extends Plugin {
             String next = call.getString("next", "");
             String nextName = call.getString("nextName", "");
             String nextTime = call.getString("nextTime", "");
+            // تصاویر دلخواه مدیر (از پیشخوان سایت)
+            String bgUrl = call.getString("bgUrl", "");
+            String tileUrl = call.getString("tileUrl", "");
+            String iconUrl = call.getString("iconUrl", "");
+            Integer bgDimV = call.getInt("bgDim", 45);
+            Integer tileAlphaV = call.getInt("tileAlpha", 35);
+            int bgDim = bgDimV == null ? 45 : bgDimV.intValue();
+            int tileAlpha = tileAlphaV == null ? 35 : tileAlphaV.intValue();
+            Bitmap bgImg = stkLoadImage(ctx, bgUrl, 1280);
+            Bitmap tileImg = stkLoadImage(ctx, tileUrl, 450);
+            Bitmap iconImg = stkLoadImage(ctx, iconUrl, 256);
+            stkCleanupImages(ctx, bgUrl, tileUrl, iconUrl);
 
             NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
             if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(STK_CH) == null) {
@@ -1134,13 +1325,25 @@ public class AppUpdaterPlugin extends Plugin {
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setContentIntent(pi);
 
-            Bitmap card = stkCard(1080, 540, stkTile(420, day, month, weekday), brand, jalali, hijri, greg, next, nextName, nextTime, custom);
+            // آیکون کوچک بالای اعلان (کنار نام اپ): اگر مدیر تصویر گذاشته باشد همان؛ وگرنه آیکون ماهِ پیش‌فرض.
+            // توجه: اندروید روی بیشتر گوشی‌ها فقط شکل (آلفا)ی این تصویر را سفید نشان می‌دهد؛ تصویر رنگی روی خود کارت کشیده می‌شود.
+            if (iconImg != null && Build.VERSION.SDK_INT >= 23) {
+                try {
+                    Bitmap sm = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888);
+                    stkDrawCover(new Canvas(sm), iconImg, new RectF(0f, 0f, 96f, 96f), stkImgPaint());
+                    Class<?> iconCompat = Class.forName("androidx.core.graphics.drawable.IconCompat");
+                    Object icon = iconCompat.getMethod("createWithBitmap", Bitmap.class).invoke(null, sm);
+                    b.getClass().getMethod("setSmallIcon", iconCompat).invoke(b, icon);
+                } catch (Throwable ignore) { }
+            }
+
+            Bitmap card = stkCard(1080, 540, stkTile(420, day, month, weekday, tileImg, tileAlpha), brand, jalali, hijri, greg, next, nextName, nextTime, custom, bgImg, bgDim, iconImg);
 
             int layoutId = ctx.getResources().getIdentifier("sticky_card", "layout", pkg);
             int imgId = ctx.getResources().getIdentifier("sticky_img", "id", pkg);
             if (layoutId != 0 && imgId != 0) {
                 // همه‌چیز فقط یک تصویر است: نه عنوان و نه متن جداگانه
-                Bitmap bar = stkBar(1280, 240, stkTile(225, day, month, weekday), jalali, hijri, next, nextName, nextTime);
+                Bitmap bar = stkBar(1280, 240, stkTile(225, day, month, weekday, tileImg, tileAlpha), jalali, hijri, next, nextName, nextTime, bgImg, bgDim);
                 RemoteViews rvSmall = new RemoteViews(pkg, layoutId);
                 rvSmall.setImageViewBitmap(imgId, bar);
                 RemoteViews rvBig = new RemoteViews(pkg, layoutId);
@@ -1150,7 +1353,7 @@ public class AppUpdaterPlugin extends Plugin {
                  .setCustomBigContentView(rvBig);
             } else {
                 // اگر فایل طرح (sticky_card.xml) داخل APK نبود: همان نمایش تصویریِ قبلی
-                b.setLargeIcon(stkTile(192, day, month, weekday))
+                b.setLargeIcon(stkTile(192, day, month, weekday, tileImg, tileAlpha))
                  .setStyle(new NotificationCompat.BigPictureStyle()
                     .bigPicture(card)
                     .bigLargeIcon((Bitmap) null)

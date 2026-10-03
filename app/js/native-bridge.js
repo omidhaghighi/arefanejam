@@ -929,6 +929,23 @@
       }).catch(function (e) { show(h + '\n\n❌ خطا: ' + errText(e)); });
     }
 
+    // تست جشن عید فطر: بدون توجه به تاریخ، همان صفحهٔ آتش‌بازی + تبریک + صدا را نشان می‌دهد (چیزی ذخیره نمی‌شود)
+    function eidTest() {
+      if (typeof window.previewEidCelebration !== 'function') { show('❌ بخش جشن عید در این نسخهٔ ظاهر اپ نیست؛ اپ را یک بار ببندید و باز کنید تا بروزرسانی ظاهر برسد.'); return; }
+      show('⏳ در حال آماده‌سازی جشن…');
+      Promise.resolve(window.previewEidCelebration()).then(function (r) {
+        if (!r || !r.ok) { show('⚠️ ' + ((r && r.msg) || 'انجام نشد')); return; }
+        overlay.style.display = 'none';
+        // بعد از بستن جشن و برگشت به این پنل، وضعیت را می‌بیند
+        show('✅ جشن نمایش داده شد.\n' +
+          'جشن عید در پیشخوان: ' + (r.enabled ? '✅ فعال' : '⚠️ خاموش است (در روز عید واقعی دیده نمی‌شود؛ تیک «فعال‌سازی جشن» را بزنید)') + '\n' +
+          'فایل صوتی: ' + (r.hasAudio ? '✅ تنظیم شده' : 'ندارد') + '\n' +
+          'متن رنگی در آتش‌بازی: ' + (r.hasFx ? '✅ تنظیم شده (هر چند ثانیه یک‌بار به شکل متن منفجر می‌شود)' : 'ندارد (در پیشخوان ننوشته‌اید)') + '\n' +
+          'آتش‌بازی در همهٔ بخش‌ها: ' + (r.ambient ? '✅ روشن (بعد از بستن کارت تبریک، روی همهٔ صفحه‌ها می‌آید؛ برای توقف «✕ آتش‌بازی» پایین-چپ را بزنید)' : '⚠️ در پیشخوان خاموش شده') + '\n' +
+          'متن تبریک شما: ' + (r.hasTitle ? '✅ تنظیم شده' : 'پیش‌فرض (در پیشخوان ننوشته‌اید)'));
+      }).catch(function (e) { show('❌ خطا: ' + errText(e)); });
+    }
+
     function build() {
       overlay = el('div');
       overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:100000;background:#0f2e29;color:#fff;overflow:auto;' +
@@ -945,6 +962,7 @@
       row.appendChild(btn('تست ۱ دقیقه دیگر', function () { test(60); }, true));
       row.appendChild(btn('تست ۳ دقیقه دیگر', function () { test(180); }, true));
       row.appendChild(btn('گزارش', refresh));
+      row.appendChild(btn('🎆 تست جشن عید فطر', eidTest, true));
       row.appendChild(btn('توقف صدا', function () {
         var P = AU();
         if (P && typeof P.stopAzan === 'function') Promise.resolve(P.stopAzan()).then(refresh).catch(function (e) { show('❌ خطا: ' + errText(e)); });

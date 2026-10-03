@@ -2301,7 +2301,13 @@ function updateStickyNotification(upcoming) {
   if (custom) lines.push(custom);
   lines.push(cal.gregorian, cal.hijri);
   if (upcoming) lines.push('اذان بعدی: ' + upcoming.label + ' — ساعت ' + formatTime(upcoming.time));
-  const body = lines.join('\n');
+  // تصاویر دلخواه مدیر برای نوتیفیکیشن ثابت (پیشخوان ← تنظیمات ← نوتیفیکیشن ثابت)
+  const stkBgUrl = secureUrl(String(s.sticky_bg_url || ''));
+  const stkTileUrl = secureUrl(String(s.sticky_tile_url || ''));
+  const stkIconUrl = secureUrl(String(s.sticky_icon_url || ''));
+  const stkBgDim = Math.max(0, Math.min(90, parseInt(s.sticky_bg_dim, 10) || 0));
+  const stkTileOpacity = Math.max(5, Math.min(100, parseInt(s.sticky_tile_opacity, 10) || 35));
+  const body = lines.join('\n') + '|' + [stkBgUrl, stkTileUrl, stkIconUrl, stkBgDim, stkTileOpacity].join('|');
   if (body === lastStickyBody) return; // چیزی تغییر نکرده، دوباره ننویس
   lastStickyBody = body;
 
@@ -2326,6 +2332,11 @@ function updateStickyNotification(upcoming) {
         next: upcoming ? 'اذان بعدی: ' + upcoming.label + ' — ساعت ' + formatTime(upcoming.time) : '',
         nextName: upcoming ? String(upcoming.label) : '',
         nextTime: upcoming ? formatTime(upcoming.time) : '',
+        bgUrl: stkBgUrl,
+        tileUrl: stkTileUrl,
+        iconUrl: stkIconUrl,
+        bgDim: stkBgDim,
+        tileAlpha: stkTileOpacity,
       },
     });
     return;
@@ -5596,12 +5607,31 @@ async function eidMakeAudio(url) {
 }
 
 /* آتش‌بازی: موشک از پایین بالا می‌رود و به صورت گلِ رنگی منفجر می‌شود */
-function eidStartFireworks(canvas) {
+/* تنظیمات «متن رنگی در آتش‌بازی» از پیشخوان: فهرست کلمه‌ها با رنگ هر کلمه (eid_fx_words) و فاصلهٔ نمایش (eid_fx_every).
+ * اگر مدیر متنی ننوشته باشد null برمی‌گردد و آتش‌بازی مثل قبل است. */
+let eidFxCfg = null;
+function eidFxFrom(r) {
+  r = r || {};
+  let words = [];
+  if (Array.isArray(r.eid_fx_words)) {
+    words = r.eid_fx_words.map((x) => ({
+      t: String((x && x.t) || '').trim().slice(0, 30),
+      c: /^#[0-9a-f]{3,8}$/i.test(String((x && x.c) || '')) ? x.c : '#F3D98A',
+    })).filter((x) => x.t).slice(0, 8);
+  }
+  if (!words.length) return null;
+  const every = Math.max(3, Math.min(30, parseInt(r.eid_fx_every, 10) || 6));
+  return { words, every };
+}
+
+function eidStartFireworks(canvas, gentle, fx) {
   const ctx = canvas.getContext('2d');
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   let w = 0, h = 0, raf = 0, timer = 0, last = 0, stopped = false;
-  const rockets = [], sparks = [];
+  const rockets = [], sparks = [], tsparks = [];
+  let txtPts = null, txtLoopTimer = 0;
   function resize() {
+    txtPts = null; // اندازهٔ صفحه عوض شد؛ چیدمان متن دوباره ساخته می‌شود
     w = window.innerWidth; h = window.innerHeight;
     canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -5616,6 +5646,83 @@ function eidStartFireworks(canvas) {
       ty: h * (0.12 + Math.random() * 0.34),
       hue: Math.floor(Math.random() * 360),
     });
+  }
+  /* متنِ رنگی: هر کلمه با رنگ خودش روی یک بومِ پنهان نوشته می‌شود و از روی پیکسل‌هایش نقطه‌های هدف ساخته می‌شود؛
+     جرقه‌ها از مرکز انفجار پخش می‌شوند و بعد به شکل متن می‌نشینند، کمی می‌مانند و محو می‌شوند. */
+  function buildText() {
+    if (!fx || !fx.words || !fx.words.length) return null;
+    const maxW = Math.min(w * 0.9, 440);
+    const family = (getComputedStyle(document.body).fontFamily || 'Tahoma, sans-serif');
+    const mc = document.createElement('canvas').getContext('2d');
+    let fs = Math.max(24, Math.min(54, Math.round(w * 0.12)));
+    let lines = [], gap = 0;
+    for (let tries = 0; tries < 14; tries++) {
+      mc.font = '800 ' + fs + 'px ' + family;
+      gap = fs * 0.3;
+      lines = [];
+      let cur = { items: [], w: 0 };
+      let tooWide = false;
+      fx.words.forEach((wd) => {
+        const ww = mc.measureText(wd.t).width;
+        if (ww > maxW) tooWide = true;
+        if (cur.items.length && cur.w + gap + ww > maxW) { lines.push(cur); cur = { items: [], w: 0 }; }
+        cur.w += cur.items.length ? gap + ww : ww;
+        cur.items.push({ t: wd.t, c: wd.c, w: ww });
+      });
+      lines.push(cur);
+      if (!tooWide) break;
+      fs = Math.floor(fs * 0.85);
+    }
+    const lineH = fs * 1.45, pad = 8;
+    const ow = Math.ceil(maxW + pad * 2), oh = Math.ceil(lines.length * lineH + pad * 2);
+    const oc = document.createElement('canvas');
+    oc.width = ow; oc.height = oh;
+    const c2 = oc.getContext('2d');
+    c2.font = '800 ' + fs + 'px ' + family;
+    c2.textBaseline = 'middle';
+    c2.textAlign = 'right';
+    try { c2.direction = 'rtl'; } catch (e) {}
+    lines.forEach((ln, li) => {
+      let x = (ow + ln.w) / 2; // وسط‌چین؛ اولین کلمه سمت راست
+      const y = pad + li * lineH + lineH / 2;
+      ln.items.forEach((it) => { c2.fillStyle = it.c; c2.fillText(it.t, x, y); x -= it.w + gap; });
+    });
+    let data;
+    try { data = c2.getImageData(0, 0, ow, oh).data; } catch (e) { return null; }
+    let cnt = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i] > 128) cnt++;
+    if (!cnt) return null;
+    const limit = gentle ? 520 : 760;
+    const step = Math.max(2, Math.ceil(Math.sqrt(cnt / limit)));
+    const pts = [];
+    for (let y = 0; y < oh; y += step) {
+      for (let x = 0; x < ow; x += step) {
+        const k = (y * ow + x) * 4;
+        if (data[k + 3] > 128) pts.push({ x, y, col: data[k] + ',' + data[k + 1] + ',' + data[k + 2] });
+      }
+    }
+    return { pts, ow, oh, size: step * 0.95 };
+  }
+  function launchText() {
+    rockets.push({
+      x: w * (0.35 + Math.random() * 0.3), y: h + 8,
+      vx: (Math.random() - 0.5) * 0.6, v: h * 0.0125,
+      ty: h * (0.2 + Math.random() * 0.08), hue: 45, text: true,
+    });
+  }
+  function explodeText(x, y) {
+    if (!txtPts) txtPts = buildText();
+    if (!txtPts || !txtPts.pts.length) { explode(x, y, 45); return; }
+    const T = txtPts;
+    const ox = Math.max(4, Math.min(w - T.ow - 4, x - T.ow / 2));
+    const oy = Math.max(8, Math.min(h - T.oh - 8, y - T.oh / 2));
+    const hold = 100 + Math.random() * 20;
+    for (let i = 0; i < T.pts.length; i++) {
+      const p = T.pts[i];
+      const ang = Math.random() * 6.2832, sp = 2 + Math.random() * 5.5;
+      tsparks.push({ x, y, tx: ox + p.x, ty: oy + p.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, age: 0, hold, life: 1, col: p.col, size: T.size });
+    }
+    if (tsparks.length > 1600) tsparks.splice(0, tsparks.length - 1600);
   }
   function explode(x, y, hue) {
     const ring = Math.random() < 0.4;
@@ -5632,7 +5739,8 @@ function eidStartFireworks(canvas) {
         sat: gold ? 95 : 100, light: gold ? 62 : 58, size: 1.4 + Math.random() * 1.6,
       });
     }
-    if (sparks.length > 1100) sparks.splice(0, sparks.length - 1100);
+    const cap = gentle ? 500 : 1100;
+    if (sparks.length > cap) sparks.splice(0, sparks.length - cap);
   }
   function frame(t) {
     if (stopped) return;
@@ -5646,7 +5754,7 @@ function eidStartFireworks(canvas) {
       const r = rockets[i];
       r.x += r.vx * dt; r.y -= r.v * dt; r.v *= Math.pow(0.992, dt);
       sparks.push({ x: r.x, y: r.y, vx: (Math.random() - 0.5) * 0.4, vy: 0.6, life: 0.7, decay: 0.05, hue: 40, sat: 90, light: 70, size: 1.6 });
-      if (r.y <= r.ty || r.v < 2) { explode(r.x, r.y, r.hue); rockets.splice(i, 1); }
+      if (r.y <= r.ty || r.v < 2) { if (r.text) explodeText(r.x, r.y); else explode(r.x, r.y, r.hue); rockets.splice(i, 1); }
     }
     for (let i = sparks.length - 1; i >= 0; i--) {
       const s = sparks[i];
@@ -5656,20 +5764,44 @@ function eidStartFireworks(canvas) {
       ctx.fillStyle = 'hsla(' + s.hue + ',' + s.sat + '%,' + s.light + '%,' + s.life.toFixed(2) + ')';
       ctx.beginPath(); ctx.arc(s.x, s.y, s.size * (0.5 + s.life * 0.5), 0, 6.2832); ctx.fill();
     }
+    // جرقه‌های متن: اول پخش می‌شوند، بعد به جای خود در متن می‌نشینند، کمی می‌مانند و محو می‌شوند
+    ctx.globalCompositeOperation = 'source-over';
+    for (let i = tsparks.length - 1; i >= 0; i--) {
+      const s = tsparks[i];
+      s.age += dt;
+      if (s.age < 14) {
+        s.x += s.vx * dt; s.y += s.vy * dt;
+        const f = Math.pow(0.9, dt); s.vx *= f; s.vy *= f;
+      } else if (s.age < s.hold) {
+        const k = 1 - Math.pow(0.86, dt);
+        s.x += (s.tx - s.x) * k; s.y += (s.ty - s.y) * k;
+      } else {
+        s.life -= 0.022 * dt; s.y += 0.25 * dt;
+      }
+      if (s.life <= 0) { tsparks.splice(i, 1); continue; }
+      ctx.fillStyle = 'rgba(' + s.col + ',' + s.life.toFixed(2) + ')';
+      ctx.fillRect(s.x - s.size / 2, s.y - s.size / 2, s.size, s.size);
+    }
     raf = requestAnimationFrame(frame);
   }
   function loop() {
     if (stopped) return;
-    const k = 1 + Math.floor(Math.random() * 3);
+    const k = gentle ? 1 : 1 + Math.floor(Math.random() * 3);
     for (let i = 0; i < k; i++) setTimeout(launch, i * 180);
-    timer = setTimeout(loop, 600 + Math.random() * 700);
+    timer = setTimeout(loop, gentle ? 1300 + Math.random() * 1500 : 600 + Math.random() * 700);
   }
-  for (let i = 0; i < 4; i++) setTimeout(launch, i * 250);
-  timer = setTimeout(loop, 1200);
+  for (let i = 0; i < (gentle ? 2 : 4); i++) setTimeout(launch, i * 250);
+  timer = setTimeout(loop, gentle ? 1800 : 1200);
+  function textLoop() {
+    if (stopped) return;
+    launchText();
+    txtLoopTimer = setTimeout(textLoop, (fx.every + (gentle ? 3 : 0)) * 1000);
+  }
+  if (fx && fx.words && fx.words.length) txtLoopTimer = setTimeout(textLoop, gentle ? 2500 : 2200);
   raf = requestAnimationFrame(frame);
   return function stop() {
     stopped = true;
-    cancelAnimationFrame(raf); clearTimeout(timer);
+    cancelAnimationFrame(raf); clearTimeout(timer); clearTimeout(txtLoopTimer);
     window.removeEventListener('resize', resize);
   };
 }
@@ -5682,11 +5814,57 @@ function closeEidDirect() {
   try { if (st.audio) { st.audio.pause(); st.audio.removeAttribute('src'); st.audio.load(); } } catch (e) {}
   try { if (st.blobUrl) URL.revokeObjectURL(st.blobUrl); } catch (e) {}
   try { st.el.remove(); } catch (e) {}
+  // بعد از بستن کارت تبریک، آتش‌بازی ملایم در همهٔ بخش‌های اپ ادامه پیدا می‌کند
+  if (eidAmbientWanted) { const w = eidAmbientWanted; eidAmbientWanted = null; eidAmbientStart(w.key, w.preview); }
 }
 
-function showEidCelebration(r, key, audioUrl) {
+/* ---------- آتش‌بازی ملایم در همهٔ بخش‌های اپ (روز عید) ----------
+ * یک بوم تمام‌صفحهٔ شفاف که لمس‌ها را رد می‌کند (pointer-events: none)؛ پس همهٔ صفحه‌ها مثل قبل کار می‌کنند.
+ * کاربر با دکمهٔ کوچک «✕ آتش‌بازی» می‌تواند آن را برای همان روز خاموش کند. با رفتن اپ به پس‌زمینه متوقف می‌شود
+ * و فقط تا آخر روز عید (نیمه‌شب) می‌ماند. مدیر از پیشخوان (رمضان ویژه) می‌تواند آن را خاموش کند (eid_ambient). */
+const EID_AMBIENT_OFF_KEY = 'arefanejam_eid_ambient_off';
+let eidAmbient = null;
+let eidAmbientWanted = null;
+
+function eidAmbientStart(key, preview) {
+  if (eidAmbient) return;
+  if (eidState) { eidAmbientWanted = { key, preview: !!preview }; return; } // کارت تبریک باز است؛ بعد از بستنش شروع می‌شود
+  if (!preview) { try { if (localStorage.getItem(EID_AMBIENT_OFF_KEY) === key) return; } catch (e) {} }
+  const canvas = document.createElement('canvas');
+  canvas.className = 'eid-ambient';
+  const chip = document.createElement('button');
+  chip.type = 'button';
+  chip.className = 'eid-ambient-off';
+  chip.textContent = '✕ آتش‌بازی';
+  document.body.appendChild(canvas);
+  document.body.appendChild(chip);
+  const st = { canvas, chip, key, stopFx: eidStartFireworks(canvas, true, eidFxCfg), timer: 0 };
+  chip.addEventListener('click', () => {
+    if (!preview) { try { localStorage.setItem(EID_AMBIENT_OFF_KEY, key); } catch (e) {} }
+    eidAmbientStop();
+  });
+  if (!preview) {
+    const n = new Date();
+    const ms = new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1).getTime() - n.getTime();
+    st.timer = setTimeout(eidAmbientStop, Math.max(1000, ms));
+  }
+  eidAmbient = st;
+}
+
+function eidAmbientStop() {
+  const st = eidAmbient;
+  eidAmbient = null;
+  eidAmbientWanted = null;
+  if (!st) return;
+  try { st.stopFx(); } catch (e) {}
+  try { clearTimeout(st.timer); } catch (e) {}
+  try { st.canvas.remove(); } catch (e) {}
+  try { st.chip.remove(); } catch (e) {}
+}
+
+function showEidCelebration(r, key, audioUrl, preview) {
   if (eidState) return;
-  try { localStorage.setItem(EID_SHOWN_KEY, key); } catch (e) {}
+  if (!preview) { try { localStorage.setItem(EID_SHOWN_KEY, key); } catch (e) {} } // در حالت تست، «امروز نشان داده شد» ثبت نمی‌شود
   const el = document.createElement('div');
   el.className = 'eid-overlay';
   el.setAttribute('dir', 'rtl');
@@ -5701,7 +5879,7 @@ function showEidCelebration(r, key, audioUrl) {
   el.querySelector('.eid-title').textContent = r.eid_title || 'عید سعید فطر مبارک 🌙';
   el.querySelector('.eid-text').textContent = r.eid_text || 'عید سعید فطر بر شما مبارک باد.\nطاعات و عبادات شما قبول درگاه حق.';
   document.body.appendChild(el);
-  const st = { el, audio: null, blobUrl: '', stopFx: eidStartFireworks(el.querySelector('.eid-canvas')) };
+  const st = { el, audio: null, blobUrl: '', stopFx: eidStartFireworks(el.querySelector('.eid-canvas'), false, eidFxFrom(r)) };
   eidState = st;
   pushOverlay('eid', closeEidDirect);
   el.querySelector('.eid-close').addEventListener('click', () => overlayGo('eid', 0, closeEidDirect));
@@ -5741,6 +5919,7 @@ async function checkEidCelebration(opts) {
   try {
     const r = await apiFetch('/ramadan');
     if (!r || r.eid_enabled !== '1') return;
+    eidFxCfg = eidFxFrom(r);
     const audioUrl = normalizeAzanUrl(r.eid_audio_url || '');
     if (audioUrl) eidPrefetchAudio(audioUrl);
     const key = eidTodayKey(r);
@@ -5748,10 +5927,34 @@ async function checkEidCelebration(opts) {
     let last = '';
     try { last = localStorage.getItem(EID_SHOWN_KEY) || ''; } catch (e) {}
     const repeat = r.eid_repeat === '1' && !opts.resume;
-    if (last === key && !repeat) return;
-    showEidCelebration(r, key, audioUrl);
+    if (last !== key || repeat) showEidCelebration(r, key, audioUrl);
+    // آتش‌بازی ملایم در همهٔ بخش‌های اپ؛ اگر کارت تبریک باز شد، بعد از بستنش شروع می‌شود (خاموش فقط با تیک «نه» در پیشخوان)
+    if (r.eid_ambient !== '') eidAmbientStart(key, false);
   } catch (e) { /* بدون اینترنت و بدون نسخهٔ ذخیره‌شده: چیزی نشان داده نمی‌شود */ }
 }
+
+/* تست جشن عید فطر: بدون توجه به تاریخ و بدون ثبت «نمایش داده شد» (دکمهٔ «تست جشن عید» در پنل مخفی صفحهٔ «بیشتر»).
+ * متن تبریک و فایل صوتی همان‌هایی است که در پیشخوان (رمضان ویژه ← جشن عید فطر) ذخیره کرده‌اید. */
+async function previewEidCelebration() {
+  if (eidState) return { ok: false, msg: 'جشن همین الان روی صفحه است.' };
+  let r = null;
+  try { r = await apiFetch('/ramadan'); } catch (e) { r = null; }
+  if (!r) r = {};
+  const audioUrl = normalizeAzanUrl(r.eid_audio_url || '');
+  eidFxCfg = eidFxFrom(r);
+  showEidCelebration(r, 'preview', audioUrl, true);
+  const ambient = r.eid_ambient !== '';
+  if (ambient) eidAmbientStart('preview', true);
+  return {
+    ok: true,
+    ambient,
+    hasFx: !!eidFxCfg,
+    enabled: r.eid_enabled === '1',
+    hasAudio: !!audioUrl,
+    hasTitle: !!r.eid_title,
+  };
+}
+window.previewEidCelebration = previewEidCelebration;
 
 /* ---------- جلسه خیرین ---------- */
 // این بخش باید بدون اینترنت هم دیده شود؛ پس هر بار که اطلاعاتش با موفقیت از سایت گرفته شد
@@ -7596,7 +7799,10 @@ loadCharitySettings();
 loadShariqSettings();
 loadNotes();
 setTimeout(checkEidCelebration, 2500);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) checkEidCelebration({ resume: true }); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) eidAmbientStop(); // اپ در پس‌زمینه است: بوم را نگه ندار (مصرف باتری)
+  else checkEidCelebration({ resume: true });
+});
 
 if ('serviceWorker' in navigator) {
   // فقط سرویس‌ورکرهای قدیمیِ غیرمرتبط با نوتیفیکیشن پاک می‌شوند
