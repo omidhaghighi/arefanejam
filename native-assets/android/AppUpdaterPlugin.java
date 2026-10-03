@@ -1528,6 +1528,24 @@ public class AppUpdaterPlugin extends Plugin {
         return pm != null && pm.isIgnoringBatteryOptimizations(ctx.getPackageName());
     }
 
+    /** Magnetic declination (degrees, east positive) at a location, from Android's own geomagnetic model. Used by the qibla compass to convert magnetic north to true north. */
+    @PluginMethod
+    public void magneticDeclination(PluginCall call) {
+        try {
+            Double lat = call.getDouble("lat");
+            Double lng = call.getDouble("lng");
+            Double alt = call.getDouble("alt");
+            if (lat == null || lng == null) { call.reject("no coords"); return; }
+            float altitude = (alt == null) ? 0f : alt.floatValue();
+            android.hardware.GeomagneticField field = new android.hardware.GeomagneticField(lat.floatValue(), lng.floatValue(), altitude, System.currentTimeMillis());
+            JSObject r = new JSObject();
+            r.put("declination", (double) field.getDeclination());
+            call.resolve(r);
+        } catch (Throwable t) {
+            call.reject("declination: " + t);
+        }
+    }
+
     @PluginMethod
     public void batteryStatus(PluginCall call) {
         try {

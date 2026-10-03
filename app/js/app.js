@@ -1120,8 +1120,35 @@ function loadCachedCoords() {
   } catch (e) {}
   return null;
 }
-function saveCoordsCache(coords, label) {
-  localStorage.setItem(COORDS_CACHE_KEY, JSON.stringify(Object.assign({}, coords, { label, ts: Date.now() })));
+function saveCoordsCache(coords, label, extra) {
+  try { localStorage.setItem(COORDS_CACHE_KEY, JSON.stringify(Object.assign({}, coords, { label, ts: Date.now() }, extra || {}))); } catch (e) {}
+}
+
+/* گرفتن دقیق‌ترین موقعیت ممکن: چند ثانیه نمونه می‌گیرد (GPS با دقت بالا) و بهترین را برمی‌گرداند.
+   زود می‌ایستد اگر دقت به حد کافی خوب شد (≤ ۲۵ متر) و بعد از ~۱۰ ثانیه با بهترین نمونهٔ موجود تمام می‌شود. */
+function getPreciseFix(maxMs) {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) { reject({ code: 2 }); return; }
+    let best = null, done = false, watchId = null;
+    const finish = (err) => {
+      if (done) return; done = true;
+      try { if (watchId !== null) navigator.geolocation.clearWatch(watchId); } catch (e) {}
+      clearTimeout(tSoft); clearTimeout(tHard);
+      if (best) resolve(best); else reject(err || { code: 3 });
+    };
+    const tSoft = setTimeout(() => { if (best) finish(); }, maxMs || 10000);
+    const tHard = setTimeout(() => finish({ code: 3 }), (maxMs || 10000) + 12000);
+    watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        if (!best || pos.coords.accuracy < best.accuracy) {
+          best = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, altitude: pos.coords.altitude };
+        }
+        if (best.accuracy <= 25) finish();
+      },
+      (err) => { if (err && err.code === 1) finish(err); else if (!best) { /* منتظر ادامه می‌مانیم تا زمان تمام شود */ } },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
+    );
+  });
 }
 
 // متن موقعیت مکانی را همزمان در تب «اذان» و تب «قبله» (در صورت وجود) به‌روزرسانی می‌کند
@@ -1139,8 +1166,9 @@ function refreshQiblaCompassIfReady() {
   updateHomeLocationBtnState();
   if (!state.coords) return;
   qiblaBearing = bearingToQibla(state.coords.lat, state.coords.lng);
+  updateQiblaDeclination();
   const degEl = document.getElementById('qibla-degree');
-  if (degEl) degEl.textContent = 'زاویه قبله: ' + toPersianDigits(Math.round(qiblaBearing)) + '°';
+  if (degEl) degEl.textContent = 'زاویه قبله از شمال: ' + toPersianDigits(qiblaBearing.toFixed(1)).replace('.', '٫') + '°';
 }
 
 // دکمهٔ کوچک «موقعیت من» در صفحهٔ خانه: تا وقتی موقعیت مشخص نشده کمی می‌تپد تا توجه کاربر جلب شود؛
@@ -1157,6 +1185,9 @@ function updateHomeLocationBtnState() {
   }
 }
 
+/* موقعیت فقط یک بار مشخص می‌شود و ذخیره می‌ماند. بعد از آن اپ دیگر سراغ GPS نمی‌رود؛
+   فقط وقتی کاربر خودش «موقعیت دقیق من» یا «انتخاب شهر» را بزند عوض می‌شود. */
+let autoGpsTriedThisLaunch = false;
 function resolveCoordinates(skipLiveGPS) {
   return new Promise((resolve) => {
     // اگر کاربر شهر را دستی انتخاب کرده، همان اولویت دارد
@@ -1183,43 +1214,62 @@ function resolveCoordinates(skipLiveGPS) {
       }
     };
 
-    // نمایش سریع مقدار کش‌شده (اگر وجود دارد) تا کاربر منتظر نماند
+    // موقعیت ذخیره‌شده (GPS یا شهر انتخابی): همان استفاده می‌شود و دیگر GPS پرسیده نمی‌شود
     const cached = loadCachedCoords();
     if (cached) {
       state.coords = { lat: cached.lat, lng: cached.lng };
-      setLocationLabel((cached.label ? cached.label : 'بر اساس آخرین موقعیت شناخته‌شده') + ' (در حال به‌روزرسانی...)');
+      if (!state.activeCityName) { const nc = findNearestCity(cached.lat, cached.lng); if (nc) state.activeCityName = nc.name; }
+      setLocationLabel(cached.label ? cached.label : 'بر اساس آخرین موقعیت ذخیره‌شده');
+      refreshQiblaCompassIfReady();
+      // موقعیت‌های GPS قدیمیِ کم‌دقت: فقط یک بار، بی‌صدا و در پس‌زمینه با دقت بالا اصلاح می‌شوند
+      if (!cached.precise && /دستگاه|دقیق/.test(cached.label || '') && !localStorage.getItem('arefanejam_geo_refined') && !localStorage.getItem('arefanejam_geo_denied')) {
+        localStorage.setItem('arefanejam_geo_refined', '1');
+        getPreciseFix(10000).then((fix) => applyPreciseFix(fix, true)).catch(() => {});
+      }
+      resolve(state.coords);
+      return;
+    }
+
+    // هنوز موقعیتی ذخیره نشده: تا مشخص شدن، مقدار پیش‌فرض ادمین نشان داده می‌شود
+    const s0 = state.settings || {};
+    if (s0.latitude && s0.longitude && !state.coords) {
+      state.coords = { lat: parseFloat(s0.latitude), lng: parseFloat(s0.longitude) };
+      state.activeCityName = s0.city_name || null;
+      setLocationLabel('بر اساس شهر پیش‌فرض' + (s0.city_name ? ' (' + s0.city_name + ')' : '') + ' — در حال یافتن موقعیت دقیق...');
       refreshQiblaCompassIfReady();
       computePrayerTimes();
     }
 
-    if (!navigator.geolocation || skipLiveGPS) { return useAdminLocation(); }
+    // اگر کاربر قبلاً دسترسی را رد کرده، دیگر خودکار نمی‌پرسیم (فقط با دکمهٔ «موقعیت دقیق من»)
+    if (!navigator.geolocation || skipLiveGPS || autoGpsTriedThisLaunch || localStorage.getItem('arefanejam_geo_denied')) { return useAdminLocation(); }
+    autoGpsTriedThisLaunch = true;
 
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        state.coords = coords;
-        state.manualCity = null;
-        localStorage.removeItem('arefanejam_manual_city');
-        const nearestC = findNearestCity(coords.lat, coords.lng);
-        state.activeCityName = nearestC ? nearestC.name : null;
-        setLocationLabel('بر اساس موقعیت مکانی دستگاه شما');
-        refreshQiblaCompassIfReady();
-        saveCoordsCache(coords, 'بر اساس موقعیت مکانی دستگاه شما');
-        resolve(coords);
-      },
-      (err) => {
-        if (!cached) {
-          if (err.code === 1) {
-            setLocationLabel('دسترسی به موقعیت مکانی رد شده است. از تنظیمات گوشی «مکان» را فعال کنید، یا شهر خود را از فهرست انتخاب کنید.');
-          }
-          useAdminLocation();
-        } else {
-          resolve(state.coords);
-        }
-      },
-      { timeout: 4000, maximumAge: 900000, enableHighAccuracy: false }
-    );
+    getPreciseFix(10000).then((fix) => {
+      applyPreciseFix(fix, false);
+      resolve(state.coords);
+    }).catch((err) => {
+      if (err && err.code === 1) {
+        try { localStorage.setItem('arefanejam_geo_denied', '1'); } catch (e) {}
+        setLocationLabel('دسترسی به موقعیت مکانی رد شده است. از دکمهٔ «موقعیت دقیق من» یا انتخاب شهر استفاده کنید.');
+      }
+      useAdminLocation();
+    });
   });
+}
+
+// نتیجهٔ یک موقعیت دقیق GPS را ذخیره و در همه‌جا (اذان، قبله) اعمال می‌کند
+function applyPreciseFix(fix, silent) {
+  const coords = { lat: fix.lat, lng: fix.lng };
+  state.coords = coords;
+  state.manualCity = null;
+  try { localStorage.removeItem('arefanejam_manual_city'); localStorage.removeItem('arefanejam_geo_denied'); } catch (e) {}
+  const nearest = findNearestCity(coords.lat, coords.lng);
+  state.activeCityName = nearest ? nearest.name : null;
+  const label = nearest ? `موقعیت دقیق شما (نزدیک‌ترین شهر: ${nearest.name})` : 'بر اساس موقعیت مکانی دستگاه شما';
+  saveCoordsCache(coords, label, { precise: true, acc: Math.round(fix.accuracy || 0), alt: fix.altitude || 0 });
+  setLocationLabel(label);
+  refreshQiblaCompassIfReady();
+  computePrayerTimes();
 }
 
 function setupLocation(skipLiveGPS) {
@@ -1276,35 +1326,19 @@ function findNearestCity(lat, lng) {
 
 function fetchExactGPSLocation(onDone) {
   if (!navigator.geolocation) { onDone('دستگاه یا مرورگر شما از GPS پشتیبانی نمی‌کند.'); return; }
-  navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      state.manualCity = null;
-      localStorage.removeItem('arefanejam_manual_city');
-      const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-      state.coords = coords;
-      const nearest = findNearestCity(coords.lat, coords.lng);
-      state.activeCityName = nearest ? nearest.name : null;
-      const label = nearest
-        ? `موقعیت دقیق شما (نزدیک‌ترین شهر: ${nearest.name})`
-        : 'بر اساس موقعیت مکانی دستگاه شما';
-      saveCoordsCache(coords, label);
-      setLocationLabel(label);
-      // بلافاصله و در پس‌زمینه به‌روزرسانی می‌شود؛ کاربر نیازی به بستن/بازکردن اپ ندارد
-      refreshQiblaCompassIfReady();
-      computePrayerTimes();
-      if (currentTab === 'qibla') autoStartQibla();
-      onDone(null);
-    },
-    (err) => {
-      const messages = {
-        1: 'دسترسی به موقعیت مکانی رد شده است. روی آیکون قفل/اطلاعات کنار آدرس سایت در مرورگر بزنید و دسترسی «Location» را روی Allow بگذارید.',
-        2: 'موقعیت مکانی در دسترس نیست (GPS گوشی را روشن کنید).',
-        3: 'زمان جست‌وجوی موقعیت به پایان رسید. دوباره امتحان کنید.',
-      };
-      onDone(messages[err.code] || ('خطای ناشناخته در دریافت موقعیت (کد ' + err.code + ')'));
-    },
-    { timeout: 12000, enableHighAccuracy: true, maximumAge: 0 }
-  );
+  getPreciseFix(10000).then((fix) => {
+    applyPreciseFix(fix, false);
+    if (currentTab === 'qibla') autoStartQibla();
+    onDone(null);
+  }).catch((err) => {
+    const messages = {
+      1: 'دسترسی به موقعیت مکانی رد شده است. از تنظیمات گوشی، مجوز «مکان» اپ را روی مجاز بگذارید.',
+      2: 'موقعیت مکانی در دسترس نیست (GPS گوشی را روشن کنید).',
+      3: 'زمان جست‌وجوی موقعیت به پایان رسید. بیرون از ساختمان یا کنار پنجره دوباره امتحان کنید.',
+    };
+    if (err && err.code === 1) { try { localStorage.setItem('arefanejam_geo_denied', '1'); } catch (e) {} }
+    onDone(messages[err && err.code] || ('خطای ناشناخته در دریافت موقعیت (کد ' + (err && err.code) + ')'));
+  });
 }
 
 document.getElementById('azan-gps-btn').addEventListener('click', () => {
@@ -3464,6 +3498,8 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) chec
 let qiblaBearing = null;
 let qiblaListenerAttached = false;
 let calibrationFlipped = localStorage.getItem('arefanejam_qibla_flip') === '1';
+let qiblaDeclination = 0;      // انحراف مغناطیسی (درجه، شرقی مثبت): شمال مغناطیسی ← شمال حقیقی
+let qiblaDeclinationKey = '';
 
 function bearingToQibla(lat, lng) {
   const toRad = (d) => d * Math.PI / 180;
@@ -3475,10 +3511,25 @@ function bearingToQibla(lat, lng) {
   return (toDeg(Math.atan2(y, x)) + 360) % 360;
 }
 
-// اجازهٔ دسترسی به سنسور قطب‌نما (iOS) فقط یک‌بار در طول عمر صفحه لازم است؛
-// نگه‌داشتن آن در یک متغیر از درخواست تکراری و از تأخیر اضافه (await) جلوگیری می‌کند
-// تا در دفعات بعدی، ورود به تب قبله همیشه سریع و بدون پرش انجام شود.
-let motionPermissionGranted = false;
+// قطب‌نمای گوشی شمال «مغناطیسی» را نشان می‌دهد ولی زاویهٔ قبله نسبت به شمال «حقیقی» است.
+// در ایران این اختلاف حدود ۳ تا ۶ درجه است. در اپ اندروید از مدل مغناطیسی خود اندروید گرفته می‌شود (دقیق)؛
+// بیرون از اپ (مرورگر) مقدار تقریبی ۵ درجه برای ایران استفاده می‌شود.
+function updateQiblaDeclination() {
+  if (!state.coords) return;
+  const key = state.coords.lat.toFixed(2) + ',' + state.coords.lng.toFixed(2);
+  if (key === qiblaDeclinationKey) return;
+  qiblaDeclinationKey = key;
+  const lat = state.coords.lat, lng = state.coords.lng;
+  qiblaDeclination = (lat > 24 && lat < 40 && lng > 43 && lng < 64) ? 5 : 0;
+  try {
+    const AUp = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AppUpdater;
+    if (AUp && AUp.magneticDeclination) {
+      AUp.magneticDeclination({ lat: lat, lng: lng, alt: (loadCachedCoords() || {}).alt || 0 }).then((r) => {
+        if (r && typeof r.declination === 'number' && qiblaDeclinationKey === key) qiblaDeclination = r.declination;
+      }).catch(() => {});
+    }
+  } catch (e) {}
+}
 
 async function autoStartQibla() {
   const statusEl = document.getElementById('qibla-status');
@@ -3514,30 +3565,76 @@ async function autoStartQibla() {
 
   if (!qiblaListenerAttached) {
     qiblaListenerAttached = true;
-    window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+    window.addEventListener('deviceorientationabsolute', handleOrientationAbs, true);
     window.addEventListener('deviceorientation', handleOrientation, true);
+    // اگر سنسور مطلق (قطب‌نمای واقعی) نیامد، به‌جای نشان‌دادن جهت غلط، پیام بدهیم
+    setTimeout(() => {
+      if (!gotAbsoluteOrientation && !gotWebkitCompass && currentTab === 'qibla') {
+        document.getElementById('qibla-status').textContent = 'سنسور قطب‌نمای این گوشی در دسترس نیست یا نیاز به کالیبره دارد (گوشی را به شکل ∞ بچرخانید).';
+      }
+    }, 3500);
   }
 }
 
 let smoothedHeading = null;
-function handleOrientation(event) {
-  if (qiblaBearing === null) return;
-  let heading;
-  if (typeof event.webkitCompassHeading === 'number') {
-    heading = event.webkitCompassHeading;
-  } else if (event.alpha !== null) {
-    heading = calibrationFlipped ? event.alpha : (360 - event.alpha);
-  } else { return; }
+let gotAbsoluteOrientation = false;
+let gotWebkitCompass = false;
 
-  // فیلتر نرم‌کننده روی زاویه (میانگین دایره‌ای) تا لرزش/پرش قطب‌نما کم شود
+// جهت «رو به‌روی گوشی» نسبت به شمال مغناطیسی، با جبران کج‌بودن گوشی (alpha/beta/gamma).
+// گوشی تقریباً افقی: جهتِ بالای گوشی؛ گوشی ایستاده: جهتِ پشت گوشی.
+function headingFromEuler(alphaDeg, betaDeg, gammaDeg) {
+  const d = Math.PI / 180;
+  const a = alphaDeg * d, b = betaDeg * d, g = gammaDeg * d;
+  const cA = Math.cos(a), sA = Math.sin(a), cB = Math.cos(b), sB = Math.sin(b), cG = Math.cos(g), sG = Math.sin(g);
+  const zUp = cG * cB; // مؤلفهٔ عمودی محور z گوشی؛ نزدیک ±۱ یعنی گوشی افقی است
+  let east, north;
+  if (Math.abs(zUp) > 0.6) { east = -sA * cB; north = cA * cB; }
+  else { east = -sG * cA - cG * sB * sA; north = -sG * sA + cG * sB * cA; }
+  if (Math.abs(east) < 1e-6 && Math.abs(north) < 1e-6) return null;
+  return (Math.atan2(east, north) / d + 360) % 360;
+}
+
+function handleOrientationAbs(event) {
+  if (event.alpha === null || event.alpha === undefined) return;
+  gotAbsoluteOrientation = true;
+  let h = headingFromEuler(event.alpha, event.beta || 0, event.gamma || 0);
+  if (h === null) return;
+  if (calibrationFlipped) h = (360 - h) % 360;
+  applyHeading(h);
+}
+
+function handleOrientation(event) {
+  // iOS: جهت قطب‌نما را خود سیستم می‌دهد
+  if (typeof event.webkitCompassHeading === 'number') {
+    gotWebkitCompass = true;
+    let h = event.webkitCompassHeading;
+    if (calibrationFlipped) h = (360 - h) % 360;
+    applyHeading(h);
+    return;
+  }
+  // اندروید: رویداد «نسبی» جهت واقعی ندارد؛ فقط اگر مطلق باشد و رویداد absolute نیامده استفاده می‌شود
+  if (gotAbsoluteOrientation || event.absolute !== true || event.alpha === null) return;
+  gotAbsoluteOrientation = true;
+  let h = headingFromEuler(event.alpha, event.beta || 0, event.gamma || 0);
+  if (h === null) return;
+  if (calibrationFlipped) h = (360 - h) % 360;
+  applyHeading(h);
+}
+
+function applyHeading(magHeading) {
+  if (qiblaBearing === null) return;
+  // شمال مغناطیسی ← شمال حقیقی
+  const heading = (magHeading + qiblaDeclination + 360) % 360;
+
+  // فیلتر نرم‌کننده روی زاویه (میانگین دایره‌ای)؛ تغییر بزرگ سریع‌تر دنبال می‌شود، لرزش کوچک حذف می‌شود
   if (smoothedHeading === null) {
     smoothedHeading = heading;
   } else {
-    const alphaSmooth = 0.15;
     let diff = heading - smoothedHeading;
     if (diff > 180) diff -= 360;
     if (diff < -180) diff += 360;
-    smoothedHeading = (smoothedHeading + alphaSmooth * diff + 360) % 360;
+    const k = Math.min(0.5, 0.07 + Math.abs(diff) / 120);
+    smoothedHeading = (smoothedHeading + k * diff + 360) % 360;
   }
 
   const rotation = qiblaBearing - smoothedHeading;
@@ -3551,7 +3648,7 @@ function handleOrientation(event) {
   const kaabaEl = document.getElementById('qibla-kaaba-icon');
   const targetKaabaEl = document.getElementById('qibla-target-kaaba');
   const statusEl = document.getElementById('qibla-status');
-  if (absDiff <= 6) {
+  if (absDiff <= 3) {
     kaabaEl.classList.add('is-aligned');
     targetKaabaEl.classList.add('is-aligned');
     kaabaEl.style.opacity = '';
@@ -3560,7 +3657,7 @@ function handleOrientation(event) {
     kaabaEl.classList.remove('is-aligned');
     targetKaabaEl.classList.remove('is-aligned');
     kaabaEl.style.opacity = '';
-    statusEl.textContent = 'در حال یافتن جهت... کمی بچرخانید';
+    statusEl.textContent = 'تا قبله ' + toPersianDigits(Math.round(absDiff)) + ' درجه ' + (diffFromTarget > 0 ? 'به راست' : 'به چپ') + ' بچرخید';
   }
 }
 
@@ -8701,7 +8798,7 @@ setInterval(sendHeartbeat, 20000);
    توسط کاربر رد شود)، اول پنجرهٔ خوش‌آمدگویی توضیح می‌دهد که این مجوز برای چیست؛ در همین حین
    اپ با آخرین موقعیت شناخته‌شده یا موقعیت پیش‌فرض ادمین کار می‌کند تا کاربر معطل نماند. */
 function initLocationFlow() {
-  if (state.manualCity || localStorage.getItem('arefanejam_location_prompted') || !navigator.geolocation) {
+  if (state.manualCity || loadCachedCoords() || localStorage.getItem('arefanejam_location_prompted') || !navigator.geolocation) {
     setupLocation();
     return;
   }
