@@ -2149,7 +2149,7 @@ body.dark-mode .upd-pct { color: #B9B3A5; }
   --raised-md: 0 2px 4px rgba(11,52,64,.05), 0 10px 24px -6px rgba(11,52,64,.14);
   --raised-lg: 0 4px 8px rgba(11,52,64,.06), 0 22px 40px -10px rgba(11,52,64,.22);
   --font-display: 'Lalezar', 'Vazirmatn', sans-serif;
-  --font-callig: 'Aref Ruqaa', 'Vazirmatn', serif;
+  --font-callig: 'Noto Naskh Arabic', 'Vazirmatn', Tahoma, serif; /* عنوان‌های نسخ فارسی (شبیه بی‌نازنین) */
   --font-ui: 'Vazirmatn', 'Segoe UI', Tahoma, sans-serif;
   /* نقش اسلیمی ظریف برای پس‌زمینهٔ تیره (۸ پر هندسی) */
   --pat-soft: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'%3E%3Cg fill='none' stroke='%23E8D29B' stroke-opacity='.07' stroke-width='1'%3E%3Cpath d='M32 4l8.5 13.5L56 20l-9 12 9 12-15.5 2.5L32 60l-8.5-13.5L8 44l9-12-9-12 15.5-2.5z'/%3E%3Ccircle cx='32' cy='32' r='6'/%3E%3C/g%3E%3C/svg%3E");
