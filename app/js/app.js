@@ -8326,7 +8326,7 @@ function renderMokatibBtn2View() {
       renderMokatibDetailSlider(m.slides);
       detailBlock.classList.remove('hidden');
       document.getElementById('mokatib-btn2-detail-name').textContent = m.name;
-      document.getElementById('mokatib-btn2-detail-info').textContent = m.imam_name ? 'امام: ' + m.imam_name : '';
+      document.getElementById('mokatib-btn2-detail-info').textContent = m.imam_name ? 'مسئول: ' + m.imam_name : '';
       const imgEl = document.getElementById('mokatib-btn2-detail-img');
       const wrapEl = document.getElementById('mokatib-btn2-detail-imgwrap');
       if (m.image_url) {
@@ -8364,10 +8364,10 @@ function renderMokatibBtn2View() {
     if (m.imam_name) {
       const imamEl = document.createElement('span');
       imamEl.className = 'mokatib-btn2-imam';
-      imamEl.textContent = 'امام: ' + m.imam_name;
+      imamEl.textContent = 'مسئول: ' + m.imam_name;
       btn.appendChild(imamEl);
     }
-    btn.title = m.name + (m.imam_name ? ' — امام: ' + m.imam_name : '');
+    btn.title = m.name + (m.imam_name ? ' — مسئول: ' + m.imam_name : '');
     if (m.btn_color) btn.style.background = m.btn_color;
     btn.addEventListener('click', () => {
       mokatibBtn2Path.push(m.id);
@@ -8569,7 +8569,7 @@ function renderMokatibTree(parentId, listElId) {
   children.forEach((m) => {
     const row = document.createElement('div');
     row.className = 'city-row';
-    row.innerHTML = `<strong>${m.name}</strong>${m.imam_name ? ' — امام: ' + m.imam_name : ''}`;
+    row.innerHTML = `<strong>${m.name}</strong>${m.imam_name ? ' — مسئول: ' + m.imam_name : ''}`;
     row.addEventListener('click', () => openMokatibMosque(m.id));
     el.appendChild(row);
   });
@@ -8615,7 +8615,7 @@ function openMokatibMosque(mosqueId) {
   mokatibState.currentMosqueId = mosqueId;
   document.getElementById('mokatib-mosque-name').textContent = m.name;
   document.getElementById('mokatib-mosque-info').textContent =
-    [m.address, m.imam_name ? 'امام: ' + m.imam_name : '', m.phone, m.extra_info].filter(Boolean).join(' | ');
+    [m.address, m.imam_name ? 'مسئول: ' + m.imam_name : '', m.phone, m.extra_info].filter(Boolean).join(' | ');
   renderMokatibTree(mosqueId, 'mokatib-mosque-children-list');
   loadMokatibMeetings(mosqueId, 0);
   switchToTab('mokatib-mosque', { push: true });
