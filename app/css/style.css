@@ -1329,11 +1329,11 @@ body.dark-mode .prayer-row { background: linear-gradient(160deg, color-mix(in sr
 #tab-qibla { position: relative; }
 #tab-qibla.active { display: flex; flex-direction: column; min-height: 100%; }
 .qb-scene {
-  --d: min(78vw, 330px, 56vh);
+  --d: min(70vw, 300px, 44vh);
   --qb-glow: 176,141,78;
-  flex: 1; position: relative; overflow: hidden;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: clamp(26px, 6vh, 44px); padding: 30px 0 28px;
+  flex: none; position: relative; overflow: hidden;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+  gap: clamp(16px, 3vh, 26px); padding: 14px 0 18px;
 }
 .qb-compass { position: relative; width: var(--d); height: var(--d); flex: none; }
 .qb-compass::before {
@@ -3199,3 +3199,62 @@ body.dark-mode .khatm-ask-note { background: #5A4513; color: #FFE7B0; }
 .rmz-sq { position: relative; padding-top: 0; max-width: 100%; }
 .rmz-sq::before { content: ''; display: block; padding-top: 100%; }
 .rmz-sq img { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 12px; cursor: zoom-in; display: block; background: var(--paper-alt); }
+
+
+/* ===== قبله‌نما: کعبهٔ کمرنگ بالای قطب‌نما (در جهت قبله) + نام شهر + نقشه ===== */
+.qb-top { position: relative; z-index: 2; display: flex; justify-content: center; align-items: flex-end; height: clamp(64px, 11vh, 92px); margin-bottom: -8px; pointer-events: none; }
+.qb-top-kaaba {
+  height: 100%; aspect-ratio: 1 / 1; opacity: .2; filter: grayscale(.7);
+  transform: scale(.92); transform-origin: 50% 100%;
+  transition: opacity .45s ease, filter .45s ease, transform .45s cubic-bezier(.34,1.56,.64,1);
+}
+.qb-top-kaaba svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.qb-scene.is-aligned .qb-top-kaaba {
+  opacity: 1; filter: grayscale(0) drop-shadow(0 0 12px rgba(46,204,140,.85)) drop-shadow(0 0 3px rgba(124,240,191,.9));
+  transform: scale(1.1);
+}
+
+.qb-actions { align-items: center; max-width: 94vw; }
+.qb-city {
+  display: flex; align-items: center; gap: 10px; min-width: 190px; max-width: min(72vw, 300px); height: 56px; padding: 0 16px;
+  border-radius: 28px; cursor: pointer; text-align: right;
+  border: 1.5px solid rgba(176,141,78,.6);
+  background: linear-gradient(160deg, var(--card-bg), var(--paper-alt));
+  color: var(--emerald); box-shadow: var(--raised-md); font-family: var(--font-ui);
+  transition: transform .18s cubic-bezier(.34,1.56,.64,1), box-shadow .2s ease;
+}
+body.dark-mode .qb-city { color: var(--gold-light); }
+.qb-city:active { transform: scale(.96); }
+.qb-city.is-success { animation: qb-success .65s ease; }
+.qb-city-pin { width: 24px; height: 24px; flex: none; color: var(--gold); }
+.qb-city-chev { width: 18px; height: 18px; flex: none; opacity: .6; }
+.qb-city-text { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.35; }
+.qb-city-text small { font-size: 10.5px; opacity: .65; font-weight: 500; }
+.qb-city-text b { font-size: 16px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qb-scene.no-loc .qb-city { animation: qb-attn 1.6s ease-in-out infinite; }
+
+.qb-map-card {
+  margin: 4px 14px 22px; border-radius: 20px; overflow: hidden; position: relative;
+  border: 1.5px solid rgba(176,141,78,.55); background: var(--card-bg); box-shadow: var(--raised-md);
+}
+.qb-map-card.hidden { display: none; }
+.qb-map-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; font-size: 13.5px; font-weight: 700; color: var(--emerald); }
+body.dark-mode .qb-map-head { color: var(--gold-light); }
+.qb-map-head b { font-weight: 800; color: var(--gold); direction: rtl; }
+.qb-map {
+  position: relative; width: 100%; height: clamp(220px, 34vh, 300px); overflow: hidden; direction: ltr;
+  background: radial-gradient(circle at 50% 45%, #1E5A50 0%, #143C36 55%, #0A2420 100%);
+}
+.qb-map-tiles { position: absolute; inset: 0; }
+.qb-map-tiles img { position: absolute; display: block; user-select: none; -webkit-user-drag: none; max-width: none; }
+body.dark-mode .qb-map-tiles { filter: brightness(.78) contrast(1.05); }
+.qb-map-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.qb-map-flow { animation: qb-mapflow 1.2s linear infinite; }
+@keyframes qb-mapflow { to { stroke-dashoffset: -26; } }
+.qb-map-user-pulse { transform-box: fill-box; transform-origin: center; animation: qb-mapping 2s ease-out infinite; }
+@keyframes qb-mapping { 0% { transform: scale(1); opacity: .7; } 100% { transform: scale(3); opacity: 0; } }
+.qb-map-note { padding: 7px 12px; direction: rtl; text-align: center; font-size: 11px; line-height: 1.7; color: #6B6458; }
+body.dark-mode .qb-map-note { color: #B9B3A6; }
+.qb-map-note.hidden { display: none; }
+.qb-map-attr { position: absolute; left: 0; bottom: 0; padding: 1px 6px; font-size: 9.5px; color: #333; background: rgba(255,255,255,.7); border-top-right-radius: 6px; direction: ltr; }
+@media (prefers-reduced-motion: reduce) { .qb-top-kaaba { transition: none; } .qb-map-flow, .qb-map-user-pulse { animation: none; } .qb-city { animation: none !important; } }

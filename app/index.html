@@ -8,7 +8,7 @@
 <link rel="icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=77">
+<link rel="stylesheet" href="css/style.css?v=78">
 </head>
 <body>
 
@@ -111,6 +111,26 @@
     <!-- قبله -->
     <section id="tab-qibla" class="tab-panel">
       <div class="qb-scene no-loc" id="qb-scene">
+        <div class="qb-top" id="qb-top" aria-hidden="true"><div class="qb-top-kaaba" id="qb-top-kaaba"><svg viewBox="0 0 120 120" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="qtL" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#0c0c10"/><stop offset="1" stop-color="#1b1b21"/></linearGradient>
+    <linearGradient id="qtR" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#26262e"/><stop offset="1" stop-color="#34343d"/></linearGradient>
+    <linearGradient id="qtT" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4a4a54"/><stop offset="1" stop-color="#2a2a31"/></linearGradient>
+    <linearGradient id="qtG" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8E6A2C"/><stop offset=".5" stop-color="#F6E4B4"/><stop offset="1" stop-color="#B98F45"/></linearGradient>
+    <linearGradient id="qtD" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FBEBC0"/><stop offset="1" stop-color="#A57C35"/></linearGradient>
+  </defs>
+  <ellipse cx="60" cy="108" rx="48" ry="6" fill="#000" fill-opacity=".28"/>
+  <polygon points="14.0,34.0 60.0,52.0 60.0,106.0 14.0,88.0" fill="url(#qtL)"/>
+  <polygon points="60.0,52.0 106.0,34.0 106.0,88.0 60.0,106.0" fill="url(#qtR)"/>
+  <polygon points="60.0,16.0 106.0,34.0 60.0,52.0 14.0,34.0" fill="url(#qtT)"/>
+  <polygon points="14.0,45.9 60.0,63.9 60.0,71.4 14.0,53.4" fill="url(#qtG)"/>
+  <polygon points="60.0,63.9 106.0,45.9 106.0,53.4 60.0,71.4" fill="url(#qtG)"/>
+  <g stroke="#5E4219" stroke-opacity=".55" stroke-width=".9" stroke-linecap="round"><path d="M18.6 49.6L18.6 53.3"/><path d="M64.6 64.0L64.6 67.8"/><path d="M24.1 51.7L24.1 55.5"/><path d="M70.1 61.8L70.1 65.6"/><path d="M29.6 53.9L29.6 57.7"/><path d="M75.6 59.6L75.6 63.4"/><path d="M35.2 56.0L35.2 59.8"/><path d="M81.2 57.5L81.2 61.3"/><path d="M40.7 58.2L40.7 62.0"/><path d="M86.7 55.3L86.7 59.1"/><path d="M46.2 60.4L46.2 64.2"/><path d="M92.2 53.2L92.2 57.0"/><path d="M51.7 62.5L51.7 66.3"/><path d="M97.7 51.0L97.7 54.8"/><path d="M56.3 64.3L56.3 68.1"/><path d="M102.3 49.2L102.3 53.0"/></g>
+  <polygon points="67.4,77.2 78.4,72.9 78.4,94.5 67.4,98.8" fill="url(#qtD)" stroke="#5E4219" stroke-width=".7"/>
+  <polygon points="69.2,79.2 76.6,76.3 76.6,94.1 69.2,97.0" fill="none" stroke="#6b4a1c" stroke-opacity=".6" stroke-width=".6"/>
+  <polyline points="14.0,34.0 60.0,52.0 106.0,34.0" fill="none" stroke="#F3DDAA" stroke-opacity=".4" stroke-width=".7" stroke-linejoin="round"/>
+  <line x1="60" y1="52" x2="60" y2="106" stroke="#F3DDAA" stroke-opacity=".25" stroke-width=".6"/>
+</svg></div></div>
         <div class="qb-compass" id="qb-compass" role="img" aria-label="قبله‌نما">
           <div class="qb-aura"></div>
           <div class="qb-pulse"></div>
@@ -190,9 +210,24 @@
           </div>
         </div>
         <div class="qb-actions">
-          <button id="qibla-city-picker-btn" class="qb-btn" type="button" aria-label="انتخاب شهر"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 21.5h19"/><path d="M5 21.5V12.5h3.6v9"/><path d="M15.4 21.5v-9H19v9"/><path d="M8.6 21.5v-5.6a3.4 3.4 0 0 1 6.8 0v5.6"/><path d="M12 12.5V9.6"/><circle cx="12" cy="8.4" r="1.1"/></svg></button>
+          <button id="qibla-city-picker-btn" class="qb-city" type="button" aria-label="انتخاب شهر">
+            <svg class="qb-city-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.4a7 7 0 0 0-7 7c0 5.2 7 12.4 7 12.4s7-7.2 7-12.4a7 7 0 0 0-7-7z"/><circle cx="12" cy="9.4" r="2.5"/></svg>
+            <span class="qb-city-text"><small>شهر شما (برای تغییر لمس کنید)</small><b id="qb-city-name">انتخاب شهر</b></span>
+            <svg class="qb-city-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
           <button id="qibla-gps-btn" class="qb-btn qb-btn--accent" type="button" aria-label="موقعیت دقیق من"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="6.3"/><circle cx="12" cy="12" r="2.1" fill="currentColor" stroke="none"/><path d="M12 2.2v3.4M12 18.4v3.4M2.2 12h3.4M18.4 12h3.4"/></svg></button>
         </div>
+      </div>
+
+      <!-- نقشه: خط مستقیم از موقعیت کاربر تا مکه -->
+      <div class="qb-map-card hidden" id="qb-map-card">
+        <div class="qb-map-head"><span>مسیر قبله تا مکه</span><b id="qb-map-dist"></b></div>
+        <div class="qb-map" id="qb-map">
+          <div class="qb-map-tiles" id="qb-map-tiles"></div>
+          <svg class="qb-map-svg" id="qb-map-svg" aria-hidden="true"></svg>
+          <div class="qb-map-attr">© OpenStreetMap</div>
+        </div>
+        <div class="qb-map-note hidden" id="qb-map-note">برای دیدن نقشهٔ زمینه اینترنت لازم است؛ خط قبله بدون اینترنت هم نشان داده می‌شود.</div>
       </div>
 
       <!-- هشدار روشن‌کردن مکان (فقط وقتی موقعیتی از قبل مشخص نشده) -->
@@ -1117,6 +1152,6 @@
 <script src="js/iran-cities.js?v=14"></script>
 <script src="js/native-config.js"></script>
 <script src="js/native-bridge.js?v=18"></script>
-<script src="js/app.js?v=115"></script>
+<script src="js/app.js?v=116"></script>
 </body>
 </html>

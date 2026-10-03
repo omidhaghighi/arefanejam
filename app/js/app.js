@@ -180,6 +180,8 @@ let qbPromptKind = '';
 let qbPermAsked = false;
 let gotAbsoluteOrientation = false;
 let gotWebkitCompass = false;
+let qbMapKey = '';                  // کلید آخرین نقشهٔ کشیده‌شده (مختصات + اندازه) تا بی‌دلیل دوباره کشیده نشود
+let qbMapTilesOk = 0, qbMapTilesBad = 0;
 const NOTES_STORAGE_KEY = 'arefanejam_local_notes';
 
 const state = {
@@ -3537,6 +3539,7 @@ function qbRender() {
   s.classList.toggle('no-loc', !has);
   if (!has) qbSetAligned(false);
   qbDraw();
+  try { qbUpdateCityName(); qbMapUpdate(); } catch (e) { try { console.warn('qibla-map', e); } catch (e2) {} }
 }
 
 // صفحهٔ قطب‌نما با شمال می‌چرخد؛ نشان کعبه روی همان صفحه در زاویهٔ قبله است.
@@ -3577,6 +3580,164 @@ function refreshQiblaCompassIfReady() {
   updateQiblaDeclination();
   qbRender();
 }
+
+/* ----- نام شهر زیر قبله‌نما ----- */
+function qbUpdateCityName() {
+  const el = qbEl('qb-city-name');
+  if (!el) return;
+  let txt = 'انتخاب شهر';
+  if (state.manualCity && state.manualCity.name) {
+    txt = state.manualCity.name;
+  } else {
+    const c = loadCachedCoords();
+    if (c) {
+      let near = null;
+      try { near = findNearestCity(c.lat, c.lng); } catch (e) {}
+      txt = near ? near.name + ' (موقعیت دقیق)' : 'موقعیت دقیق من';
+    }
+  }
+  if (el.textContent !== txt) el.textContent = txt;
+}
+
+/* ----- نقشه: خط از موقعیت کاربر تا کعبه ----- */
+// نقشهٔ ساده بدون کتابخانه: کاشی‌های OpenStreetMap + خط روی SVG. اگر اینترنت نباشد، فقط خطوط شبکه + خط قبله کشیده می‌شود.
+function qbMercator(lat, lng, z) {
+  const s = 256 * Math.pow(2, z);
+  const x = (lng + 180) / 360 * s;
+  const sin = Math.sin(Math.max(-85.05, Math.min(85.05, lat)) * Math.PI / 180);
+  const y = (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * s;
+  return { x: x, y: y };
+}
+function qbDistanceKm(lat1, lng1, lat2, lng2) {
+  const R = 6371, r = Math.PI / 180;
+  const dLat = (lat2 - lat1) * r, dLng = (lng2 - lng1) * r;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+// نقاط مسیر کوتاه‌ترین راه (دایرهٔ عظیمه) بین دو نقطه؛ در فاصله‌های کم عملاً خط مستقیم است
+function qbGreatCircle(lat1, lng1, lat2, lng2, n) {
+  const r = Math.PI / 180, d = 180 / Math.PI;
+  const p1 = lat1 * r, l1 = lng1 * r, p2 = lat2 * r, l2 = lng2 * r;
+  const dd = 2 * Math.asin(Math.sqrt(Math.sin((p2 - p1) / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin((l2 - l1) / 2) ** 2));
+  const pts = [];
+  if (!dd) return [{ lat: lat1, lng: lng1 }, { lat: lat2, lng: lng2 }];
+  let prevLng = lng1;
+  for (let i = 0; i <= n; i++) {
+    const f = i / n, A = Math.sin((1 - f) * dd) / Math.sin(dd), B = Math.sin(f * dd) / Math.sin(dd);
+    const x = A * Math.cos(p1) * Math.cos(l1) + B * Math.cos(p2) * Math.cos(l2);
+    const y = A * Math.cos(p1) * Math.sin(l1) + B * Math.cos(p2) * Math.sin(l2);
+    const z = A * Math.sin(p1) + B * Math.sin(p2);
+    const la = Math.atan2(z, Math.sqrt(x * x + y * y)) * d;
+    let lo = Math.atan2(y, x) * d;
+    while (lo - prevLng > 180) lo -= 360;     // پیوستگی طول جغرافیایی (عبور از ±۱۸۰)
+    while (lo - prevLng < -180) lo += 360;
+    prevLng = lo;
+    pts.push({ lat: la, lng: lo });
+  }
+  return pts;
+}
+
+function qbMapUpdate() {
+  const card = qbEl('qb-map-card');
+  if (!card) return;
+  const c = (qbHasLocation() && state.coords) ? state.coords : null;
+  if (!c) { card.classList.add('hidden'); qbMapKey = ''; return; }
+  card.classList.remove('hidden');
+  const box = qbEl('qb-map'), tilesEl = qbEl('qb-map-tiles'), svg = qbEl('qb-map-svg');
+  const W = box.clientWidth, H = box.clientHeight;
+  if (!W || !H) return;                         // تب قبله هنوز نمایان نیست
+  const key = c.lat.toFixed(4) + ',' + c.lng.toFixed(4) + ',' + W + 'x' + H + ',' + (state.manualCity ? 1 : 0);
+  if (key === qbMapKey) return;
+  qbMapKey = key;
+
+  const dist = qbDistanceKm(c.lat, c.lng, KAABA.lat, KAABA.lng);
+  const distEl = qbEl('qb-map-dist');
+  if (distEl) distEl.textContent = dist < 1 ? 'شما در کنار کعبه‌اید' : toPersianDigits(String(Math.round(dist)).replace(/\B(?=(\d{3})+(?!\d))/g, '٬')) + ' کیلومتر';
+
+  // کعبه را هم‌طولِ نزدیک‌ترین نسخهٔ نقشه نسبت به کاربر می‌گیریم (برای کاربران خیلی دور)
+  let kLng = KAABA.lng;
+  while (kLng - c.lng > 180) kLng -= 360;
+  while (kLng - c.lng < -180) kLng += 360;
+  const path = qbGreatCircle(c.lat, c.lng, KAABA.lat, kLng, 64);
+
+  // بزرگ‌ترین زوم که کل مسیر داخل قاب جا شود
+  const pad = 46;
+  let minLat = 90, maxLat = -90, minLng = 1e9, maxLng = -1e9;
+  path.forEach((p) => { minLat = Math.min(minLat, p.lat); maxLat = Math.max(maxLat, p.lat); minLng = Math.min(minLng, p.lng); maxLng = Math.max(maxLng, p.lng); });
+  let zf = 1;
+  for (let z = 14; z >= 1; z -= 0.25) {
+    const a = qbMercator(maxLat, minLng, z), b = qbMercator(minLat, maxLng, z);
+    if ((b.x - a.x) <= W - 2 * pad && (b.y - a.y) <= H - 2 * pad) { zf = z; break; }
+  }
+  if (dist < 1) zf = 12;
+  const cMid = qbMercator((minLat + maxLat) / 2, (minLng + maxLng) / 2, zf);
+  const ox = cMid.x - W / 2, oy = cMid.y - H / 2;
+  const proj = (lat, lng) => { const p = qbMercator(lat, lng, zf); return { x: p.x - ox, y: p.y - oy }; };
+
+  // کاشی‌ها
+  tilesEl.innerHTML = '';
+  qbMapTilesOk = 0; qbMapTilesBad = 0;
+  const note = qbEl('qb-map-note'); if (note) note.classList.add('hidden');
+  const zi = Math.max(0, Math.min(18, Math.floor(zf)));
+  const ts = 256 * Math.pow(2, zf - zi), n = Math.pow(2, zi);
+  const x0 = Math.floor(ox / ts), x1 = Math.floor((ox + W) / ts), y0 = Math.max(0, Math.floor(oy / ts)), y1 = Math.min(n - 1, Math.floor((oy + H) / ts));
+  let total = 0;
+  for (let ty = y0; ty <= y1; ty++) {
+    for (let tx = x0; tx <= x1; tx++) {
+      const wx = ((tx % n) + n) % n;
+      const img = document.createElement('img');
+      img.alt = ''; img.draggable = false; img.decoding = 'async';
+      img.style.left = (tx * ts - ox).toFixed(1) + 'px';
+      img.style.top = (ty * ts - oy).toFixed(1) + 'px';
+      img.style.width = img.style.height = (ts + 0.6).toFixed(1) + 'px';
+      total++;
+      img.onload = () => { qbMapTilesOk++; };
+      img.onerror = () => {
+        qbMapTilesBad++; img.remove();
+        if (qbMapTilesOk === 0 && qbMapTilesBad >= total && note) note.classList.remove('hidden');
+      };
+      img.src = 'https://tile.openstreetmap.org/' + zi + '/' + wx + '/' + ty + '.png';
+      tilesEl.appendChild(img);
+    }
+  }
+
+  // لایهٔ SVG: شبکهٔ جغرافیایی کمرنگ + خط قبله + نشانگرها
+  const step = zf >= 8 ? 1 : zf >= 6 ? 2 : zf >= 4.5 ? 5 : zf >= 3 ? 10 : 20;
+  let g = '';
+  for (let la = -80; la <= 80; la += step) {
+    const p = proj(la, 0).y;
+    if (p >= 0 && p <= H) g += '<line x1="0" y1="' + p.toFixed(1) + '" x2="' + W + '" y2="' + p.toFixed(1) + '"/>';
+  }
+  const lngA = Math.floor((ox / (256 * Math.pow(2, zf)) * 360 - 180) / step) * step;
+  const lngB = (ox + W) / (256 * Math.pow(2, zf)) * 360 - 180;
+  for (let lo = lngA; lo <= lngB + step; lo += step) {
+    const p = proj(0, lo).x;
+    if (p >= 0 && p <= W) g += '<line x1="' + p.toFixed(1) + '" y1="0" x2="' + p.toFixed(1) + '" y2="' + H + '"/>';
+  }
+  const pts = path.map((p) => { const q = proj(p.lat, p.lng); return q.x.toFixed(1) + ',' + q.y.toFixed(1); });
+  const A = proj(c.lat, c.lng), B = proj(KAABA.lat, kLng);
+  const flip = A.x > B.x; // برچسب‌ها طوری که روی هم نیفتند
+  let out = '<g stroke="#F3DDAA" stroke-opacity=".16" stroke-width=".7">' + g + '</g>';
+  if (dist >= 1) {
+    out += '<polyline points="' + pts.join(' ') + '" fill="none" stroke="#071C18" stroke-opacity=".55" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>';
+    out += '<polyline points="' + pts.join(' ') + '" fill="none" stroke="#F6E4B4" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>';
+    out += '<polyline class="qb-map-flow" points="' + pts.join(' ') + '" fill="none" stroke="#B08D4E" stroke-width="3.2" stroke-dasharray="7 19" stroke-linecap="round" stroke-linejoin="round"/>';
+  }
+  // نشانگر کاربر
+  out += '<circle class="qb-map-user-pulse" cx="' + A.x.toFixed(1) + '" cy="' + A.y.toFixed(1) + '" r="7" fill="#2E9BFF" fill-opacity=".55"/>';
+  out += '<circle cx="' + A.x.toFixed(1) + '" cy="' + A.y.toFixed(1) + '" r="7.5" fill="#2E9BFF" stroke="#fff" stroke-width="2.5"/>';
+  // نشانگر کعبه
+  const kx = B.x, ky = B.y;
+  out += '<g transform="translate(' + kx.toFixed(1) + ' ' + ky.toFixed(1) + ')"><circle r="15" fill="#0A2420" fill-opacity=".85" stroke="#F3DDAA" stroke-width="2"/>'
+    + '<rect x="-7.5" y="-7.5" width="15" height="15" rx="1.5" fill="#15151a" stroke="#F3DDAA" stroke-width=".8"/><rect x="-7.5" y="-3.8" width="15" height="3.2" fill="#D9BD87"/></g>';
+  // برچسب‌ها
+  const lab = (x, y, t, anchor) => '<text x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" text-anchor="' + anchor + '" font-family="Vazirmatn, sans-serif" font-size="12" font-weight="700" fill="#fff" stroke="#0A2420" stroke-width="3" paint-order="stroke">' + t + '</text>';
+  out += lab(kx, ky + 31, 'مکه مکرمه', 'middle');
+  out += lab(A.x, A.y + (A.y > H - 40 ? -16 : 26), 'شما', 'middle');
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  svg.innerHTML = out;
+}
+window.addEventListener('resize', () => { if (currentTab === 'qibla') { qbMapKey = ''; try { qbMapUpdate(); } catch (e) {} } });
 
 /* ----- سنسور جهت ----- */
 // جهت «رو به‌روی گوشی» نسبت به شمال مغناطیسی، با جبران کج‌بودن گوشی (alpha/beta/gamma).
