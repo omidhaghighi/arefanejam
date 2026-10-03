@@ -180,6 +180,7 @@ let qbPromptKind = '';
 let qbPermAsked = false;
 let gotAbsoluteOrientation = false;
 let gotWebkitCompass = false;
+let azUpcoming = null;              // اذان بعدی برای صحنهٔ سه‌بعدی تب اذان (شمارش معکوس زنده)
 let qbMapKey = '';                  // کلید آخرین نقشهٔ کشیده‌شده (مختصات + اندازه) تا بی‌دلیل دوباره کشیده نشود
 let qbMapTilesOk = 0, qbMapTilesBad = 0;
 const NOTES_STORAGE_KEY = 'arefanejam_local_notes';
@@ -2189,6 +2190,7 @@ function computePrayerTimes() {
 
   renderPrayerList('home-prayer-list', list, currentKey);
   renderPrayerList('azan-prayer-list', list, currentKey);
+  try { renderAzanHero(list, currentKey, upcoming); } catch (e) { try { console.warn('azan-hero', e); } catch (e2) {} }
 
   document.getElementById('home-next-prayer-name').textContent = upcoming.label;
   document.getElementById('home-next-prayer-time').textContent = formatTime(upcoming.time);
@@ -2384,6 +2386,57 @@ function renderPrayerList(elId, list, currentKey) {
     el.appendChild(row);
   });
 }
+
+/* ---------- صحنهٔ سه‌بعدی تب اذان ----------
+   آسمان بر اساس وقتِ فعلی عوض می‌شود (سحر، طلوع، روز، عصر، غروب، مغرب، شب)،
+   خورشید بین طلوع و غروب و ماه بین غروب و طلوعِ بعدی روی یک کمان حرکت می‌کند.
+   همه‌چیز محلی است و بدون اینترنت کار می‌کند. */
+function renderAzanHero(list, currentKey, upcoming) {
+  const hero = document.getElementById('az-hero');
+  if (!hero || !list || !list.length) return;
+  const now = new Date();
+  const byKey = {}; list.forEach((p) => { byKey[p.key] = p.time; });
+  let phase = currentKey;
+  if (now < byKey.fajr) phase = 'night';
+  hero.setAttribute('data-phase', phase);
+
+  // خورشید یا ماه روی کمان
+  const DAY = 86400000;
+  const sr = byKey.sunrise.getTime(), ss = byKey.sunset.getTime(), t = now.getTime();
+  let p, moon = false;
+  if (t >= sr && t <= ss) { p = (t - sr) / (ss - sr); }
+  else {
+    moon = true;
+    let s0 = ss, s1 = sr + DAY;
+    if (t < sr) { s0 = ss - DAY; s1 = sr; }
+    p = (t - s0) / (s1 - s0);
+  }
+  p = Math.max(0, Math.min(1, p));
+  const amp = moon ? 120 : 150;
+  const x = 8 + 84 * p;
+  const y = 196 - amp * Math.sin(Math.PI * p);
+  hero.setAttribute('data-body', moon ? 'moon' : 'sun');
+  hero.style.setProperty('--ax', x.toFixed(1) + '%');
+  hero.style.setProperty('--ay', y.toFixed(0) + 'px');
+
+  azUpcoming = upcoming || null;
+  const nameEl = document.getElementById('az-next-name'), timeEl = document.getElementById('az-next-time');
+  if (upcoming) {
+    if (nameEl) nameEl.textContent = upcoming.label;
+    if (timeEl) timeEl.textContent = formatTime(upcoming.time);
+  }
+  azHeroTick();
+}
+
+function azHeroTick() {
+  const el = document.getElementById('az-next-count');
+  if (!el || !azUpcoming) return;
+  let diff = azUpcoming.time - new Date();
+  if (diff <= 0) diff += 86400000; // اذانِ فردا
+  const h = Math.floor(diff / 3600000), m = Math.floor((diff % 3600000) / 60000), s = Math.floor((diff % 60000) / 1000);
+  el.textContent = 'تا اذان: ' + toPersianDigits(h) + ' ساعت و ' + toPersianDigits(String(m).padStart(2, '0')) + ' دقیقه و ' + toPersianDigits(String(s).padStart(2, '0')) + ' ثانیه';
+}
+setInterval(() => { if (currentTab === 'azan' && !document.hidden) azHeroTick(); }, 1000);
 
 function updateCountdown(upcomingTime) {
   const el = document.getElementById('home-countdown');

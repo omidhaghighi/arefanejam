@@ -3258,3 +3258,143 @@ body.dark-mode .qb-map-note { color: #B9B3A6; }
 .qb-map-note.hidden { display: none; }
 .qb-map-attr { position: absolute; left: 0; bottom: 0; padding: 1px 6px; font-size: 9.5px; color: #333; background: rgba(255,255,255,.7); border-top-right-radius: 6px; direction: ltr; }
 @media (prefers-reduced-motion: reduce) { .qb-top-kaaba { transition: none; } .qb-map-flow, .qb-map-user-pulse { animation: none; } .qb-city { animation: none !important; } }
+
+
+/* ===== تب اذان: صحنهٔ سه‌بعدی (آسمان زنده + مسجد) و کارت‌های برجسته ===== */
+#tab-azan .az-hero {
+  --sky-a: #0E4250; --sky-b: #2BA398; --glow: 255,214,120;
+  position: relative; height: 340px; margin: 10px 12px 6px; border-radius: 28px; overflow: hidden; isolation: isolate;
+  background: linear-gradient(180deg, #0A2B36, #0A2420);
+  box-shadow: 0 1px 0 rgba(255,255,255,.35) inset, 0 22px 38px -14px rgba(11,52,64,.65), 0 0 0 1.5px rgba(176,141,78,.55);
+}
+#tab-azan .az-sky { position: absolute; left: 0; right: 0; top: 0; height: 232px; background: linear-gradient(180deg, var(--sky-a), var(--sky-b)); transition: background 1.2s ease; z-index: 0; }
+#tab-azan .az-stars { position: absolute; left: 0; right: 0; top: 0; height: 232px; z-index: 1; opacity: 0; transition: opacity 1.2s ease;
+  background-image:
+    radial-gradient(1.6px 1.6px at 12% 18%, #fff 50%, transparent 52%), radial-gradient(1.2px 1.2px at 28% 42%, #fff 50%, transparent 52%),
+    radial-gradient(1.8px 1.8px at 44% 12%, #FFF3CF 50%, transparent 52%), radial-gradient(1.2px 1.2px at 58% 34%, #fff 50%, transparent 52%),
+    radial-gradient(1.6px 1.6px at 73% 16%, #fff 50%, transparent 52%), radial-gradient(1.2px 1.2px at 86% 38%, #FFF3CF 50%, transparent 52%),
+    radial-gradient(1.2px 1.2px at 6% 55%, #fff 50%, transparent 52%), radial-gradient(1.6px 1.6px at 93% 10%, #fff 50%, transparent 52%),
+    radial-gradient(1px 1px at 36% 28%, #fff 50%, transparent 52%), radial-gradient(1px 1px at 66% 52%, #fff 50%, transparent 52%);
+  animation: az-twinkle 3.4s ease-in-out infinite alternate; }
+@keyframes az-twinkle { from { filter: brightness(.7); } to { filter: brightness(1.35); } }
+#tab-azan .az-hero[data-phase="night"] .az-stars, #tab-azan .az-hero[data-phase="isha"] .az-stars, #tab-azan .az-hero[data-phase="fajr"] .az-stars { opacity: 1; }
+#tab-azan .az-hero[data-phase="maghrib"] .az-stars { opacity: .55; }
+
+#tab-azan .az-hero[data-phase="fajr"]    { --sky-a: #1B2260; --sky-b: #E58C6A; --glow: 255,190,150; }
+#tab-azan .az-hero[data-phase="sunrise"] { --sky-a: #3F6FB8; --sky-b: #FFC478; --glow: 255,200,110; }
+#tab-azan .az-hero[data-phase="dhuhr"]   { --sky-a: #1E78C8; --sky-b: #8FD3F4; --glow: 255,236,150; }
+#tab-azan .az-hero[data-phase="asr"]     { --sky-a: #3A8FD0; --sky-b: #F4DE9C; --glow: 255,220,130; }
+#tab-azan .az-hero[data-phase="sunset"]  { --sky-a: #5A3C8C; --sky-b: #FF8A52; --glow: 255,150,90; }
+#tab-azan .az-hero[data-phase="maghrib"] { --sky-a: #1D1F5C; --sky-b: #8A4C9C; --glow: 200,160,255; }
+#tab-azan .az-hero[data-phase="isha"], #tab-azan .az-hero[data-phase="night"] { --sky-a: #050E24; --sky-b: #12315C; --glow: 200,220,255; }
+
+#tab-azan .az-orbit { position: absolute; left: 0; right: 0; top: 0; height: 232px; z-index: 2; pointer-events: none; }
+#tab-azan .az-body {
+  position: absolute; width: 58px; height: 58px; margin: -29px 0 0 -29px; border-radius: 50%;
+  left: var(--ax, 50%); top: var(--ay, 40%);
+  background: radial-gradient(circle at 36% 32%, #FFFDF0 0%, #FFE08A 38%, #F2A93B 100%);
+  box-shadow: 0 0 0 10px rgba(var(--glow), .16), 0 0 38px 16px rgba(var(--glow), .55), 0 0 90px 36px rgba(var(--glow), .25);
+  transition: left 1s ease, top 1s ease;
+}
+#tab-azan .az-hero[data-body="moon"] .az-body {
+  width: 50px; height: 50px; margin: -25px 0 0 -25px;
+  background: radial-gradient(circle at 34% 30%, #FFFFFF 0%, #EEF0F8 45%, #B9C3DD 100%);
+  box-shadow: inset -9px -5px 0 rgba(120,135,180,.28), 0 0 26px 8px rgba(var(--glow), .45), 0 0 70px 24px rgba(var(--glow), .2);
+}
+#tab-azan .az-hero[data-body="moon"] .az-body::after { content: ""; position: absolute; left: 14px; top: 12px; width: 9px; height: 9px; border-radius: 50%; background: rgba(120,135,180,.28); box-shadow: 14px 16px 0 -2px rgba(120,135,180,.22); }
+#tab-azan .az-cloud { position: absolute; z-index: 3; height: 16px; border-radius: 20px; background: linear-gradient(180deg, rgba(255,255,255,.9), rgba(255,255,255,.55)); filter: blur(.4px); opacity: .85; pointer-events: none; }
+#tab-azan .az-cloud::before, #tab-azan .az-cloud::after { content: ""; position: absolute; background: inherit; border-radius: 50%; }
+#tab-azan .az-cloud::before { width: 24px; height: 24px; left: 12px; top: -12px; } #tab-azan .az-cloud::after { width: 32px; height: 32px; right: 10px; top: -16px; }
+#tab-azan .az-cloud-1 { width: 90px; top: 58px; left: -110px; animation: az-drift 46s linear infinite; }
+#tab-azan .az-cloud-2 { width: 66px; top: 112px; left: -90px; opacity: .6; transform: scale(.8); animation: az-drift 62s linear infinite; animation-delay: -24s; }
+@keyframes az-drift { to { left: 110%; } }
+#tab-azan .az-hero[data-phase="night"] .az-cloud, #tab-azan .az-hero[data-phase="isha"] .az-cloud, #tab-azan .az-hero[data-phase="maghrib"] .az-cloud, #tab-azan .az-hero[data-phase="fajr"] .az-cloud { opacity: .14; }
+
+#tab-azan .az-mosque { position: absolute; left: 50%; display: block; pointer-events: none; }
+#tab-azan .az-m-far { z-index: 4; width: 112%; height: 92px; transform: translateX(-50%); top: 148px; fill: #0b3a3c; opacity: .55; }
+#tab-azan .az-m-main { z-index: 5; width: min(96%, 420px); top: 74px; height: 158px; transform: translateX(-50%); filter: drop-shadow(0 10px 8px rgba(0,0,0,.45)); animation: az-float 7s ease-in-out infinite; }
+@keyframes az-float { 0%, 100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(-3px); } }
+#tab-azan .az-m-main g[fill="url(#azWin)"] { filter: drop-shadow(0 0 4px rgba(255,214,120,.95)); animation: az-win 4.5s ease-in-out infinite alternate; }
+@keyframes az-win { from { opacity: .82; } to { opacity: 1; } }
+#tab-azan .az-ground { position: absolute; left: 0; right: 0; top: 226px; bottom: 0; z-index: 6;
+  background: linear-gradient(180deg, #123f39 0%, #0A2420 60%); border-top: 2px solid rgba(217,189,135,.55); box-shadow: 0 -8px 14px -6px rgba(0,0,0,.45); }
+
+#tab-azan .az-info {
+  position: absolute; z-index: 7; left: 14px; right: 14px; bottom: 12px; padding: 10px 16px 11px; border-radius: 22px; text-align: center; color: #FFF6DC;
+  display: grid; grid-template-columns: 1fr auto; grid-template-areas: "label time" "name time" "count time"; align-items: center; column-gap: 12px; row-gap: 0;
+  background: linear-gradient(160deg, rgba(255,255,255,.22), rgba(255,255,255,.07));
+  border: 1px solid rgba(246,228,180,.5); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 1px 0 rgba(255,255,255,.45) inset, 0 -2px 6px rgba(0,0,0,.18) inset, 0 14px 22px -8px rgba(0,0,0,.6);
+}
+#tab-azan .az-info-label { grid-area: label; text-align: right; font-size: 11.5px; opacity: .78; }
+#tab-azan .az-info-name { grid-area: name; text-align: right; font-family: var(--font-display, var(--font-ui)); font-size: 26px; line-height: 1.25; color: #F6E4B4; text-shadow: 0 2px 0 #5E4219, 0 4px 10px rgba(0,0,0,.5); }
+#tab-azan .az-info-count { grid-area: count; text-align: right; font-size: 12px; opacity: .85; }
+#tab-azan .az-info-time {
+  grid-area: time; align-self: center; font-size: 30px; font-weight: 800; font-variant-numeric: tabular-nums; direction: ltr; padding: 6px 14px; border-radius: 16px; color: #FFF6DC;
+  background: linear-gradient(180deg, rgba(5,20,18,.65), rgba(5,20,18,.35)); box-shadow: 0 2px 6px rgba(0,0,0,.5) inset, 0 1px 0 rgba(255,255,255,.2); text-shadow: 0 0 14px rgba(var(--glow), .85);
+}
+
+/* ---- کارت‌های اوقات: دکمه‌های برجسته با کرهٔ رنگی ---- */
+#tab-azan .section-block { perspective: 900px; }
+#azan-prayer-list { gap: 12px; padding: 4px 2px 10px; }
+#azan-prayer-list .prayer-row {
+  position: relative; padding: 11px 14px 11px 12px; border-radius: 20px; border: 1px solid rgba(var(--sh-color), .08);
+  background: linear-gradient(165deg, #FFFFFF 0%, color-mix(in srgb, var(--pr-c) 9%, #F7F2E6) 100%);
+  box-shadow: 0 1px 0 #fff inset, 0 -3px 0 color-mix(in srgb, var(--pr-c) 38%, transparent) inset, 0 8px 0 -3px color-mix(in srgb, var(--pr-cd) 55%, #fff), 0 14px 20px -8px rgba(var(--sh-color), .35);
+  transform: translateZ(0) rotateX(0); transition: transform .18s ease, box-shadow .18s ease; animation: az-card-in .55s cubic-bezier(.2,.8,.25,1) both;
+}
+#azan-prayer-list .prayer-row:nth-child(2) { animation-delay: .05s; } #azan-prayer-list .prayer-row:nth-child(3) { animation-delay: .1s; }
+#azan-prayer-list .prayer-row:nth-child(4) { animation-delay: .15s; } #azan-prayer-list .prayer-row:nth-child(5) { animation-delay: .2s; }
+#azan-prayer-list .prayer-row:nth-child(6) { animation-delay: .25s; } #azan-prayer-list .prayer-row:nth-child(7) { animation-delay: .3s; }
+@keyframes az-card-in { from { opacity: 0; transform: translateY(18px) rotateX(-24deg); } to { opacity: 1; transform: none; } }
+#azan-prayer-list .prayer-row:active { transform: translateY(4px) scale(.985); box-shadow: 0 1px 0 #fff inset, 0 -2px 0 color-mix(in srgb, var(--pr-c) 38%, transparent) inset, 0 3px 0 -2px color-mix(in srgb, var(--pr-cd) 55%, #fff), 0 6px 10px -6px rgba(var(--sh-color), .35); }
+#azan-prayer-list .prayer-row .prayer-icon-badge {
+  width: 46px; height: 46px; border-radius: 50%; border: 0; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 32% 26%, color-mix(in srgb, var(--pr-c) 45%, #fff) 0%, var(--pr-c) 46%, var(--pr-cd) 100%);
+  box-shadow: 0 -3px 5px rgba(0,0,0,.22) inset, 0 3px 4px rgba(255,255,255,.55) inset, 0 7px 12px -3px color-mix(in srgb, var(--pr-cd) 80%, #000);
+}
+#azan-prayer-list .prayer-row .prayer-icon-badge::after { content: ""; position: absolute; width: 17px; height: 9px; border-radius: 50%; margin: -22px 0 0 -9px; background: rgba(255,255,255,.55); filter: blur(1px); }
+#azan-prayer-list .prayer-row .prayer-icon { font-size: 21px; filter: drop-shadow(0 2px 2px rgba(0,0,0,.35)); }
+#azan-prayer-list .prayer-row .prayer-name-wrap { font-size: 17px; font-weight: 800; color: var(--emerald); }
+#azan-prayer-list .prayer-row .prayer-time {
+  min-width: 78px; text-align: center; padding: 7px 12px; border-radius: 14px; font-size: 17px; font-weight: 800; direction: ltr; color: var(--pr-cd);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--pr-c) 16%, #E9E1CD), color-mix(in srgb, var(--pr-c) 8%, #F4EEDD));
+  box-shadow: 0 2px 5px rgba(var(--sh-color), .22) inset, 0 1px 0 #fff;
+}
+#azan-prayer-list .prayer-row.current-prayer {
+  color: #FFF6DC; border-color: transparent; transform: translateY(-3px) scale(1.015); animation: none;
+  background: linear-gradient(150deg, color-mix(in srgb, var(--pr-c) 80%, #fff) 0%, var(--pr-c) 40%, var(--pr-cd) 100%);
+  box-shadow: 0 1px 0 rgba(255,255,255,.55) inset, 0 -3px 0 rgba(0,0,0,.2) inset, 0 8px 0 -3px var(--pr-cd), 0 0 0 2px #F3DDAA, 0 20px 28px -8px color-mix(in srgb, var(--pr-cd) 85%, #000), 0 0 28px -2px color-mix(in srgb, var(--pr-c) 70%, transparent);
+}
+#azan-prayer-list .prayer-row.current-prayer::before { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,.28) 48%, transparent 60%); background-size: 250% 100%; animation: az-shine 3.6s ease-in-out infinite; }
+@keyframes az-shine { from { background-position: 140% 0; } to { background-position: -60% 0; } }
+#azan-prayer-list .prayer-row.current-prayer .prayer-name-wrap { color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,.35); }
+#azan-prayer-list .prayer-row.current-prayer .prayer-time { color: #fff; background: rgba(0,0,0,.28); box-shadow: 0 2px 6px rgba(0,0,0,.4) inset, 0 1px 0 rgba(255,255,255,.25); }
+#azan-prayer-list .prayer-row.current-prayer .prayer-icon-badge { background: radial-gradient(circle at 32% 26%, #fff 0%, color-mix(in srgb, var(--pr-c) 35%, #fff) 45%, var(--pr-c) 100%); }
+
+/* ---- کلید روشن/خاموش و دکمه‌های تب اذان ---- */
+#tab-azan .switch-row { padding: 12px 14px; border-radius: 20px; font-size: 15px; font-weight: 800; color: var(--emerald);
+  background: linear-gradient(165deg, #fff, var(--paper-alt)); box-shadow: 0 1px 0 #fff inset, 0 8px 18px -8px rgba(var(--sh-color), .4), 0 0 0 1px rgba(176,141,78,.35); }
+#tab-azan .switch-row input[type="checkbox"] {
+  -webkit-appearance: none; appearance: none; position: relative; width: 58px; height: 32px; border-radius: 16px; cursor: pointer; flex: none; margin: 0; transition: background .25s ease;
+  background: linear-gradient(180deg, #B9B3A6, #D6D0C2); box-shadow: 0 3px 7px rgba(0,0,0,.3) inset, 0 1px 0 #fff;
+}
+#tab-azan .switch-row input[type="checkbox"]::after { content: ""; position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%; transition: transform .28s cubic-bezier(.34,1.56,.64,1);
+  background: radial-gradient(circle at 34% 28%, #fff, #E9E4D8 60%, #BDB6A6); box-shadow: 0 3px 6px rgba(0,0,0,.4), 0 -2px 3px rgba(0,0,0,.12) inset; }
+#tab-azan .switch-row input[type="checkbox"]:checked { background: linear-gradient(180deg, #0f6d5d, #2BA398); box-shadow: 0 3px 7px rgba(0,0,0,.4) inset, 0 0 14px rgba(43,163,152,.55); }
+#tab-azan .switch-row input[type="checkbox"]:checked::after { transform: translateX(26px); }
+#tab-azan .location-btn-row .ghost-btn {
+  border-radius: 16px; font-weight: 800; color: var(--emerald); border: 1px solid rgba(176,141,78,.5);
+  background: linear-gradient(165deg, #fff, var(--paper-alt)); box-shadow: 0 1px 0 #fff inset, 0 -2px 0 rgba(176,141,78,.25) inset, 0 5px 0 -1px rgba(176,141,78,.45), 0 9px 14px -6px rgba(var(--sh-color), .35);
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+#tab-azan .location-btn-row .ghost-btn:active, #tab-azan .azan-share-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 #fff inset, 0 1px 0 -1px rgba(176,141,78,.45), 0 3px 6px -4px rgba(var(--sh-color), .35); }
+#tab-azan .azan-share-btn { margin-top: 14px; border-radius: 16px; font-weight: 800; color: #F6E4B4; border: 0; background: linear-gradient(160deg, var(--emerald-light), var(--emerald)); box-shadow: 0 1px 0 rgba(255,255,255,.3) inset, 0 5px 0 -1px #071C18, 0 10px 16px -6px rgba(7,28,24,.6); }
+
+body.dark-mode #azan-prayer-list .prayer-row { background: linear-gradient(165deg, color-mix(in srgb, var(--pr-c) 20%, var(--card-bg)), var(--card-bg)); box-shadow: 0 1px 0 rgba(255,255,255,.08) inset, 0 -3px 0 color-mix(in srgb, var(--pr-c) 30%, transparent) inset, 0 8px 0 -3px color-mix(in srgb, var(--pr-cd) 70%, #000), 0 14px 20px -8px rgba(0,0,0,.6); }
+body.dark-mode #azan-prayer-list .prayer-row .prayer-name-wrap { color: var(--gold-light); }
+body.dark-mode #azan-prayer-list .prayer-row .prayer-time { color: #fff; background: rgba(0,0,0,.35); box-shadow: 0 2px 5px rgba(0,0,0,.5) inset; }
+body.dark-mode #tab-azan .switch-row, body.dark-mode #tab-azan .location-btn-row .ghost-btn { background: linear-gradient(165deg, var(--card-bg), var(--paper-alt)); color: var(--gold-light); }
+@media (prefers-reduced-motion: reduce) {
+  #tab-azan .az-m-main, #tab-azan .az-cloud, #tab-azan .az-stars, #tab-azan .az-m-main g, #azan-prayer-list .prayer-row, #azan-prayer-list .prayer-row::before { animation: none !important; }
+}

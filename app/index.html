@@ -8,7 +8,7 @@
 <link rel="icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=78">
+<link rel="stylesheet" href="css/style.css?v=79">
 </head>
 <body>
 
@@ -88,6 +88,40 @@
 
     <!-- اذان -->
     <section id="tab-azan" class="tab-panel">
+      <!-- صحنهٔ سه‌بعدی اذان: آسمان بر اساس وقت روز + خورشید/ماه متحرک + مسجد -->
+      <div class="az-hero" id="az-hero" data-phase="day">
+        <div class="az-sky" id="az-sky"></div>
+        <div class="az-stars" aria-hidden="true"></div>
+        <div class="az-orbit" id="az-orbit" aria-hidden="true"><div class="az-body" id="az-body"></div></div>
+        <div class="az-cloud az-cloud-1" aria-hidden="true"></div>
+        <div class="az-cloud az-cloud-2" aria-hidden="true"></div>
+        <svg class="az-mosque az-m-far" viewBox="0 0 400 120" preserveAspectRatio="xMidYMax slice" aria-hidden="true"><path d="M0 120V92h22V78l6-10 6 10v14h26V84h10v8h30V70q0-14 14-18 14 4 14 18v22h30V80h10V62l5-10 5 10v18h10v12h40V86h12v-6h10v6h14V72l6-10 6 10v20h30V88h26v32z"/></svg>
+        <svg class="az-mosque az-m-main" viewBox="0 0 400 150" preserveAspectRatio="xMidYMax meet" aria-hidden="true">
+          <defs>
+            <linearGradient id="azDome" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F6E4B4"/><stop offset=".45" stop-color="#C9A25D"/><stop offset="1" stop-color="#7D5A22"/></linearGradient>
+            <linearGradient id="azWall" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#0d3a35"/><stop offset=".5" stop-color="#1b5a52"/><stop offset="1" stop-color="#0a2c28"/></linearGradient>
+            <linearGradient id="azMin" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#0b302c"/><stop offset=".5" stop-color="#206b60"/><stop offset="1" stop-color="#0a2824"/></linearGradient>
+            <radialGradient id="azWin" cx="50%" cy="60%" r="60%"><stop offset="0" stop-color="#FFF3CF"/><stop offset="1" stop-color="#E8B54C"/></radialGradient>
+          </defs>
+          <g class="az-min"><rect x="48" y="40" width="16" height="110" fill="url(#azMin)"/><rect x="45" y="62" width="22" height="5" fill="url(#azDome)"/><rect x="45" y="92" width="22" height="4" fill="url(#azDome)"/><path d="M47 40q9-22 18 0z" fill="url(#azDome)"/><path d="M56 18v-9" stroke="#E8D29B" stroke-width="1.6"/><circle cx="56" cy="8" r="2.4" fill="#F6E4B4"/><rect x="53" y="48" width="6" height="9" rx="3" fill="url(#azWin)"/></g>
+          <g class="az-min"><rect x="336" y="40" width="16" height="110" fill="url(#azMin)"/><rect x="333" y="62" width="22" height="5" fill="url(#azDome)"/><rect x="333" y="92" width="22" height="4" fill="url(#azDome)"/><path d="M335 40q9-22 18 0z" fill="url(#azDome)"/><path d="M344 18v-9" stroke="#E8D29B" stroke-width="1.6"/><circle cx="344" cy="8" r="2.4" fill="#F6E4B4"/><rect x="341" y="48" width="6" height="9" rx="3" fill="url(#azWin)"/></g>
+          <rect x="92" y="96" width="216" height="54" fill="url(#azWall)"/>
+          <path d="M92 96q0-12 16-12h184q16 0 16 12z" fill="#0f423b"/>
+          <rect x="118" y="78" width="164" height="22" fill="url(#azWall)"/>
+          <path d="M126 78a74 70 0 0 1 148 0z" fill="url(#azDome)"/>
+          <path d="M140 78a60 56 0 0 1 60-52 60 56 0 0 0-40 52z" fill="#fff" fill-opacity=".28"/>
+          <path d="M200 26V12" stroke="#F6E4B4" stroke-width="2.2"/><path d="M200 12a6 6 0 1 0 5 9 4.6 4.6 0 1 1-5-9z" fill="#F6E4B4"/>
+          <g fill="url(#azWin)"><path d="M120 150v-22a9 9 0 0 1 18 0v22z"/><path d="M191 150v-30a9 9 0 0 1 18 0v30z"/><path d="M262 150v-22a9 9 0 0 1 18 0v22z"/><path d="M152 118a6 6 0 0 1 12 0v10h-12z"/><path d="M236 118a6 6 0 0 1 12 0v10h-12z"/></g>
+        </svg>
+        <div class="az-ground" aria-hidden="true"></div>
+        <div class="az-info">
+          <div class="az-info-label">اذان بعدی</div>
+          <div class="az-info-name" id="az-next-name">—</div>
+          <div class="az-info-time" id="az-next-time">--:--</div>
+          <div class="az-info-count" id="az-next-count"></div>
+        </div>
+      </div>
+
       <div class="section-block">
         <label class="switch-row">
           <span>فعال‌سازی پخش اذان</span>
@@ -1152,6 +1186,6 @@
 <script src="js/iran-cities.js?v=14"></script>
 <script src="js/native-config.js"></script>
 <script src="js/native-bridge.js?v=18"></script>
-<script src="js/app.js?v=116"></script>
+<script src="js/app.js?v=117"></script>
 </body>
 </html>
