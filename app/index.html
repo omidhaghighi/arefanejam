@@ -8,14 +8,82 @@
 <link rel="icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=88">
+<link rel="stylesheet" href="css/style.css?v=91">
 </head>
 <body>
 
-<div id="intro-splash" class="intro-splash hidden">
-  <video id="intro-video" playsinline muted autoplay></video>
-  <button id="intro-skip-btn" class="intro-skip-btn">رد کردن ‹‹</button>
+<div id="intro-splash" class="intro-splash hidden" oncontextmenu="return false">
+  <img id="intro-image" class="intro-media hidden" alt="" draggable="false">
+  <video id="intro-video" class="intro-media hidden" playsinline muted autoplay disablepictureinpicture disableremoteplayback controlslist="nodownload noplaybackrate noremoteplayback" draggable="false"></video>
+  <button id="intro-skip-btn" class="intro-skip-btn" type="button">رد کردن ‹‹</button>
 </div>
+<script>
+/* صفحهٔ شروع (ویدیو / عکس / گیف) — فقط هنگام لود اپ، بدون هیچ راه دانلود.
+   اول از آخرین تنظیماتِ ذخیره‌شده روی گوشی، بلافاصله نشان داده می‌شود (بدون انتظار برای اینترنت).
+   app.js بعد از دریافت تنظیمات، ArefIntro.update(settings) را صدا می‌زند. */
+(function () {
+  var KEY = 'arefanejam_intro_cache', DONE = 'arefanejam_intro_done', t0 = Date.now();
+  var splash = document.getElementById('intro-splash'), vid = document.getElementById('intro-video'),
+      img = document.getElementById('intro-image'), skip = document.getElementById('intro-skip-btn');
+  var started = false, finished = false, timer = null;
+  function sec(u) { return String(u || '').replace(/^http:\/\//i, 'https://'); }
+  function cfgFrom(s) {
+    s = s || {};
+    var secs = parseInt(s.intro_image_secs, 10); if (!(secs >= 1)) secs = 3; if (secs > 600) secs = 600;
+    return { v: sec(s.intro_video_url), i: sec(s.intro_image_url), s: secs };
+  }
+  function done() {
+    if (finished) return; finished = true; clearTimeout(timer);
+    splash.classList.add('intro-out');
+    setTimeout(function () {
+      splash.classList.add('hidden'); splash.classList.remove('intro-out');
+      try { vid.pause(); } catch (e) {}
+      vid.removeAttribute('src'); vid.removeAttribute('poster'); try { vid.load(); } catch (e) {}
+      img.removeAttribute('src');
+    }, 350);
+  }
+  function showImage(secs) {
+    vid.classList.add('hidden'); img.classList.remove('hidden');
+    var fired = false;
+    function begin() { if (fired) return; fired = true; clearTimeout(timer); timer = setTimeout(done, secs * 1000); }
+    img.onload = begin; img.onerror = done;
+    timer = setTimeout(done, 8000); // اگر عکس نیامد، معطل نکن
+    img.src = img.getAttribute('data-src');
+    if (img.complete && img.naturalWidth) begin();
+  }
+  function start(c) {
+    if (started || finished || !c || (!c.v && !c.i)) return;
+    try { if (sessionStorage.getItem(DONE)) return; sessionStorage.setItem(DONE, '1'); } catch (e) {}
+    started = true;
+    splash.classList.remove('hidden');
+    if (c.i) img.setAttribute('data-src', c.i);
+    if (c.v) {
+      if (c.i) vid.poster = c.i; // تا آماده شدن ویدیو، عکس نشان داده می‌شود
+      vid.classList.remove('hidden'); img.classList.add('hidden');
+      var bad = function () { if (c.i) showImage(c.s); else done(); };
+      var playing = false;
+      vid.addEventListener('playing', function () { playing = true; clearTimeout(timer); }, { once: true });
+      vid.addEventListener('ended', done, { once: true });
+      vid.addEventListener('error', function () { if (!playing) bad(); else done(); }, { once: true });
+      timer = setTimeout(function () { if (!playing) bad(); }, 10000);
+      vid.src = c.v;
+      var pr = vid.play(); if (pr && pr.catch) pr.catch(bad);
+    } else { showImage(c.s); }
+  }
+  skip.addEventListener('click', done);
+  ['contextmenu', 'dragstart', 'selectstart'].forEach(function (ev) { splash.addEventListener(ev, function (e) { e.preventDefault(); }); });
+  var cached = null; try { cached = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
+  start(cached);
+  window.ArefIntro = {
+    update: function (settings) {
+      var c = cfgFrom(settings);
+      try { if (c.v || c.i) localStorage.setItem(KEY, JSON.stringify(c)); else localStorage.removeItem(KEY); } catch (e) {}
+      // اولین اجرای اپ (هنوز تنظیمی ذخیره نبود): فقط اگر هنوز در «لود» هستیم نشان بده، نه وسط کار با اپ
+      if (!started && Date.now() - t0 < 6000) start(c);
+    }
+  };
+})();
+</script>
 
 <div id="reload-overlay" class="reload-overlay hidden">
   <div class="reload-overlay-spinner"></div>
@@ -25,7 +93,9 @@
 <div id="app" class="app">
 
   <header class="topbar">
-    <button id="topbar-back" class="topbar-back hidden">→</button>
+    <button id="topbar-menu-btn" class="topbar-menu-btn" type="button" title="منو" aria-label="باز کردن منو" aria-expanded="false">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path class="hb-l1" d="M4 6.5h16"/><path class="hb-l2" d="M4 12h16"/><path class="hb-l3" d="M4 17.5h16"/></svg>
+    </button>
     <img id="topbar-logo" src="icons/icon-192.png" alt="لوگو" class="topbar-logo">
     <span id="topbar-title" class="topbar-title">عارفان جام</span>
     <button id="topbar-reload-btn" class="topbar-reload-btn" title="بارگذاری مجدد">🔄</button>
@@ -57,7 +127,9 @@
           <button id="month-prev-btn" class="month-nav-btn">›</button>
           <span id="month-label" class="month-label">—</span>
           <button id="month-next-btn" class="month-nav-btn">‹</button>
-          <button id="calendar-today-btn" class="today-btn hidden">امروز</button>
+          <button id="calendar-today-btn" class="today-btn today-icon-btn hidden" type="button" title="برگشت به امروز" aria-label="برگشت به امروز">
+            <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.6 12.2a8.4 8.4 0 1 0 2.5-6"/><path d="M3.4 3.8v4.6h4.6"/><circle cx="12" cy="12.2" r="2.3" fill="currentColor" stroke="none"/></svg>
+          </button>
         </div>
         <div class="month-grid-header">
           <span>شنبه</span><span>یکشنبه</span><span>دوشنبه</span><span>سه‌شنبه</span><span>چهارشنبه</span><span>پنجشنبه</span><span class="friday-header">جمعه</span>
@@ -73,6 +145,7 @@
           <span class="cal-hero-badge" id="calendar-ev-count" hidden></span>
         </div>
         <div id="calendar-event-card"></div>
+        <div id="my-events-block" class="myev-block"></div>
       </div>
 
       <div class="hero-pattern" id="hero-card" role="button">
@@ -1135,6 +1208,51 @@
   </div>
 </div>
 
+<div id="hb-drawer" class="hb-drawer hidden" aria-hidden="true">
+  <div class="hb-backdrop" id="hb-backdrop"></div>
+  <nav class="hb-panel" role="dialog" aria-label="منو">
+    <div class="hb-head">
+      <img src="icons/icon-192.png" alt="" class="hb-logo">
+      <span id="hb-title" class="hb-title">منو</span>
+      <button type="button" id="hb-close" class="hb-close" aria-label="بستن منو">✕</button>
+    </div>
+    <div id="hb-list" class="hb-list"></div>
+    <div id="hb-foot" class="hb-foot"></div>
+  </nav>
+</div>
+
+<div id="hb-page" class="modal hidden">
+  <div class="modal-box hb-page-box">
+    <h3 id="hb-page-title"></h3>
+    <div id="hb-page-text" class="hb-page-text"></div>
+    <div class="modal-actions"><button id="hb-page-close" class="secondary-btn small-btn" type="button">بستن</button></div>
+  </div>
+</div>
+
+<div id="myev-modal" class="modal hidden">
+  <div class="modal-box myev-modal-box">
+    <h3 id="myev-modal-title">زمانبندی جدید</h3>
+    <div class="myev-date-row">
+      <select id="myev-day" aria-label="روز"></select>
+      <select id="myev-month" aria-label="ماه"></select>
+      <select id="myev-year" aria-label="سال"></select>
+    </div>
+    <input type="text" id="myev-title" placeholder="عنوان (مثلاً: ملاقات، قرار، مناسبت خانوادگی)" maxlength="120">
+    <label class="myev-time-row"><span>ساعت (اختیاری)</span><input type="time" id="myev-time"></label>
+    <textarea id="myev-note" rows="3" placeholder="توضیحات (اختیاری)" maxlength="600"></textarea>
+    <label class="switch-row">
+      <span>🔁 هر سال تکرار شود</span>
+      <input type="checkbox" id="myev-yearly" checked>
+    </label>
+    <p id="myev-err" class="myev-err"></p>
+    <div class="modal-actions">
+      <button id="myev-delete-btn" class="danger-btn small-btn hidden" type="button">حذف</button>
+      <button id="myev-cancel-btn" class="ghost-btn small-btn" type="button">انصراف</button>
+      <button id="myev-save-btn" class="secondary-btn small-btn" type="button">ذخیره</button>
+    </div>
+  </div>
+</div>
+
 <div id="shariq-ask-modal" class="modal hidden">
   <div class="modal-box">
     <h3>پرسیدن سوال شرعی</h3>
@@ -1300,6 +1418,6 @@
 <script src="js/iran-cities.js?v=14"></script>
 <script src="js/native-config.js"></script>
 <script src="js/native-bridge.js?v=19"></script>
-<script src="js/app.js?v=126"></script>
+<script src="js/app.js?v=129"></script>
 </body>
 </html>

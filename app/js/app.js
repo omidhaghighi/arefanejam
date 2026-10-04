@@ -244,7 +244,7 @@ function apiFetch(path, options = {}) {
 /* ---------- ذخیرهٔ آفلاینِ اطلاعات عمومی پیشخوان ----------
  * هر بار که اطلاعات با موفقیت از سایت گرفته شود، در حافظهٔ گوشی می‌ماند و اگر بعداً اینترنت نبود
  * (یا سرور خطا داد) همان آخرین نسخه نمایش داده می‌شود. فقط مسیرهای عمومیِ زیر؛ مسیرهای شخصی/ورود نه. */
-const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|social-links|theme|shariq\/settings|khatm\/settings|zakat)$/;
+const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|hamburger-menu|social-links|theme|shariq\/settings|khatm\/settings|zakat)$/;
 function apiCacheKey(basePath) {
   return API_OFFLINE_CACHE_RE.test(basePath) ? ('arefanejam_api_cache:' + basePath) : '';
 }
@@ -318,7 +318,6 @@ function switchToTab(tabName, opts) {
 
   document.querySelectorAll('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === tabName));
   document.querySelectorAll('.tab-panel').forEach((p) => p.classList.toggle('active', p.id === 'tab-' + tabName));
-  document.getElementById('topbar-back').classList.toggle('hidden', tabName === 'home');
 
   if (tabName !== 'quran-reader') disconnectQuranReadingTracker();
   if (leavingSurahNumber && tabName !== 'quran-reader') maybeShowQuranSurahExitPopup(leavingSurahNumber);
@@ -358,10 +357,6 @@ function goBackInApp() {
   sessionStorage.setItem('arefanejam_nav_history', JSON.stringify(navHistory));
   switchToTab(prev, { fromPopstate: true });
 }
-document.getElementById('topbar-back').addEventListener('click', () => {
-  if (overlayStack.length) { history.back(); return; }
-  goBackInApp();
-});
 document.getElementById('hero-card').addEventListener('click', () => switchToTab('azan', { push: true }));
 
 /* دکمهٔ برگشتِ خودِ گوشی (سخت‌افزاری/حرکت لبهٔ صفحه) را هم به همین ناوبری وصل می‌کند */
@@ -894,6 +889,147 @@ function jalaliMonthLength(jy, jm) {
   return Math.round((nextStart - thisStart) / 86400000);
 }
 
+/* ---------- زمانبندی‌های شخصی کاربر روی تقویم ----------
+   کاربر برای هر روز شمسی عنوان/ساعت/توضیح می‌نویسد و می‌تواند ویرایش یا حذفش کند.
+   فقط روی خود گوشی (localStorage، کلید arefanejam_my_events) ذخیره می‌شود و آفلاین هم کار می‌کند.
+   اگر «تکرار هر سال» روشن باشد (پیش‌فرض)، همین زمانبندی در سال‌های بعد هم در همان روز و ماه نشان داده می‌شود. */
+const MYEV_KEY = 'arefanejam_my_events';
+let myEvents = [];
+let myevEditingId = null;
+let myevDeleteArmed = false;
+function myevLoad() {
+  try {
+    const a = JSON.parse(localStorage.getItem(MYEV_KEY) || '[]');
+    myEvents = (Array.isArray(a) ? a : []).filter((e) => e && e.id && Number(e.jm) >= 1 && Number(e.jm) <= 12 && Number(e.jd) >= 1 && Number(e.jd) <= 31 && Number(e.jy) > 1000);
+  } catch (e) { myEvents = []; }
+}
+function myevSave() { try { localStorage.setItem(MYEV_KEY, JSON.stringify(myEvents)); } catch (e) {} }
+myevLoad();
+function myevMatches(ev, jy, jm, jd) {
+  const eJy = Number(ev.jy), eJm = Number(ev.jm), eJd = Number(ev.jd);
+  if (eJm !== jm) return false;
+  if (ev.yearly) { if (jy < eJy) return false; } else if (jy !== eJy) return false;
+  if (eJd === jd) return true;
+  // ۳۰ اسفند در سالی که ۳۰ اسفند ندارد، روی ۲۹ اسفند نشان داده می‌شود
+  return eJm === 12 && eJd === 30 && jd === 29 && jalaliMonthLength(jy, 12) === 29;
+}
+function findMyEvents(jy, jm, jd) {
+  if (!myEvents.length) return [];
+  return myEvents.filter((e) => myevMatches(e, jy, jm, jd))
+    .sort((a, b) => String(a.time || '99:99').localeCompare(String(b.time || '99:99')));
+}
+function renderMyEvents(jy, jm, jd) {
+  const box = document.getElementById('my-events-block');
+  if (!box) return;
+  const list = findMyEvents(jy, jm, jd);
+  let html = '<div class="myev-head"><b>📌 زمانبندی‌های من</b><button type="button" class="myev-add" data-myev-add="1">＋ افزودن</button></div>';
+  if (!list.length) {
+    html += '<p class="myev-empty">برای این روز زمانبندی ثبت نکرده‌اید.</p>';
+  } else {
+    html += '<div class="myev-list">' + list.map((e, i) =>
+      '<div class="myev-item" style="--i:' + i + '" data-myev-id="' + calEsc(e.id) + '" role="button">' +
+        '<span class="myev-time">' + (e.time ? calEsc(toPersianDigits(e.time)) : '•') + '</span>' +
+        '<span class="myev-body"><b>' + calEsc(e.title) + '</b>' +
+          (e.note ? '<small>' + calEsc(e.note).replace(/\r?\n/g, '<br>') + '</small>' : '') + '</span>' +
+        (e.yearly ? '<span class="myev-rep" title="هر سال تکرار می‌شود">🔁</span>' : '') +
+        '<span class="myev-edit" aria-hidden="true">✎</span>' +
+      '</div>').join('') + '</div>';
+  }
+  box.innerHTML = html;
+}
+function myevFillSelects(jy) {
+  const dSel = document.getElementById('myev-day'), mSel = document.getElementById('myev-month'), ySel = document.getElementById('myev-year');
+  if (!dSel.options.length) {
+    for (let d = 1; d <= 31; d++) dSel.add(new Option(toPersianDigits(d), d));
+    JALALI_MONTHS.forEach((n, i) => mSel.add(new Option(n, i + 1)));
+  }
+  const nowJy = gregorianToJalali(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate())[0];
+  const from = Math.min(nowJy - 1, jy), to = Math.max(nowJy + 10, jy);
+  ySel.innerHTML = '';
+  for (let y = from; y <= to; y++) ySel.add(new Option(toPersianDigits(y), y));
+}
+function openMyEventModal(id) {
+  const ev = id ? myEvents.find((e) => e.id === id) : null;
+  myevEditingId = ev ? ev.id : null;
+  myevDeleteArmed = false;
+  const [sy, sm, sd] = gregorianToJalali(selectedDate.getFullYear(), selectedDate.getMonth() + 1, selectedDate.getDate());
+  const jy = ev ? Number(ev.jy) : sy, jm = ev ? Number(ev.jm) : sm, jd = ev ? Number(ev.jd) : sd;
+  myevFillSelects(jy);
+  document.getElementById('myev-modal-title').textContent = ev ? 'ویرایش زمانبندی' : 'زمانبندی جدید';
+  document.getElementById('myev-day').value = jd;
+  document.getElementById('myev-month').value = jm;
+  document.getElementById('myev-year').value = jy;
+  document.getElementById('myev-title').value = ev ? ev.title : '';
+  document.getElementById('myev-time').value = ev ? (ev.time || '') : '';
+  document.getElementById('myev-note').value = ev ? (ev.note || '') : '';
+  document.getElementById('myev-yearly').checked = ev ? !!ev.yearly : true;
+  document.getElementById('myev-err').textContent = '';
+  const delBtn = document.getElementById('myev-delete-btn');
+  delBtn.classList.toggle('hidden', !ev);
+  delBtn.textContent = 'حذف';
+  document.getElementById('myev-modal').classList.remove('hidden');
+  pushOverlay('myev', closeMyEventModal);
+  setTimeout(() => { try { if (!ev) document.getElementById('myev-title').focus({ preventScroll: true }); } catch (e) {} }, 80);
+}
+function closeMyEventModal() {
+  document.getElementById('myev-modal').classList.add('hidden');
+  myevEditingId = null;
+  myevDeleteArmed = false;
+}
+function myevSaveFromForm() {
+  const title = document.getElementById('myev-title').value.replace(/\s+/g, ' ').trim();
+  const errEl = document.getElementById('myev-err');
+  if (!title) { errEl.textContent = 'لطفاً عنوان زمانبندی را بنویسید.'; document.getElementById('myev-title').focus(); return; }
+  const jy = parseInt(document.getElementById('myev-year').value, 10);
+  const jm = parseInt(document.getElementById('myev-month').value, 10);
+  let jd = parseInt(document.getElementById('myev-day').value, 10);
+  const maxD = jm <= 6 ? 31 : 30; // ۳۰ اسفند در سال کبیسه هست؛ در سال‌های دیگر روی ۲۹ اسفند نشان داده می‌شود
+  if (jd > maxD) jd = maxD;
+  const rec = {
+    id: myevEditingId || ('me' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
+    jy, jm, jd, title,
+    time: document.getElementById('myev-time').value || '',
+    note: document.getElementById('myev-note').value.trim(),
+    yearly: document.getElementById('myev-yearly').checked,
+  };
+  const idx = myEvents.findIndex((e) => e.id === rec.id);
+  if (idx >= 0) myEvents[idx] = rec; else myEvents.push(rec);
+  myevSave();
+  const len = jalaliMonthLength(jy, jm);
+  const [gy, gm, gd] = jalaliToGregorian(jy, jm, Math.min(jd, len));
+  selectedDate = new Date(gy, gm - 1, gd);
+  overlayGo('myev', 0, closeMyEventModal);
+  renderCalendarWidget();
+}
+function myevDeleteCurrent() {
+  if (!myevEditingId) return;
+  const btn = document.getElementById('myev-delete-btn');
+  if (!myevDeleteArmed) { // حذف دومرحله‌ای: بار اول فقط هشدار می‌دهد
+    myevDeleteArmed = true;
+    btn.textContent = 'مطمئنید؟ حذف';
+    setTimeout(() => { if (myevDeleteArmed) { myevDeleteArmed = false; btn.textContent = 'حذف'; } }, 3500);
+    return;
+  }
+  myEvents = myEvents.filter((e) => e.id !== myevEditingId);
+  myevSave();
+  overlayGo('myev', 0, closeMyEventModal);
+  renderCalendarWidget();
+}
+(function setupMyEvents() {
+  const box = document.getElementById('my-events-block');
+  if (box) box.addEventListener('click', (e) => {
+    if (e.target.closest('[data-myev-add]')) { openMyEventModal(null); return; }
+    const it = e.target.closest('[data-myev-id]');
+    if (it) openMyEventModal(it.getAttribute('data-myev-id'));
+  });
+  const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+  on('myev-save-btn', myevSaveFromForm);
+  on('myev-cancel-btn', () => overlayGo('myev', 0, closeMyEventModal));
+  on('myev-delete-btn', myevDeleteCurrent);
+  const modal = document.getElementById('myev-modal');
+  if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) overlayGo('myev', 0, closeMyEventModal); });
+})();
+
 function renderMonthGrid() {
   const grid = document.getElementById('month-grid');
   grid.innerHTML = '';
@@ -917,17 +1053,20 @@ function renderMonthGrid() {
     const isSelected = cellDate.toDateString() === selectedDate.toDateString();
     const isFriday = cellDate.getDay() === 5;
     const evCount = findEventsForJalaliDate(calendarViewYear, calendarViewMonth, day).length;
+    const myCount = findMyEvents(calendarViewYear, calendarViewMonth, day).length;
     const hasEvent = evCount > 0;
     const cell = document.createElement('div');
-    cell.className = 'month-cell' + (isToday ? ' is-today' : '') + (isSelected ? ' is-selected' : '') + (isFriday && !isSelected ? ' is-friday' : '') + (hasEvent ? ' has-event' : '');
+    cell.className = 'month-cell' + (isToday ? ' is-today' : '') + (isSelected ? ' is-selected' : '') + (isFriday && !isSelected ? ' is-friday' : '') + (hasEvent ? ' has-event' : '') + (myCount ? ' has-my' : '');
     const num = document.createElement('span');
     num.className = 'month-cell-num';
     num.textContent = toPersianDigits(day);
     cell.appendChild(num);
-    if (hasEvent) {
+    if (hasEvent || myCount) {
+      // نقطه‌های مناسبت‌های رسمی (رنگی) + نقطهٔ بنفش برای زمانبندی شخصی کاربر؛ حداکثر ۳ نقطه
       const dots = document.createElement('span');
       dots.className = 'month-cell-dots';
-      dots.innerHTML = '<i></i>'.repeat(Math.min(evCount, 3));
+      const offDots = Math.min(evCount, myCount ? 2 : 3);
+      dots.innerHTML = '<i></i>'.repeat(offDots) + (myCount ? '<i class="my"></i>' : '');
       cell.appendChild(dots);
     }
     cell.addEventListener('click', () => { selectedDate = cellDate; renderCalendarWidget(); });
@@ -940,7 +1079,12 @@ function renderCalendarWidget() {
   calendarViewYear = jy; calendarViewMonth = jm;
 
   const isToday = selectedDate.toDateString() === new Date().toDateString();
-  document.getElementById('calendar-today-btn').classList.toggle('hidden', isToday);
+  const todayBtnEl = document.getElementById('calendar-today-btn');
+  const todayWasHidden = todayBtnEl.classList.contains('hidden');
+  todayBtnEl.classList.toggle('hidden', isToday);
+  if (todayWasHidden && !isToday) { // آیکون «برگشت به امروز» با یک حرکت کوتاه ظاهر می‌شود
+    todayBtnEl.classList.remove('is-pop'); void todayBtnEl.offsetWidth; todayBtnEl.classList.add('is-pop');
+  }
   const strs = getCalendarStrings(selectedDate);
   document.getElementById('calendar-main-date').textContent = strs[activeCalendar];
   const others = ['jalali', 'gregorian', 'hijri'].filter((c) => c !== activeCalendar);
@@ -983,6 +1127,7 @@ function renderCalendarWidget() {
   } else {
     eventCardEl.innerHTML = '';
   }
+  renderMyEvents(jy, jm, jd);
 }
 (function setupCalEventZoom() {
   const el = document.getElementById('calendar-event-card');
@@ -1004,20 +1149,54 @@ document.getElementById('calendar-today-btn').addEventListener('click', () => {
   selectedDate = new Date();
   renderCalendarWidget();
 });
-document.getElementById('month-prev-btn').addEventListener('click', () => {
-  calendarViewMonth--;
-  if (calendarViewMonth < 1) { calendarViewMonth = 12; calendarViewYear--; }
-  const [gy, gm, gd] = jalaliToGregorian(calendarViewYear, calendarViewMonth, 1);
-  selectedDate = new Date(gy, gm - 1, gd);
+// رفتن به ماه قبل/بعد (delta = -1 یا +1). با دکمه‌های ‹ › و با کشیدن انگشت روی تقویم استفاده می‌شود.
+function calShiftMonth(delta) {
+  let m = calendarViewMonth + delta, y = calendarViewYear;
+  if (m < 1) { m = 12; y--; } else if (m > 12) { m = 1; y++; }
+  calendarViewMonth = m; calendarViewYear = y;
+  const t = new Date();
+  const tj = gregorianToJalali(t.getFullYear(), t.getMonth() + 1, t.getDate());
+  if (tj[0] === y && tj[1] === m) selectedDate = t; // برگشت به ماه جاری = انتخاب خودِ امروز
+  else { const [gy, gm, gd] = jalaliToGregorian(y, m, 1); selectedDate = new Date(gy, gm - 1, gd); }
   renderCalendarWidget();
-});
-document.getElementById('month-next-btn').addEventListener('click', () => {
-  calendarViewMonth++;
-  if (calendarViewMonth > 12) { calendarViewMonth = 1; calendarViewYear++; }
-  const [gy, gm, gd] = jalaliToGregorian(calendarViewYear, calendarViewMonth, 1);
-  selectedDate = new Date(gy, gm - 1, gd);
+  const grid = document.getElementById('month-grid');
+  if (grid) { // حرکت کوتاه ماه تازه از سمت درست وارد می‌شود
+    grid.classList.remove('slide-next', 'slide-prev'); void grid.offsetWidth;
+    grid.classList.add(delta > 0 ? 'slide-next' : 'slide-prev');
+  }
+}
+document.getElementById('calendar-today-btn').addEventListener('click', () => {
+  selectedDate = new Date();
   renderCalendarWidget();
+  const grid = document.getElementById('month-grid');
+  if (grid) { grid.classList.remove('slide-next', 'slide-prev'); void grid.offsetWidth; grid.classList.add('slide-prev'); }
 });
+document.getElementById('month-prev-btn').addEventListener('click', () => calShiftMonth(-1));
+document.getElementById('month-next-btn').addEventListener('click', () => calShiftMonth(1));
+// کشیدن انگشت روی تقویم: چون اپ راست‌به‌چپ است، کشیدن به «راست» = ماه بعد و کشیدن به «چپ» = ماه قبل
+// (هم‌جهت با فلش ‹ که ماه بعد را نشان می‌دهد). برای وارونه‌کردن جهت، CAL_SWIPE_RIGHT_IS_NEXT را false کنید.
+const CAL_SWIPE_RIGHT_IS_NEXT = true;
+(function setupCalendarSwipe() {
+  const zones = [document.getElementById('month-grid'), document.querySelector('.month-grid-header')].filter(Boolean);
+  let sx = null, sy = null, st = 0;
+  zones.forEach((z) => {
+    z.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) { sx = null; return; }
+      sx = e.touches[0].clientX; sy = e.touches[0].clientY; st = Date.now();
+    }, { passive: true });
+    z.addEventListener('touchcancel', () => { sx = null; }, { passive: true });
+    z.addEventListener('touchend', (e) => {
+      if (sx === null) return;
+      const dx = e.changedTouches[0].clientX - sx;
+      const dy = e.changedTouches[0].clientY - sy;
+      const dt = Date.now() - st;
+      sx = null; sy = null;
+      if (Math.abs(dx) < 45 || Math.abs(dx) < Math.abs(dy) * 1.4 || dt > 900) return; // لمس ساده یا اسکرول عمودی نیست
+      const goNext = CAL_SWIPE_RIGHT_IS_NEXT ? dx > 0 : dx < 0;
+      calShiftMonth(goNext ? 1 : -1);
+    }, { passive: true });
+  });
+})();
 renderCalendarWidget();
 
 /* ---------- تنظیمات عمومی از سایت ---------- */
@@ -1350,16 +1529,9 @@ if (topbarReloadBtn) topbarReloadBtn.addEventListener('click', hardReloadApp);
 })();
 
 function maybeShowIntroSplash() {
-  const s = state.settings || {};
-  if (!s.intro_video_url) return;
-  const splash = document.getElementById('intro-splash');
-  const video = document.getElementById('intro-video');
-  video.src = s.intro_video_url;
-  splash.classList.remove('hidden');
-  const hide = () => splash.classList.add('hidden');
-  video.addEventListener('ended', hide, { once: true });
-  document.getElementById('intro-skip-btn').addEventListener('click', hide, { once: true });
-  video.play().catch(hide);
+  // صفحهٔ شروع (ویدیو/عکس/گیف) داخل index.html مدیریت می‌شود (ArefIntro)؛ اینجا فقط تنظیمات تازه را می‌دهیم.
+  // فقط هنگام لود اپ نشان داده می‌شود و هیچ دکمهٔ دانلودی ندارد.
+  try { if (window.ArefIntro) window.ArefIntro.update(state.settings || {}); } catch (e) {}
 }
 
 function renderAnnouncement() {
@@ -9719,6 +9891,12 @@ function mkTidy(t) {
   x = x.replace(/(\s)(\S{1,2})\s+(?=\S)/g, '$1$2' + NB); // کلمهٔ خیلی کوتاه به کلمهٔ بعدی بچسبد
   return x;
 }
+/* نوشتار چندخطی (مثل اکسل): مدیر در پیشخوان با Alt+Enter داخل خود فیلد به خط بعد می‌رود.
+   اگر در نام یا مسئول شکست خط دستی باشد، همان خط‌ها عیناً نمایش داده می‌شوند (بدون شکستن خودکار نام/محله). */
+function mkHasBreak(t) { return /\n/.test(String(t == null ? '' : t).replace(/\r/g, '').trim()); }
+function mkTidyLines(t) {
+  return String(t == null ? '' : t).replace(/\r/g, '').split('\n').map((l) => mkTidy(l).trim()).filter(Boolean).join('\n');
+}
 function mkSplitName(name) {
   const t = String(name == null ? '' : name).replace(/\s+/g, ' ').trim();
   const m = /^(.*?)\s*[(（]\s*([^)）]+?)\s*[)）]\s*$/.exec(t);
@@ -9738,10 +9916,12 @@ function renderMokatibBtn2View() {
       renderMokatibDetailSlider(m.slides);
       detailBlock.classList.remove('hidden');
       const dNameEl = document.getElementById('mokatib-btn2-detail-name');
-      dNameEl.textContent = mkTidy(m.name);
+      dNameEl.textContent = mkTidyLines(m.name);
+      dNameEl.style.whiteSpace = 'pre-line';
       dNameEl.style.fontSize = Number(m.name_size) > 0 ? (Number(m.name_size) + 4) + 'px' : '';
       const dInfoEl = document.getElementById('mokatib-btn2-detail-info');
-      dInfoEl.textContent = m.imam_name ? 'مسئول: ' + mkTidy(m.imam_name) : '';
+      dInfoEl.textContent = m.imam_name ? 'مسئول: ' + mkTidyLines(m.imam_name) : '';
+      dInfoEl.style.whiteSpace = 'pre-line';
       dInfoEl.style.fontSize = Number(m.imam_size) > 0 ? (Number(m.imam_size) + 1.5) + 'px' : '';
       const imgEl = document.getElementById('mokatib-btn2-detail-img');
       const wrapEl = document.getElementById('mokatib-btn2-detail-imgwrap');
@@ -9774,10 +9954,11 @@ function renderMokatibBtn2View() {
     btn.type = 'button';
     btn.className = 'secondary-btn' + (m.imam_name ? '' : ' mk-no-imam');
     // نام مسجد: بخش اصلی در یک خط (مرتب و متوازن)، نام محله (داخل پرانتز) جدا زیرش
-    const parts = mkSplitName(m.name);
+    const manualName = mkHasBreak(m.name); // شکست خط دستی (Alt+Enter) → همان خط‌ها
+    const parts = manualName ? { main: m.name, place: '' } : mkSplitName(m.name);
     const nameEl = document.createElement('span');
-    nameEl.className = 'mokatib-btn2-name';
-    nameEl.textContent = mkTidy(parts.main);
+    nameEl.className = 'mokatib-btn2-name' + (manualName ? ' mk-multiline' : '');
+    nameEl.textContent = manualName ? mkTidyLines(m.name) : mkTidy(parts.main);
     if (Number(m.name_size) > 0) nameEl.style.fontSize = Number(m.name_size) + 'px';
     btn.appendChild(nameEl);
     if (parts.place) {
@@ -9789,12 +9970,13 @@ function renderMokatibBtn2View() {
     }
     if (m.imam_name) {
       const imamEl = document.createElement('span');
-      imamEl.className = 'mokatib-btn2-imam';
-      imamEl.textContent = 'مسئول:\u00A0' + mkTidy(m.imam_name);
+      const manualImam = mkHasBreak(m.imam_name);
+      imamEl.className = 'mokatib-btn2-imam' + (manualImam ? ' mk-multiline' : '');
+      imamEl.textContent = 'مسئول:\u00A0' + (manualImam ? mkTidyLines(m.imam_name) : mkTidy(m.imam_name));
       if (Number(m.imam_size) > 0) imamEl.style.fontSize = Number(m.imam_size) + 'px';
       btn.appendChild(imamEl);
     }
-    btn.title = m.name + (m.imam_name ? ' — مسئول: ' + m.imam_name : '');
+    btn.title = String(m.name || '').replace(/\s*\n\s*/g, ' ') + (m.imam_name ? ' — مسئول: ' + String(m.imam_name).replace(/\s*\n\s*/g, ' ') : '');
     if (m.btn_color) btn.style.background = m.btn_color;
     btn.addEventListener('click', () => {
       mokatibBtn2Path.push(m.id);
@@ -11065,4 +11247,110 @@ async function weatherEnsureRun(force) {
 })();
 
 // نشانهٔ «اجرای کامل app.js» برای بروزرسانی ظاهر اپ از سایت (اگر تا اینجا نرسد، اپ به نسخهٔ داخلی برمی‌گردد)
+/* ---------- منوی همبرگری (جایگزین فلش برگشت بالای صفحه) ----------
+   مورد‌های منو را مدیر در پیشخوان ← «☰ منوی همبرگری» تعریف و با کشیدن‌ورها کردن مرتب می‌کند (مسیر /hamburger-menu).
+   نوع‌ها: tab (بخشی از اپ یا یکی از گروه‌های صفحهٔ «بیشتر»: target = group:...)، link (بیرونی)، text (صفحهٔ متنی)،
+   home، back، heading (عنوان گروه) و divider (خط). برای نوع تازه: hbRunItem + ثابت TYPES در class-hamburger-menu.php.
+   آخرین منوی دریافت‌شده آفلاین هم می‌ماند (API_OFFLINE_CACHE_RE). اگر هنوز هیچ منویی نرسیده باشد، منوی پیش‌فرض کوچک نشان داده می‌شود. */
+const HB_DEFAULT = { enabled: true, title: 'منو', footer: '', items: [
+  { type: 'home', icon: '🏠', title: 'صفحهٔ اصلی' },
+  { type: 'tab', target: 'more', icon: '☰', title: 'بیشتر' },
+  { type: 'tab', target: 'about', icon: 'ℹ️', title: 'درباره ما' },
+] };
+let hbData = HB_DEFAULT;
+let hbPending = null;
+let hbOpenNow = false;
+const HB_MAIN_TABS = ['home', 'quran-list', 'azan', 'qibla', 'shariq', 'more'];
+
+function hbApplyEnabled() {
+  const btn = document.getElementById('topbar-menu-btn');
+  if (btn) btn.classList.toggle('hidden', hbData.enabled === false);
+}
+async function hbLoad() {
+  try {
+    const d = await apiFetch('/hamburger-menu');
+    if (d && Array.isArray(d.items)) { hbData = d; hbApplyEnabled(); if (hbOpenNow) hbRender(); }
+  } catch (e) { /* همان داده‌ٔ قبلی/پیش‌فرض می‌ماند */ }
+}
+function hbRender() {
+  const list = document.getElementById('hb-list');
+  document.getElementById('hb-title').textContent = hbData.title || 'منو';
+  const foot = document.getElementById('hb-foot');
+  foot.textContent = hbData.footer || '';
+  foot.classList.toggle('hidden', !hbData.footer);
+  list.innerHTML = '';
+  (hbData.items || []).forEach((it, i) => {
+    if (it.type === 'divider') { const hr = document.createElement('div'); hr.className = 'hb-divider'; list.appendChild(hr); return; }
+    if (it.type === 'heading') {
+      const h = document.createElement('div'); h.className = 'hb-heading';
+      h.textContent = ((it.icon ? it.icon + ' ' : '') + (it.title || '')).trim(); list.appendChild(h); return;
+    }
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'hb-item' + ((it.type === 'tab' && it.target === currentTab) || (it.type === 'home' && currentTab === 'home') ? ' is-current' : '');
+    b.style.setProperty('--i', i);
+    const ic = document.createElement('span'); ic.className = 'hb-item-ic'; ic.textContent = it.icon || '•';
+    const tx = document.createElement('span'); tx.className = 'hb-item-tx'; tx.textContent = it.title || '';
+    const ch = document.createElement('span'); ch.className = 'hb-item-ch'; ch.textContent = it.type === 'link' ? '↗' : '‹';
+    b.append(ic, tx, ch);
+    b.addEventListener('click', () => hbChoose(it));
+    list.appendChild(b);
+  });
+}
+function hbOpen() {
+  if (hbOpenNow) return;
+  hbRender();
+  hbOpenNow = true;
+  const dr = document.getElementById('hb-drawer');
+  dr.classList.remove('hidden');
+  dr.setAttribute('aria-hidden', 'false');
+  document.getElementById('topbar-menu-btn').setAttribute('aria-expanded', 'true');
+  document.getElementById('topbar-menu-btn').classList.add('is-open');
+  requestAnimationFrame(() => requestAnimationFrame(() => dr.classList.add('is-open')));
+  pushOverlay('hb', hbCloseNow);
+  hbLoad(); // تازه‌سازی بی‌صدای منو برای دفعهٔ بعد
+}
+function hbCloseNow() {
+  if (!hbOpenNow) return;
+  hbOpenNow = false;
+  const dr = document.getElementById('hb-drawer');
+  dr.classList.remove('is-open');
+  dr.setAttribute('aria-hidden', 'true');
+  document.getElementById('topbar-menu-btn').setAttribute('aria-expanded', 'false');
+  document.getElementById('topbar-menu-btn').classList.remove('is-open');
+  setTimeout(() => { if (!hbOpenNow) dr.classList.add('hidden'); }, 260);
+  if (hbPending) { const f = hbPending; hbPending = null; setTimeout(f, 40); }
+}
+function hbClose() { overlayGo('hb', 0, hbCloseNow); }
+// اول منو بسته می‌شود (تا تاریخچهٔ دکمهٔ برگشت گوشی به‌هم نریزد)، بعد کار مورد انتخابی اجرا می‌شود
+function hbChoose(it) { hbPending = () => hbRunItem(it); hbClose(); }
+function hbRunItem(it) {
+  switch (it.type) {
+    case 'home': navHistory = []; switchToTab('home'); break;
+    case 'back': goBackInApp(); break;
+    case 'link': if (it.url) { try { window.open(it.url, '_blank'); } catch (e) { location.href = it.url; } } break;
+    case 'text': hbShowPage(it.title, it.text); break;
+    case 'tab': {
+      const t = String(it.target || '');
+      if (t.indexOf('group:') === 0) { openMenuGroup(t.slice(6)); break; }
+      if (!document.getElementById('tab-' + t)) break;
+      if (HB_MAIN_TABS.indexOf(t) >= 0) { navHistory = []; switchToTab(t); } else switchToTab(t, { push: true });
+      break;
+    }
+  }
+}
+function hbShowPage(title, text) {
+  document.getElementById('hb-page-title').textContent = title || '';
+  document.getElementById('hb-page-text').textContent = text || '';
+  document.getElementById('hb-page').classList.remove('hidden');
+  pushOverlay('hbpage', closeHbPage);
+}
+function closeHbPage() { document.getElementById('hb-page').classList.add('hidden'); }
+document.getElementById('topbar-menu-btn').addEventListener('click', () => { if (hbOpenNow) hbClose(); else hbOpen(); });
+document.getElementById('hb-backdrop').addEventListener('click', hbClose);
+document.getElementById('hb-close').addEventListener('click', hbClose);
+document.getElementById('hb-page-close').addEventListener('click', () => overlayGo('hbpage', 0, closeHbPage));
+document.getElementById('hb-page').addEventListener('click', (e) => { if (e.target.id === 'hb-page') overlayGo('hbpage', 0, closeHbPage); });
+hbLoad();
+
 window.__arefBooted = true;
