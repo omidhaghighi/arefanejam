@@ -2766,13 +2766,28 @@ const PRAYER_PLAYED_PREFIX = 'arefanejam_azan_played_';
 
 // ساختِ فهرست اوقات شرعیِ یک روز مشخص (بدون نمایش در صفحه)؛ هم برای نمایش امروز و هم برای
 // سپردنِ اذان‌های چند روز آینده به سرویس‌ورکر (آلارم آفلاین) استفاده می‌شود.
-/* اوقاتی که مدیر در پیشخوان «مخفی» کرده (تنظیمات ← مخفی/نمایان کردن اوقات شرعی). حداقل یک اذان واقعی همیشه می‌ماند. */
+/* اوقاتی که مدیر در پیشخوان (رمضان ویژه ← مخفی/نمایان کردن اوقات) «مخفی» کرده؛ فقط در روزهای ماه رمضان اثر دارد.
+   روزهای رمضان: بین تاریخ شروع و پایان پیشخوان؛ اگر خالی بود ماه قمری رمضان. حداقل یک اذان واقعی همیشه می‌ماند. */
 const PRAYER_HIDE_KEYS = ['fajr', 'sunrise', 'dhuhr', 'asr', 'sunset', 'maghrib', 'isha'];
-function hiddenPrayerKeys() {
+function isRamadanDay(date) {
   try {
-    const raw = (state.settings && state.settings.hidden_prayers) || [];
+    const s = state.settings || {};
+    const custom = ramadanCustomRange({ start_date: s.ramadan_start, end_date: s.ramadan_end });
+    const d0 = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    if (custom) return d0 >= custom.start && d0 <= custom.end;
+    return islamicFromJulianDay(julianDayFromGregorian(d0.getFullYear(), d0.getMonth() + 1, d0.getDate()))[1] === 9;
+  } catch (e) { return false; }
+}
+// forceRamadan=true: برای جدول رمضان (همیشه رمضان است)
+function hiddenPrayerKeys(date, forceRamadan) {
+  try {
+    const st = state.settings || {};
+    if (st.ramadan_active !== '1') return new Set();
+    const raw = st.ramadan_hidden_prayers || [];
     const arr = Array.isArray(raw) ? raw : String(raw).split(',');
     const set = new Set(arr.map((x) => String(x).trim()).filter((k) => PRAYER_HIDE_KEYS.indexOf(k) !== -1));
+    if (!set.size) return set;
+    if (!forceRamadan && !isRamadanDay(date || new Date())) return new Set();
     if (['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'].every((k) => set.has(k))) return new Set();
     return set;
   } catch (e) { return new Set(); }
@@ -2835,7 +2850,7 @@ function buildPrayerListForDate(date, includeHidden) {
     { key: 'isha', label: 'عشاء', time: times.isha },
   ];
   if (includeHidden) return list;
-  const hid = hiddenPrayerKeys();
+  const hid = hiddenPrayerKeys(date);
   return hid.size ? list.filter((p) => !hid.has(p.key)) : list;
 }
 
@@ -7448,7 +7463,7 @@ function renderRamadanContent(r) {
 
     let rowsHtml = '';
     const rmCols = [['fajr', 'سحر'], ['dhuhr', 'ظهر'], ['asr', 'عصر'], ['maghrib', 'افطار'], ['isha', 'عشاء']];
-    const rmHid = hiddenPrayerKeys();
+    const rmHid = hiddenPrayerKeys(null, true);
     const rmShown = rmCols.filter((c) => !rmHid.has(c[0]));
     // تاریخ هر روز رمضان برای نوشتن نام روز هفته (شنبه، یکشنبه، ...)
     let rmStart = custom ? custom.start : null;
