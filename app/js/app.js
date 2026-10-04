@@ -244,7 +244,7 @@ function apiFetch(path, options = {}) {
 /* ---------- ذخیرهٔ آفلاینِ اطلاعات عمومی پیشخوان ----------
  * هر بار که اطلاعات با موفقیت از سایت گرفته شود، در حافظهٔ گوشی می‌ماند و اگر بعداً اینترنت نبود
  * (یا سرور خطا داد) همان آخرین نسخه نمایش داده می‌شود. فقط مسیرهای عمومیِ زیر؛ مسیرهای شخصی/ورود نه. */
-const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|social-links|theme|shariq\/settings|khatm\/settings)$/;
+const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|social-links|theme|shariq\/settings|khatm\/settings|zakat)$/;
 function apiCacheKey(basePath) {
   return API_OFFLINE_CACHE_RE.test(basePath) ? ('arefanejam_api_cache:' + basePath) : '';
 }
@@ -334,6 +334,7 @@ function switchToTab(tabName, opts) {
   if (tabName === 'daily-deeds') openDailyDeeds();
   if (tabName === 'quran-report') renderQuranReportTab();
   if (tabName === 'date-converter') populateConverterSelects();
+  if (tabName === 'zakat-calc') loadZakatExtra();
   if (tabName === 'sajdah-list') renderSajdahList();
   if (tabName === 'news-list') loadNewsList();
   if (tabName === 'social') loadSocialLinks();
@@ -874,11 +875,15 @@ let calendarEvents = [];
 async function loadCalendarEvents() {
   try { calendarEvents = await apiFetch('/events'); renderCalendarWidget(); } catch (e) { calendarEvents = []; }
 }
-function findEventForJalaliDate(jy, jm, jd) {
-  return calendarEvents.find((ev) =>
+function findEventsForJalaliDate(jy, jm, jd) {
+  return calendarEvents.filter((ev) =>
     Number(ev.jalali_month) === jm && Number(ev.jalali_day) === jd &&
     (Number(ev.recurring_yearly) === 1 || Number(ev.jalali_year) === jy)
   );
+}
+function findEventForJalaliDate(jy, jm, jd) { return findEventsForJalaliDate(jy, jm, jd)[0]; }
+function calEsc(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function jalaliMonthLength(jy, jm) {
@@ -911,10 +916,20 @@ function renderMonthGrid() {
     const isToday = todayJalali[0] === calendarViewYear && todayJalali[1] === calendarViewMonth && todayJalali[2] === day;
     const isSelected = cellDate.toDateString() === selectedDate.toDateString();
     const isFriday = cellDate.getDay() === 5;
-    const hasEvent = !!findEventForJalaliDate(calendarViewYear, calendarViewMonth, day);
+    const evCount = findEventsForJalaliDate(calendarViewYear, calendarViewMonth, day).length;
+    const hasEvent = evCount > 0;
     const cell = document.createElement('div');
     cell.className = 'month-cell' + (isToday ? ' is-today' : '') + (isSelected ? ' is-selected' : '') + (isFriday && !isSelected ? ' is-friday' : '') + (hasEvent ? ' has-event' : '');
-    cell.textContent = toPersianDigits(day);
+    const num = document.createElement('span');
+    num.className = 'month-cell-num';
+    num.textContent = toPersianDigits(day);
+    cell.appendChild(num);
+    if (hasEvent) {
+      const dots = document.createElement('span');
+      dots.className = 'month-cell-dots';
+      dots.innerHTML = '<i></i>'.repeat(Math.min(evCount, 3));
+      cell.appendChild(dots);
+    }
     cell.addEventListener('click', () => { selectedDate = cellDate; renderCalendarWidget(); });
     grid.appendChild(cell);
   }
@@ -933,21 +948,50 @@ function renderCalendarWidget() {
   document.querySelectorAll('.cal-tab').forEach((t) => t.classList.toggle('active', t.dataset.cal === activeCalendar));
   renderMonthGrid();
 
+  // کارت بزرگ تاریخ (عدد روز + نام هفته + شمارندهٔ مناسبت‌ها)
+  const bigEl = document.getElementById('calendar-day-big');
+  if (bigEl) {
+    let bigDay, bigMon;
+    if (activeCalendar === 'gregorian') { bigDay = selectedDate.getDate(); bigMon = GREGORIAN_MONTHS[selectedDate.getMonth()]; }
+    else if (activeCalendar === 'hijri') {
+      const hj = islamicFromJulianDay(julianDayFromGregorian(selectedDate.getFullYear(), selectedDate.getMonth() + 1, selectedDate.getDate()));
+      bigDay = hj[2]; bigMon = HIJRI_MONTHS[hj[1] - 1];
+    } else { bigDay = jd; bigMon = JALALI_MONTHS[jm - 1]; }
+    bigEl.innerHTML = '<b>' + toPersianDigits(bigDay) + '</b><small>' + bigMon + '</small>';
+    const wdEl = document.getElementById('calendar-weekday');
+    if (wdEl) wdEl.textContent = strs.parts.weekday + (isToday ? ' · امروز' : '');
+    const hero = document.getElementById('cal-hero');
+    if (hero) hero.classList.toggle('is-friday', selectedDate.getDay() === 5);
+  }
+
   const eventCardEl = document.getElementById('calendar-event-card');
-  const event = findEventForJalaliDate(jy, jm, jd);
-  if (event) {
-    eventCardEl.innerHTML = `
-      <div class="event-card">
-        ${event.image_url ? `<img src="${event.image_url}" alt="">` : ''}
+  const events = findEventsForJalaliDate(jy, jm, jd);
+  const cntEl = document.getElementById('calendar-ev-count');
+  if (cntEl) { cntEl.hidden = !events.length; cntEl.textContent = events.length ? toPersianDigits(events.length) + ' مناسبت' : ''; }
+  if (events.length) {
+    eventCardEl.innerHTML = '<div class="ev-list">' + events.map((event, i) => {
+      const img = event.image_url ? secureUrl(event.image_url) : '';
+      return `
+      <div class="event-card${img ? ' has-img' : ''}" style="--i:${i}">
+        ${img ? `<img src="${calEsc(img)}" alt="" loading="lazy" data-ev-zoom="${calEsc(img)}" data-ev-name="${calEsc(event.title)}">` : '<span class="event-card-ic">✦</span>'}
         <div class="event-card-text">
-          <h4>${event.title}</h4>
-          <p>${event.description || ''}</p>
+          <h4>${calEsc(event.title)}</h4>
+          ${event.description ? `<p>${calEsc(event.description).replace(/\r?\n/g, '<br>')}</p>` : ''}
         </div>
       </div>`;
+    }).join('') + '</div>';
   } else {
     eventCardEl.innerHTML = '';
   }
 }
+(function setupCalEventZoom() {
+  const el = document.getElementById('calendar-event-card');
+  if (!el) return;
+  el.addEventListener('click', (e) => {
+    const im = e.target.closest('[data-ev-zoom]');
+    if (im) openRmzZoom(im.getAttribute('data-ev-zoom'), im.getAttribute('data-ev-name') || '');
+  });
+})();
 document.querySelectorAll('.cal-tab').forEach((tab) => {
   tab.addEventListener('click', () => {
     activeCalendar = tab.dataset.cal;
@@ -6561,13 +6605,135 @@ document.getElementById('conv-btn').addEventListener('click', () => {
 });
 
 /* ---------- محاسبه‌گر زکات ---------- */
-document.getElementById('zakat-calc-btn').addEventListener('click', () => {
-  const amount = parseFloat(document.getElementById('zakat-amount-input').value);
-  const resultEl = document.getElementById('zakat-result');
-  if (!amount || amount <= 0) { resultEl.textContent = 'لطفاً مبلغ را وارد کنید.'; return; }
-  const zakat = amount * 0.025;
-  resultEl.textContent = 'زکات تخمینی: ' + toPersianDigits(zakat.toLocaleString('en-US')) + ' تومان';
-});
+// تبدیل ارقام فارسی/عربی و جداکننده‌ها به عدد
+function zkParseAmount(str) {
+  const t = String(str || '')
+    .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06F0))
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[^0-9]/g, '');
+  return t ? parseInt(t, 10) : 0;
+}
+function zkFmt(n) { return toPersianDigits(Math.round(n).toLocaleString('en-US')).replace(/,/g, '٬'); }
+
+(function setupZakatCalc() {
+  const input = document.getElementById('zakat-amount-input');
+  const btn = document.getElementById('zakat-calc-btn');
+  const msg = document.getElementById('zakat-msg');
+  const card = document.getElementById('zakat-result-card');
+  const resEl = document.getElementById('zakat-result');
+  if (!input || !btn) return;
+  let anim = 0;
+
+  function showMsg(t) { msg.textContent = t || ''; msg.hidden = !t; }
+  input.addEventListener('input', () => {
+    const n = zkParseAmount(input.value);
+    input.value = n ? zkFmt(n) : '';
+    showMsg('');
+  });
+  document.querySelectorAll('#zakat-chips .zk-chip').forEach((c) => {
+    c.addEventListener('click', () => {
+      input.value = zkFmt(parseInt(c.dataset.v, 10));
+      showMsg('');
+      calc();
+    });
+  });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); calc(); } });
+
+  function calc() {
+    const amount = zkParseAmount(input.value);
+    if (!amount || amount <= 0) { card.hidden = true; showMsg('لطفاً مبلغ را وارد کنید.'); return; }
+    showMsg('');
+    const zakat = amount * 0.025;
+    document.getElementById('zakat-row-total').textContent = zkFmt(amount) + ' تومان';
+    document.getElementById('zakat-row-zakat').textContent = zkFmt(zakat) + ' تومان';
+    document.getElementById('zakat-row-rest').textContent = zkFmt(amount - zakat) + ' تومان';
+    card.hidden = false;
+    card.classList.remove('zk-pop'); void card.offsetWidth; card.classList.add('zk-pop');
+    // شمارش تا عدد نهایی (اگر کاربر «کاهش حرکت» را روشن کرده باشد بی‌انیمیشن)
+    cancelAnimationFrame(anim);
+    const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (still) { resEl.textContent = zkFmt(zakat); }
+    else {
+      const t0 = performance.now(), dur = 700;
+      const step = (now) => {
+        const k = Math.min(1, (now - t0) / dur);
+        const e = 1 - Math.pow(1 - k, 3);
+        resEl.textContent = zkFmt(zakat * e);
+        if (k < 1) anim = requestAnimationFrame(step); else resEl.textContent = zkFmt(zakat);
+      };
+      anim = requestAnimationFrame(step);
+    }
+    setTimeout(() => { try { card.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (_) {} }, 80);
+  }
+  btn.addEventListener('click', calc);
+})();
+
+/* ---- محتوای تکمیلی زیر ماشین‌حساب (از پیشخوان: عارفان جام ← محاسبه‌گر زکات) ----
+ * بلوک‌ها: text | image | video | audio | link. برای نوع تازه، یک case به zkRenderBlock اضافه کنید
+ * و همان نوع را در includes/class-zakat.php (ثابت TYPES و فرم) هم اضافه کنید. */
+function zkAttr(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function zkHost(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (_) { return ''; } }
+function zkIsVideoFile(u) { return /\.(mp4|webm|ogv|m4v|mov)(\?|#|$)/i.test(String(u || '')); }
+function zkRenderBlock(b) {
+  const url = secureUrl(b.url || '');
+  const title = b.title ? `<h5 class="zk-blk-title">${zkAttr(b.title)}</h5>` : '';
+  switch (b.type) {
+    case 'text':
+      return `<div class="zk-blk zk-blk-text">${title}${b.text ? `<p>${zkAttr(b.text)}</p>` : ''}</div>`;
+    case 'image':
+      return `<figure class="zk-blk zk-blk-image"><img src="${zkAttr(url)}" alt="${zkAttr(b.title || '')}" loading="lazy" data-zk-zoom="${zkAttr(url)}" data-zk-name="${zkAttr(b.title || '')}">${b.title ? `<figcaption>${zkAttr(b.title)}</figcaption>` : ''}</figure>`;
+    case 'video':
+      if (zkIsVideoFile(url)) {
+        return `<div class="zk-blk zk-blk-video">${title}<video src="${zkAttr(url)}" controls playsinline preload="metadata"></video></div>`;
+      }
+      return `<button type="button" class="zk-blk zk-blk-link zk-blk-vidlink" data-zk-link="${zkAttr(url)}" data-zk-kind="video"><span class="zk-blk-ic">▶</span><span class="zk-blk-lt"><b>${zkAttr(b.title || 'مشاهدهٔ ویدیو')}</b><small>${zkAttr(zkHost(url))}</small></span><span class="zk-blk-go">‹</span></button>`;
+    case 'audio':
+      return `<div class="zk-blk zk-blk-audio"><div class="zk-blk-audio-head"><span class="zk-blk-ic">🎧</span><b>${zkAttr(b.title || 'فایل صوتی')}</b></div><audio src="${zkAttr(url)}" controls preload="none"></audio></div>`;
+    case 'link':
+      return `<button type="button" class="zk-blk zk-blk-link" data-zk-link="${zkAttr(url)}" data-zk-kind="link"><span class="zk-blk-ic">🔗</span><span class="zk-blk-lt"><b>${zkAttr(b.label || b.title || 'مشاهدهٔ لینک')}</b><small>${zkAttr(zkHost(url))}</small></span><span class="zk-blk-go">‹</span></button>`;
+    default:
+      return '';
+  }
+}
+async function loadZakatExtra() {
+  const wrap = document.getElementById('zakat-extra');
+  const list = document.getElementById('zakat-extra-list');
+  const ttl = document.getElementById('zakat-extra-title');
+  if (!wrap || !list) return;
+  try {
+    const d = await apiFetch('/zakat');
+    const blocks = (d && d.enabled && Array.isArray(d.blocks)) ? d.blocks : [];
+    if (!blocks.length) { wrap.hidden = true; list.innerHTML = ''; return; }
+    ttl.textContent = d.title || '';
+    ttl.hidden = !d.title;
+    list.innerHTML = blocks.map(zkRenderBlock).join('');
+    wrap.hidden = false;
+  } catch (e) {
+    // بدون اینترنت و بدون نسخهٔ ذخیره‌شده: بخش تکمیلی نشان داده نمی‌شود
+    if (!list.innerHTML) wrap.hidden = true;
+  }
+}
+(function setupZakatExtraEvents() {
+  const list = document.getElementById('zakat-extra-list');
+  if (!list) return;
+  list.addEventListener('click', (e) => {
+    const img = e.target.closest('[data-zk-zoom]');
+    if (img) { openRmzZoom(img.getAttribute('data-zk-zoom'), img.getAttribute('data-zk-name') || ''); return; }
+    const lk = e.target.closest('[data-zk-link]');
+    if (lk) {
+      trackClick('zakat_' + (lk.getAttribute('data-zk-kind') || 'link'));
+      window.open(lk.getAttribute('data-zk-link'), '_blank');
+    }
+  });
+  list.addEventListener('play', (e) => {
+    if (e.target && (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO')) {
+      // فقط یک رسانه هم‌زمان پخش شود
+      list.querySelectorAll('video,audio').forEach((m) => { if (m !== e.target) m.pause(); });
+    }
+  }, true);
+})();
 
 /* ---------- آیات سجده (فقه حنفی) ---------- */
 const SAJDAH_AYAHS_HANAFI = [
@@ -9475,7 +9641,7 @@ function mkTidy(t) {
   const NB = '\u00A0';
   x = x.replace(/(محمد|رسول)\s+(رسول|الله)/g, '$1' + NB + '$2');
   x = x.replace(/(رسول|عبد|ابو|ابی|ابن)\s+(الله|الرحمن|الرحیم|العظیم|الدین|ذر|بکر)/g, '$1' + NB + '$2');
-  x = x.replace(/(مولوی|شیخ|حاج|دکتر|آقای|حافظ|قاری|مهندس)\s+/g, '$1' + NB);
+  x = x.replace(/(مولوی|مولانا|مفتی|شیخ|حاج|دکتر|آقای|حافظ|قاری|مهندس)\s+(?!مولوی|مولانا|مفتی|شیخ|حاج|دکتر|آقای|حافظ|قاری|مهندس)/g, '$1' + NB); // فقط لقب به نام بعدی بچسبد، زنجیره نشود
   x = x.replace(/(\s)(\S{1,2})\s+(?=\S)/g, '$1$2' + NB); // کلمهٔ خیلی کوتاه به کلمهٔ بعدی بچسبد
   return x;
 }
@@ -9532,7 +9698,7 @@ function renderMokatibBtn2View() {
   children.forEach((m) => {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'secondary-btn';
+    btn.className = 'secondary-btn' + (m.imam_name ? '' : ' mk-no-imam');
     // نام مسجد: بخش اصلی در یک خط (مرتب و متوازن)، نام محله (داخل پرانتز) جدا زیرش
     const parts = mkSplitName(m.name);
     const nameEl = document.createElement('span');
@@ -9550,7 +9716,7 @@ function renderMokatibBtn2View() {
     if (m.imam_name) {
       const imamEl = document.createElement('span');
       imamEl.className = 'mokatib-btn2-imam';
-      imamEl.textContent = 'مسئول: ' + mkTidy(m.imam_name);
+      imamEl.textContent = 'مسئول:\u00A0' + mkTidy(m.imam_name);
       if (Number(m.imam_size) > 0) imamEl.style.fontSize = Number(m.imam_size) + 'px';
       btn.appendChild(imamEl);
     }
@@ -9563,14 +9729,6 @@ function renderMokatibBtn2View() {
     });
     grid.appendChild(btn);
   });
-  // همهٔ دکمه‌های یک صفحه هم‌قد می‌شوند (ظاهر منظم)؛ اگر پنجره هنوز دیده نمی‌شود، بعد از نمایش دوباره اندازه‌گیری می‌شود
-  const equalize = () => {
-    grid.style.removeProperty('--btn2-h');
-    let mx = 0;
-    grid.querySelectorAll('.secondary-btn').forEach((b) => { mx = Math.max(mx, b.offsetHeight); });
-    if (mx > 0) grid.style.setProperty('--btn2-h', mx + 'px'); else setTimeout(equalize, 250);
-  };
-  requestAnimationFrame(equalize);
 
 }
 

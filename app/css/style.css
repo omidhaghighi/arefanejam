@@ -1614,7 +1614,7 @@ body.dark-mode .qb-prompt-link { color: var(--gold-light); }
   flex: 0 0 calc((100% - (var(--btn2-cols) - 1) * 12px) / var(--btn2-cols));
   max-width: calc((100% - (var(--btn2-cols) - 1) * 12px) / var(--btn2-cols));
   min-width: 0; /* بدون این، فلکس‌آیتم به‌جای رعایت عرض تعیین‌شده، به‌اندازهٔ طول متنِ داخلش بزرگ می‌شود */
-  min-height: var(--btn2-h, 48px); height: auto; margin: 0;
+  min-height: 72px; height: auto; margin: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
   gap: 5px;
   text-align: center; padding: 12px 8px 11px; line-height: 1.55;
@@ -1636,6 +1636,8 @@ body.dark-mode .qb-prompt-link { color: var(--gold-light); }
   border-top: 1px solid rgba(255,255,255,.2);
   font-size: 11.5px; font-weight: 500; opacity: .92; line-height: 1.6;
 }
+/* دکمه‌ای که مسئول ندارد: محتوا وسط دکمه (نه بالا با فضای خالی زیرش) */
+.mokatib-btn2-btn-grid .secondary-btn.mk-no-imam { justify-content: center; }
 .mokatib-btn2-detail { margin-bottom: 16px; }
 .mokatib-btn2-detail h3 { margin: 6px 0 8px; color: var(--emerald); }
 .mokatib-btn2-detail .secondary-btn { margin-bottom: 10px; }
@@ -3706,4 +3708,262 @@ body.dark-mode .deeds-range-switch button.active { color: #fff; }
 
 @media (prefers-reduced-motion: reduce) {
   .wx-card *, .wx-card *::before, .wx-card *::after { animation: none !important; }
+}
+
+
+/* ================= محاسبه‌گر زکات ================= */
+#tab-zakat-calc .zk-hero {
+  position: relative; display: flex; align-items: center; gap: 12px;
+  margin: 12px 16px 0; padding: 18px 16px; border-radius: 22px; overflow: hidden;
+  color: #fff;
+  background: var(--pat-soft), radial-gradient(circle at 85% 0%, rgba(232,210,155,.28), transparent 55%),
+    linear-gradient(135deg, var(--night-1, #0A2B36), var(--night-2, #0E4250));
+  box-shadow: var(--raised-lg);
+}
+#tab-zakat-calc .zk-hero-art { width: 104px; height: 104px; flex: 0 0 auto; filter: drop-shadow(0 8px 12px rgba(0,0,0,.28)); }
+#tab-zakat-calc .zk-hero-text { min-width: 0; }
+#tab-zakat-calc .zk-hero-text h3 {
+  margin: 0 0 6px; padding: 0; font-family: var(--font-display, inherit); font-weight: 400;
+  font-size: 24px; line-height: 1.3; color: var(--gold-light, #E8D29B);
+}
+#tab-zakat-calc .zk-hero-text h3::before { display: none; }
+#tab-zakat-calc .zk-hero-text p { margin: 0; font-size: 12.5px; line-height: 1.9; color: rgba(255,255,255,.86); }
+#tab-zakat-calc .zk-coin { transform-box: fill-box; transform-origin: center; animation: zkFloat 4.2s ease-in-out infinite; }
+#tab-zakat-calc .zk-coin-b { animation-delay: -1.4s; }
+#tab-zakat-calc .zk-coin-c { animation-delay: -2.8s; }
+#tab-zakat-calc .zk-spark { transform-box: fill-box; transform-origin: center; animation: zkTwinkle 2.6s ease-in-out infinite; }
+#tab-zakat-calc .zk-spark-2 { animation-delay: -1.3s; }
+@keyframes zkFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes zkTwinkle { 0%,100% { opacity: .25; transform: scale(.7); } 50% { opacity: 1; transform: scale(1.1); } }
+
+#tab-zakat-calc .zk-wrap { padding: 14px 16px 6px; }
+#tab-zakat-calc .zk-card {
+  background: var(--card-bg); border: 1px solid var(--line); border-radius: 20px;
+  padding: 16px; margin-bottom: 14px; box-shadow: var(--raised-md);
+}
+#tab-zakat-calc .zk-label { display: block; margin: 0 0 8px; font-size: 13px; font-weight: 700; color: var(--emerald); }
+#tab-zakat-calc .zk-input-row {
+  display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 16px;
+  background: var(--paper-alt); border: 2px solid transparent; box-shadow: var(--well);
+  transition: border-color .2s, background .2s;
+}
+#tab-zakat-calc .zk-input-row:focus-within { border-color: var(--gold); background: var(--card-bg); }
+#tab-zakat-calc .zk-input-ic { font-size: 22px; flex: 0 0 auto; }
+#tab-zakat-calc .zk-input-row input {
+  flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; box-shadow: none;
+  font-family: var(--font-ui); font-size: 20px; font-weight: 800; letter-spacing: .5px;
+  color: var(--ink); padding: 8px 2px; text-align: right; direction: rtl;
+}
+#tab-zakat-calc .zk-input-row input::placeholder { font-weight: 500; font-size: 15px; color: #A39B8B; }
+#tab-zakat-calc .zk-unit { flex: 0 0 auto; font-size: 12px; font-weight: 700; color: #fff; background: var(--emerald-light); border-radius: 10px; padding: 4px 10px; }
+#tab-zakat-calc .zk-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 4px; }
+#tab-zakat-calc .zk-chip {
+  font-family: var(--font-ui); font-size: 12px; font-weight: 700; cursor: pointer;
+  padding: 7px 12px; border-radius: 999px; color: var(--emerald);
+  background: var(--turq-soft, var(--paper-alt)); border: 1px solid var(--line);
+  transition: transform .12s, background .2s;
+}
+#tab-zakat-calc .zk-chip:active { transform: scale(.94); }
+#tab-zakat-calc .zk-msg { margin: 8px 2px 0; font-size: 12.5px; font-weight: 700; color: var(--danger); }
+#tab-zakat-calc .zk-btn {
+  width: 100%; margin-top: 14px; border: 0; cursor: pointer; font-family: var(--font-ui);
+  font-size: 15px; font-weight: 800; color: #fff; padding: 14px 16px; border-radius: 16px;
+  background: linear-gradient(135deg, var(--turq, #2BA398), var(--emerald-light, #155466));
+  box-shadow: 0 5px 0 rgba(11,52,64,.45), 0 12px 22px -8px rgba(11,52,64,.45);
+  transition: transform .1s, box-shadow .1s;
+}
+#tab-zakat-calc .zk-btn:active { transform: translateY(4px); box-shadow: 0 1px 0 rgba(11,52,64,.45), 0 4px 10px -4px rgba(11,52,64,.4); }
+
+#tab-zakat-calc .zk-result-card[hidden] { display: none; }
+#tab-zakat-calc .zk-result-card {
+  position: relative; overflow: hidden; border: 0; color: #fff;
+  background: var(--pat-soft), radial-gradient(circle at 12% 0%, rgba(255,243,196,.22), transparent 50%),
+    linear-gradient(145deg, #0E4250, #0A2B36);
+  box-shadow: 0 2px 0 rgba(232,210,155,.55) inset, var(--raised-lg);
+}
+#tab-zakat-calc .zk-result-card.zk-pop { animation: zkPop .5s cubic-bezier(.2,.9,.3,1.2); }
+@keyframes zkPop { 0% { transform: scale(.92); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+#tab-zakat-calc .zk-result-top { display: flex; align-items: center; justify-content: space-between; }
+#tab-zakat-calc .zk-result-badge { font-size: 12px; font-weight: 700; color: #0A2B36; background: var(--gold-light, #E8D29B); padding: 4px 12px; border-radius: 999px; }
+#tab-zakat-calc .zk-result-rate { font-family: var(--font-display, inherit); font-size: 22px; color: var(--gold-light, #E8D29B); }
+#tab-zakat-calc .zk-result-amount { display: flex; align-items: baseline; justify-content: center; gap: 8px; margin: 14px 0 12px; direction: rtl; }
+#tab-zakat-calc .zk-result-amount span { font-family: var(--font-display, inherit); font-size: 36px; line-height: 1.2; color: #FFF3C4; text-shadow: 0 2px 14px rgba(232,210,155,.35); word-break: break-all; }
+#tab-zakat-calc .zk-result-amount small { font-size: 13px; font-weight: 700; color: rgba(255,255,255,.8); }
+#tab-zakat-calc .zk-split { display: flex; height: 10px; border-radius: 999px; overflow: hidden; background: rgba(255,255,255,.14); margin-bottom: 14px; }
+#tab-zakat-calc .zk-split-main { flex: 1; background: linear-gradient(90deg, #2BA398, #5CC9BB); }
+#tab-zakat-calc .zk-split-z { flex: 0 0 9%; background: linear-gradient(90deg, #F7E3A1, #C79A3B); }
+#tab-zakat-calc .zk-rows { display: grid; gap: 8px; }
+#tab-zakat-calc .zk-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,.08); font-size: 13px; }
+#tab-zakat-calc .zk-row b { font-weight: 800; direction: rtl; }
+#tab-zakat-calc .zk-row-z { background: rgba(232,210,155,.2); color: #FFF3C4; }
+#tab-zakat-calc .zk-note { margin: 4px 2px 8px; font-size: 12px; line-height: 1.9; color: #7C7568; }
+
+/* محتوای تکمیلی زیر ماشین‌حساب */
+#tab-zakat-calc .zk-extra[hidden] { display: none; }
+#tab-zakat-calc .zk-extra { margin: 6px 16px 22px; padding-top: 14px; border-top: 1px dashed var(--line); }
+#tab-zakat-calc .zk-extra-title { margin: 0 0 12px; font-family: var(--font-display, inherit); font-weight: 400; font-size: 20px; color: var(--emerald); position: relative; padding-right: 14px; }
+#tab-zakat-calc .zk-extra-title::before { content: ""; position: absolute; right: 0; top: 4px; bottom: 4px; width: 4px; border-radius: 2px; background: var(--gold); }
+#tab-zakat-calc .zk-blk { display: block; width: 100%; margin: 0 0 12px; background: var(--card-bg); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--raised-sm); overflow: hidden; text-align: right; font-family: var(--font-ui); color: var(--ink); }
+#tab-zakat-calc .zk-blk-title { margin: 0 0 6px; font-size: 14.5px; font-weight: 800; color: var(--emerald); }
+#tab-zakat-calc .zk-blk-text { padding: 14px 16px; }
+#tab-zakat-calc .zk-blk-text p { margin: 0; font-size: 14px; line-height: 2.05; white-space: pre-line; }
+#tab-zakat-calc .zk-blk-image { margin-left: 0; margin-right: 0; }
+#tab-zakat-calc .zk-blk-image img { display: block; width: 100%; height: auto; cursor: zoom-in; }
+#tab-zakat-calc .zk-blk-image figcaption { padding: 10px 14px; font-size: 12.5px; color: #7C7568; line-height: 1.8; }
+#tab-zakat-calc .zk-blk-video { padding: 12px; }
+#tab-zakat-calc .zk-blk-video video { display: block; width: 100%; border-radius: 12px; background: #000; }
+#tab-zakat-calc .zk-blk-audio { padding: 12px 14px; }
+#tab-zakat-calc .zk-blk-audio-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 14px; }
+#tab-zakat-calc .zk-blk-audio audio { display: block; width: 100%; }
+#tab-zakat-calc .zk-blk-ic { flex: 0 0 auto; width: 42px; height: 42px; display: inline-flex; align-items: center; justify-content: center; font-size: 18px; border-radius: 50%; color: #fff; background: linear-gradient(135deg, var(--turq, #2BA398), var(--emerald-light, #155466)); box-shadow: var(--raised-sm); }
+#tab-zakat-calc .zk-blk-audio-head .zk-blk-ic { width: 34px; height: 34px; font-size: 15px; }
+#tab-zakat-calc .zk-blk-vidlink .zk-blk-ic { background: linear-gradient(135deg, #F0245E, #C2104A); padding-right: 3px; }
+#tab-zakat-calc .zk-blk-link { display: flex; align-items: center; gap: 12px; padding: 12px 14px; cursor: pointer; transition: transform .12s; }
+#tab-zakat-calc .zk-blk-link:active { transform: scale(.98); }
+#tab-zakat-calc .zk-blk-lt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+#tab-zakat-calc .zk-blk-lt b { font-size: 14px; font-weight: 800; line-height: 1.7; }
+#tab-zakat-calc .zk-blk-lt small { font-size: 11px; color: #7C7568; direction: ltr; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#tab-zakat-calc .zk-blk-go { flex: 0 0 auto; font-size: 24px; color: var(--gold); }
+
+body.dark-mode #tab-zakat-calc .zk-input-row { background: var(--paper-alt); }
+body.dark-mode #tab-zakat-calc .zk-input-row:focus-within { background: var(--card-bg); }
+body.dark-mode #tab-zakat-calc .zk-chip { background: var(--paper-alt); color: var(--emerald); }
+body.dark-mode #tab-zakat-calc .zk-note,
+body.dark-mode #tab-zakat-calc .zk-blk-lt small,
+body.dark-mode #tab-zakat-calc .zk-blk-image figcaption { color: #9FB1AC; }
+
+@media (max-width: 360px) {
+  #tab-zakat-calc .zk-hero-art { width: 84px; height: 84px; }
+  #tab-zakat-calc .zk-result-amount span { font-size: 30px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #tab-zakat-calc .zk-coin, #tab-zakat-calc .zk-spark, #tab-zakat-calc .zk-result-card.zk-pop { animation: none !important; }
+}
+
+
+/* ================= تقویم: ظاهر جذاب‌تر + چند مناسبت در یک روز ================= */
+.calendar-card {
+  background:
+    radial-gradient(circle at 100% 0%, rgba(232,210,155,.22), transparent 42%),
+    radial-gradient(circle at 0% 100%, rgba(43,163,152,.10), transparent 45%),
+    var(--card-bg);
+  border: 1px solid var(--line);
+  box-shadow: var(--raised-lg);
+}
+.calendar-card::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .9;
+  background: var(--pat-eslimi) top right / 64px 64px repeat;
+  -webkit-mask-image: linear-gradient(200deg, #000 0%, transparent 38%);
+          mask-image: linear-gradient(200deg, #000 0%, transparent 38%);
+}
+.calendar-card > * { position: relative; z-index: 1; }
+.calendar-tabs {
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  width: max-content; max-width: 100%; margin: 0 auto 10px; padding: 4px;
+  background: var(--paper-alt); border-radius: 999px; box-shadow: var(--well);
+}
+.cal-tab { background: transparent !important; box-shadow: none !important; padding: 7px 18px; }
+.cal-tab.active {
+  background: linear-gradient(135deg, var(--night-1), var(--night-2)) !important; color: #FFF6DC;
+  box-shadow: 0 6px 14px -4px rgba(11,52,64,.55) !important;
+}
+.cal-tool-btn { margin-right: 4px; background: var(--card-bg) !important; box-shadow: var(--raised-sm) !important; }
+
+.month-nav { margin: 8px 0 12px; gap: 12px; }
+.month-nav-btn {
+  width: 36px; height: 36px; font-size: 20px; line-height: 1; border-radius: 50% !important;
+  background: var(--card-bg) !important; box-shadow: var(--raised-sm) !important; color: var(--emerald);
+}
+.month-label { position: relative; min-width: 150px; font-size: 23px; }
+.month-label::before, .month-label::after {
+  content: '✦'; font-size: 10px; color: var(--gold); margin: 0 8px; vertical-align: middle; opacity: .85;
+}
+
+.month-grid-header { font-size: 10.5px; margin-bottom: 8px; padding: 6px 0; border-radius: 12px; background: var(--paper-alt); }
+.month-grid { gap: 6px; }
+.month-cell {
+  position: relative; flex-direction: column; gap: 2px; border-radius: 15px; font-weight: 700;
+  background: color-mix(in srgb, var(--paper-alt) 55%, var(--card-bg));
+  box-shadow: 0 1px 0 var(--hi) inset, 0 2px 4px rgba(var(--sh-color), .06);
+  transition: transform .18s cubic-bezier(.34,1.56,.64,1), background .2s, box-shadow .2s;
+}
+.month-cell.empty { background: none !important; box-shadow: none !important; }
+.month-cell.is-friday { background: color-mix(in srgb, #B5483B 9%, var(--card-bg)); color: #B5483B; }
+.month-cell-num { line-height: 1; }
+.month-cell-dots { display: flex; gap: 3px; height: 5px; align-items: center; justify-content: center; }
+.month-cell-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--turq); box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+.month-cell-dots i:nth-child(2) { background: var(--gold); }
+.month-cell-dots i:nth-child(3) { background: #E8745A; }
+.month-cell.has-event::after { display: none !important; }
+.month-cell.has-event:not(.is-selected):not(.is-today) { box-shadow: 0 1px 0 var(--hi) inset, 0 0 0 1.5px color-mix(in srgb, var(--gold) 55%, transparent); }
+.month-cell.is-today {
+  background: color-mix(in srgb, var(--gold-light) 35%, var(--card-bg)); color: var(--emerald);
+  box-shadow: inset 0 0 0 2px var(--gold), 0 4px 10px -4px rgba(176,141,78,.6);
+}
+.month-cell.is-selected {
+  transform: translateY(-2px) scale(1.07); z-index: 1;
+  box-shadow: 0 10px 18px -6px rgba(11,52,64,.6), 0 0 0 3px rgba(232,210,155,.55);
+}
+.month-cell.is-selected .month-cell-dots i, .month-cell.is-selected .month-cell-dots i:nth-child(n) { background: #FFF3C4; }
+
+/* کارت بزرگ تاریخِ انتخاب‌شده */
+.cal-hero {
+  position: relative; display: flex; align-items: center; gap: 14px; text-align: right;
+  margin: 14px 0 0; padding: 14px 14px; border-radius: 20px; overflow: hidden; color: #fff;
+  background: var(--pat-soft), radial-gradient(circle at 90% 0%, rgba(232,210,155,.28), transparent 55%),
+    linear-gradient(135deg, var(--night-1), var(--night-2));
+  box-shadow: var(--raised-md);
+}
+.cal-hero.is-friday { background: var(--pat-soft), radial-gradient(circle at 90% 0%, rgba(255,190,170,.30), transparent 55%), linear-gradient(135deg, #5A1E1A, #3C1214); }
+.cal-hero-day {
+  flex: 0 0 auto; width: 66px; height: 74px; border-radius: 18px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; color: #3A2A0B;
+  background: linear-gradient(160deg, #FBEBB4, #C79A3B);
+  box-shadow: 0 1px 0 rgba(255,255,255,.7) inset, 0 6px 0 -2px rgba(120,86,20,.55), 0 12px 18px -6px rgba(0,0,0,.45);
+}
+.cal-hero-day b { font-family: var(--font-display, inherit); font-weight: 400; font-size: 34px; line-height: 1.05; }
+.cal-hero-day small { font-size: 10.5px; font-weight: 800; margin-top: 2px; }
+.cal-hero-info { flex: 1; min-width: 0; }
+.cal-hero-wd { font-size: 11.5px; font-weight: 700; color: var(--gold-light); letter-spacing: .2px; }
+.cal-hero .calendar-main { margin: 2px 0 2px; font-size: 18px; line-height: 1.5; color: #fff; }
+.cal-hero .calendar-sub { margin: 0; font-size: 11px; line-height: 1.7; color: rgba(255,255,255,.72); }
+.cal-hero-badge[hidden] { display: none; }
+.cal-hero-badge {
+  position: absolute; left: 10px; top: 10px; font-size: 10.5px; font-weight: 800; color: #3A2A0B;
+  background: var(--gold-light); padding: 3px 10px; border-radius: 999px; box-shadow: 0 3px 8px -2px rgba(0,0,0,.4);
+}
+
+/* مناسبت‌ها (هر تعداد برای یک روز) */
+.ev-list { display: grid; gap: 10px; margin-top: 12px; text-align: right; }
+.event-card {
+  position: relative; overflow: hidden; display: flex; gap: 12px; align-items: center; margin: 0;
+  padding: 12px 14px; border-radius: 18px; border: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--card-bg), color-mix(in srgb, var(--paper-alt) 70%, var(--card-bg)));
+  box-shadow: var(--raised-sm);
+  animation: evIn .45s cubic-bezier(.2,.9,.3,1.1) both; animation-delay: calc(var(--i, 0) * 70ms);
+}
+.event-card::before {
+  content: ''; position: absolute; right: 0; top: 10px; bottom: 10px; width: 4px; border-radius: 4px 0 0 4px;
+  background: linear-gradient(180deg, var(--gold), var(--turq));
+}
+.event-card img { width: 78px; height: 78px; border-radius: 14px; object-fit: cover; cursor: zoom-in; box-shadow: var(--raised-sm); }
+.event-card-ic {
+  flex: 0 0 auto; width: 44px; height: 44px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 18px; color: #fff; background: linear-gradient(135deg, var(--gold), #C79A3B); box-shadow: var(--raised-sm);
+}
+.event-card-text { min-width: 0; padding-right: 4px; }
+.event-card-text h4 { margin: 0 0 4px; font-size: 14.5px; font-weight: 800; line-height: 1.7; color: var(--emerald); }
+.event-card-text p { margin: 0; font-size: 12.5px; line-height: 1.95; color: color-mix(in srgb, var(--ink) 78%, transparent); }
+@keyframes evIn { from { opacity: 0; transform: translateY(10px) scale(.97); } to { opacity: 1; transform: none; } }
+
+body.dark-mode .cal-hero-day { color: #3A2A0B; }
+body.dark-mode .month-cell.is-friday { background: color-mix(in srgb, #E0705F 12%, var(--card-bg)); color: #F08B7B; }
+body.dark-mode .month-cell.is-today { background: color-mix(in srgb, var(--gold) 22%, var(--card-bg)); color: var(--gold-light); }
+@media (max-width: 360px) {
+  .cal-hero-day { width: 58px; height: 66px; }
+  .cal-hero .calendar-main { font-size: 16px; }
+  .event-card img { width: 64px; height: 64px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .event-card, .calendar-card::before { animation: none !important; }
 }
