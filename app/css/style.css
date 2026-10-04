@@ -3967,3 +3967,95 @@ body.dark-mode .month-cell.is-today { background: color-mix(in srgb, var(--gold)
 @media (prefers-reduced-motion: reduce) {
   .event-card, .calendar-card::before { animation: none !important; }
 }
+
+/* =====================================================================
+   تسبیح دیجیتال — طرح سه‌بعدی: مهره‌های براق دور دکمهٔ شیشه‌ای (شب‌فیروزه‌ای + طلایی)
+   ===================================================================== */
+#tab-tasbih .dhikr-card {
+  background: linear-gradient(180deg, var(--card-bg), color-mix(in srgb, var(--paper-alt) 80%, var(--card-bg)));
+  border: 1.5px solid var(--line); border-radius: 999px; box-shadow: var(--raised-sm); color: var(--ink);
+}
+#tab-tasbih .dhikr-card.is-active {
+  background: linear-gradient(135deg, var(--night-2), var(--night-1)); color: #FFF3C4;
+  border-color: var(--gold); box-shadow: 0 6px 16px rgba(6,34,43,.35), inset 0 1px 0 rgba(255,255,255,.18);
+}
+#tab-tasbih .tasbih-counter-area {
+  margin: 4px 14px 0; padding: 12px 10px 12px; gap: 6px; position: relative; overflow: hidden;
+  border-radius: 28px; border: 1px solid color-mix(in srgb, var(--gold) 55%, transparent);
+  background: var(--pat-soft, none), radial-gradient(120% 90% at 50% 0%, var(--night-2) 0%, var(--night-1) 70%);
+  box-shadow: 0 14px 28px rgba(6,34,43,.28), inset 0 1px 0 rgba(255,255,255,.12), inset 0 -18px 30px rgba(0,0,0,.25);
+}
+#tab-tasbih .tb-chips { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; position: relative; z-index: 1; }
+#tab-tasbih .tb-chip {
+  margin: 0; padding: 5px 13px; border-radius: 999px; font-size: 12px; font-weight: 700; color: #E9F6F3;
+  background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.16);
+}
+#tab-tasbih .tb-chip-gold { color: #FFF3C4; border-color: rgba(230,198,119,.55); background: rgba(190,148,64,.18); }
+#tab-tasbih .tb-chip b { font-weight: 800; }
+
+#tab-tasbih .tasbih-dial { --dial-size: clamp(200px, min(76vw, 40vh), 310px); margin: 2px 0; }
+#tab-tasbih .tasbih-dial-glow {
+  width: 96%; height: 96%;
+  background: radial-gradient(circle, rgba(230,198,119,.30), rgba(43,163,152,.12) 55%, transparent 72%);
+}
+.tb-beads { width: 100%; height: 100%; overflow: visible; pointer-events: none; filter: drop-shadow(0 3px 3px rgba(0,0,0,.45)); }
+.tb-beads #tasbih-beads-g { transition: transform .45s cubic-bezier(.3,1.35,.5,1); }
+.tb-thread { stroke: rgba(230,198,119,.55); stroke-width: 1.4; }
+.tb-bead { stroke: rgba(0,0,0,.28); stroke-width: .6; }
+.tb-dial.is-complete .tb-bead { fill: #E3B64F !important; }
+.tb-marker { fill: #FFE9A8; stroke: #7A5614; stroke-width: .8; }
+#tab-tasbih .tasbih-ring-bg { stroke: rgba(255,255,255,.12); stroke-width: 5; }
+#tab-tasbih .tasbih-ring-progress { stroke: #F2D27E; stroke-width: 5; filter: drop-shadow(0 0 4px rgba(242,210,126,.65)); }
+.tb-dial.is-complete .tasbih-ring-progress { stroke: #FFF6DC; }
+#tab-tasbih .tasbih-btn {
+  width: 60%; height: 60%; border: 3px solid #E6C677; color: #FFF3C4;
+  background: radial-gradient(circle at 34% 24%, #4CC2B6 0%, #0E4A58 45%, #062A33 100%);
+  box-shadow:
+    inset 0 8px 14px rgba(255,255,255,.30), inset 0 -16px 24px rgba(0,0,0,.5),
+    0 0 0 5px rgba(190,148,64,.28), 0 0 0 7px rgba(6,34,43,.55), 0 14px 26px rgba(0,0,0,.5);
+}
+#tab-tasbih .tasbih-btn::before {
+  content: ""; position: absolute; top: 5%; left: 15%; width: 70%; height: 38%; border-radius: 50%;
+  background: linear-gradient(180deg, rgba(255,255,255,.42), rgba(255,255,255,0)); pointer-events: none;
+}
+#tab-tasbih .tasbih-btn:active {
+  box-shadow: inset 0 6px 10px rgba(255,255,255,.18), inset 0 -8px 14px rgba(0,0,0,.55),
+    0 0 0 5px rgba(190,148,64,.28), 0 0 0 7px rgba(6,34,43,.55), 0 6px 12px rgba(0,0,0,.5);
+}
+#tab-tasbih .tasbih-count {
+  font-family: var(--font-display, inherit); font-weight: 400; font-size: clamp(34px, 9.5vh, 56px);
+  text-shadow: 0 2px 0 rgba(122,86,20,.7), 0 0 14px rgba(242,210,126,.55); position: relative;
+}
+#tab-tasbih .tasbih-btn-hint { color: #CDEDE8; position: relative; }
+#tab-tasbih .tasbih-actions { margin-top: 4px; position: relative; z-index: 1; }
+#tab-tasbih .tasbih-actions .ghost-btn {
+  color: #FFF3C4; background: rgba(255,255,255,.09); border: 1px solid rgba(230,198,119,.5);
+  border-radius: 999px; padding: 8px 16px; box-shadow: inset 0 1px 0 rgba(255,255,255,.12);
+}
+#tab-tasbih .tasbih-actions .ghost-btn:active { transform: scale(.96); background: rgba(255,255,255,.16); }
+@keyframes tasbihCompleteGlow {
+  0% { box-shadow: 0 0 0 5px rgba(190,148,64,.28), 0 14px 26px rgba(0,0,0,.5); }
+  35% { box-shadow: 0 0 0 20px rgba(242,210,126,.45), 0 0 40px rgba(242,210,126,.7), 0 14px 26px rgba(0,0,0,.5); }
+  100% { box-shadow: 0 0 0 5px rgba(190,148,64,.28), 0 14px 26px rgba(0,0,0,.5); }
+}
+#tab-tasbih .tasbih-info { padding: 10px 18px 16px; }
+#tab-tasbih .tasbih-info .verse-arabic {
+  font-family: var(--font-quran); font-size: 24px; line-height: 2.1; color: var(--emerald); margin: 0 0 6px;
+}
+#tab-tasbih .tasbih-info .verse-arabic:empty { display: none; }
+#tab-tasbih .tasbih-info .verse-arabic:not(:empty)::after {
+  content: "✦"; display: block; font-family: var(--font-ui); font-size: 13px; line-height: 1; color: var(--gold); margin-top: 4px;
+}
+#tab-tasbih .dhikr-virtue-box { border-radius: 20px; border: 1px solid color-mix(in srgb, var(--gold) 45%, transparent); box-shadow: var(--raised-sm); }
+@media (prefers-reduced-motion: reduce) {
+  .tb-beads #tasbih-beads-g, .tb-bead { transition: none !important; }
+  #tab-tasbih .tasbih-dial-glow, #tab-tasbih .dhikr-card { animation: none !important; }
+}
+
+/* =====================================================================
+   زکات — کارت‌های خیرین زیر ماشین‌حساب (همان ظاهر صفحهٔ «خیرین»)
+   ===================================================================== */
+#tab-zakat-calc .zk-charity[hidden] { display: none; }
+#tab-zakat-calc .zk-charity { margin: 6px 16px 14px; padding-top: 14px; border-top: 1px dashed var(--line); }
+#tab-zakat-calc .zk-charity .zk-extra-title { margin: 0 0 12px; font-family: var(--font-display, inherit); font-weight: 400; font-size: 20px; color: var(--emerald); position: relative; padding-right: 14px; }
+#tab-zakat-calc .zk-charity .zk-extra-title::before { content: ""; position: absolute; right: 0; top: 4px; bottom: 4px; width: 4px; border-radius: 2px; background: var(--gold); }

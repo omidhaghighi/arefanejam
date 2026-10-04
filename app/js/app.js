@@ -334,7 +334,7 @@ function switchToTab(tabName, opts) {
   if (tabName === 'daily-deeds') openDailyDeeds();
   if (tabName === 'quran-report') renderQuranReportTab();
   if (tabName === 'date-converter') populateConverterSelects();
-  if (tabName === 'zakat-calc') loadZakatExtra();
+  if (tabName === 'zakat-calc') { loadZakatExtra(); renderZakatCharityCards(); if (navigator.onLine) loadCharitySettings(); }
   if (tabName === 'sajdah-list') renderSajdahList();
   if (tabName === 'news-list') loadNewsList();
   if (tabName === 'social') loadSocialLinks();
@@ -4774,38 +4774,92 @@ function renderVerse(v) {
 }
 
 /* ---------- تسبیح دیجیتال ---------- */
+/* ظاهر: ۳۳ مهرهٔ سه‌بعدی دور دکمه. با هر پیشرفت، مهره‌ها یک گام می‌چرخند و مهره‌های شمرده‌شده طلایی می‌شوند.
+   شناسه‌های قبلی (tasbih-count, tasbih-ring-progress, ...) حفظ شده‌اند. */
 const TASBIH_KEY = 'arefanejam_tasbih_count';
 const TASBIH_TARGET_KEY = 'arefanejam_tasbih_target';
+const TASBIH_ROUNDS_KEY = 'arefanejam_tasbih_rounds';
 let tasbihCount = parseInt(localStorage.getItem(TASBIH_KEY) || '0', 10);
 let tasbihTarget = parseInt(localStorage.getItem(TASBIH_TARGET_KEY) || '33', 10);
-const TASBIH_RING_CIRC = 2 * Math.PI * 90;
+let tasbihRounds = parseInt(localStorage.getItem(TASBIH_ROUNDS_KEY) || '0', 10) || 0;
+const TASBIH_RING_CIRC = 2 * Math.PI * 82;
+const TB_BEADS = 33;
+let tbRot = 0, tbPrevP = -1, tbBuilt = false, tbCompleting = false;
+function tbBuildBeads() {
+  const g = document.getElementById('tasbih-beads-g');
+  if (!g || tbBuilt) return;
+  const NS = 'http://www.w3.org/2000/svg';
+  const R = 100;
+  for (let k = 0; k < TB_BEADS; k++) {
+    const th = -(k / TB_BEADS) * 2 * Math.PI; // زاویه از بالا (ساعت‌گرد)؛ مهره‌ها خلاف جهت چیده شده‌اند
+    const c = document.createElementNS(NS, 'circle');
+    c.setAttribute('cx', (R * Math.sin(th)).toFixed(2));
+    c.setAttribute('cy', (-R * Math.cos(th)).toFixed(2));
+    c.setAttribute('r', '6.6');
+    c.setAttribute('class', 'tb-bead');
+    c.setAttribute('fill', 'url(#tbBeadOff)');
+    g.appendChild(c);
+  }
+  tbBuilt = true;
+}
 function renderTasbih() {
   document.getElementById('tasbih-count').textContent = toPersianDigits(tasbihCount);
   document.getElementById('tasbih-target-label').textContent = 'هدف: ' + toPersianDigits(tasbihTarget);
+  const roundsEl = document.getElementById('tasbih-rounds');
+  if (roundsEl) roundsEl.textContent = toPersianDigits(tasbihRounds);
   const ring = document.getElementById('tasbih-ring-progress');
   if (ring) {
     const ratio = tasbihTarget > 0 ? Math.min(tasbihCount / tasbihTarget, 1) : 0;
     ring.style.strokeDasharray = String(TASBIH_RING_CIRC);
     ring.style.strokeDashoffset = String(TASBIH_RING_CIRC * (1 - ratio));
   }
+  try {
+    tbBuildBeads();
+    const g = document.getElementById('tasbih-beads-g');
+    if (!g) return;
+    const p = tasbihTarget > 0 ? Math.min(TB_BEADS - 1, Math.floor(tasbihCount * TB_BEADS / tasbihTarget)) : 0;
+    const first = tbPrevP < 0;
+    if (first) tbRot = p;
+    else if (tbCompleting) tbRot += (TB_BEADS - tbPrevP);
+    else if (p > tbPrevP) tbRot += (p - tbPrevP);
+    tbPrevP = p; tbCompleting = false;
+    if (first) g.style.transition = 'none';
+    g.style.transform = 'rotate(' + (tbRot * 360 / TB_BEADS).toFixed(3) + 'deg)';
+    if (first) { void g.getBoundingClientRect(); g.style.transition = ''; }
+    const beads = g.children;
+    for (let k = 0; k < beads.length; k++) {
+      const lit = (((tbRot - 1 - k) % TB_BEADS) + TB_BEADS) % TB_BEADS < p;
+      beads[k].classList.toggle('on', lit);
+      beads[k].setAttribute('fill', lit ? 'url(#tbBeadOn)' : 'url(#tbBeadOff)');
+    }
+  } catch (_) { /* ظاهر مهره‌ها نباید شمارش را خراب کند */ }
 }
+function tbVibrate(p) { try { if (navigator.vibrate) navigator.vibrate(p); } catch (_) {} }
 document.getElementById('tasbih-counter-btn').addEventListener('click', (e) => {
   tasbihCount++;
   const btn = e.currentTarget;
+  const dial = document.getElementById('tasbih-dial');
   btn.classList.remove('is-tapped');
   void btn.offsetWidth;
   btn.classList.add('is-tapped');
+  tbVibrate(10);
   if (tasbihCount >= tasbihTarget) {
-    if (navigator.vibrate) navigator.vibrate(80);
+    tbVibrate([70, 40, 140]);
     btn.classList.add('is-complete');
-    setTimeout(() => btn.classList.remove('is-complete'), 700);
+    if (dial) dial.classList.add('is-complete');
+    setTimeout(() => { btn.classList.remove('is-complete'); if (dial) dial.classList.remove('is-complete'); }, 1000);
     tasbihCount = 0;
+    tasbihRounds++;
+    tbCompleting = true;
+    localStorage.setItem(TASBIH_ROUNDS_KEY, String(tasbihRounds));
   }
   localStorage.setItem(TASBIH_KEY, String(tasbihCount));
   renderTasbih();
 });
 document.getElementById('tasbih-reset-btn').addEventListener('click', () => {
-  tasbihCount = 0; localStorage.setItem(TASBIH_KEY, '0'); renderTasbih();
+  tasbihCount = 0; tasbihRounds = 0;
+  localStorage.setItem(TASBIH_KEY, '0'); localStorage.setItem(TASBIH_ROUNDS_KEY, '0');
+  renderTasbih();
 });
 document.getElementById('tasbih-target-btn').addEventListener('click', () => {
   const options = [33, 99, 100];
@@ -7726,6 +7780,7 @@ function loadCharitySettings() {
   if (cachedCharity && !window.__charityData) window.__charityData = cachedCharity;
   applyFoodItemsVisibility(charityReadCache(FOOD_ITEMS_CACHE_KEY));
   if (currentTab === 'charity') renderCharityPage();
+  if (currentTab === 'zakat-calc') renderZakatCharityCards();
   // ۲) تازه‌سازی از سایت (اگر اینترنت باشد)
   if (charityRefreshing) return charityRefreshing;
   charityRefreshing = (async () => {
@@ -7742,8 +7797,35 @@ function loadCharitySettings() {
     } catch (e) { /* آفلاین: همان نسخهٔ ذخیره‌شده می‌ماند */ }
     // فقط اگر محتوا واقعاً تغییر کرده، صفحه دوباره ساخته شود (تا پخش ویدیو یا اسکرول کاربر به‌هم نخورد)
     if (currentTab === 'charity' && window.__charityRenderedSig !== JSON.stringify(window.__charityData || null)) renderCharityPage();
+    if (currentTab === 'zakat-calc') renderZakatCharityCards();
   })().then(() => { charityRefreshing = null; }, () => { charityRefreshing = null; });
   return charityRefreshing;
+}
+// نمایش شمارهٔ کارت خیرین (هم در صفحهٔ «خیرین» و هم زیر ماشین‌حساب زکات؛ ظاهر یکسان)
+function charityCardNumberHtml(card2, i) {
+  return `<div class="charity-card-number">
+      <span>${card2.label || 'کارت ' + toPersianDigits(i + 1)}<br><strong>${card2.number}</strong></span>
+      <button class="copy-btn" data-copy="${card2.number}">کپی</button>
+    </div>`;
+}
+function bindCharityCopyButtons(root) {
+  root.querySelectorAll('.copy-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      navigator.clipboard?.writeText(btn.dataset.copy).then(() => { btn.textContent = 'کپی شد'; setTimeout(() => { btn.textContent = 'کپی'; }, 1500); });
+    });
+  });
+}
+// کارت‌های خیرین زیر ماشین‌حساب زکات (از همان دادهٔ صفحهٔ خیرین؛ آفلاین هم از نسخهٔ ذخیره‌شده)
+function renderZakatCharityCards() {
+  const wrap = document.getElementById('zakat-charity');
+  const list = document.getElementById('zakat-charity-list');
+  if (!wrap || !list) return;
+  const cached = window.__charityData || charityReadCache(CHARITY_CACHE_KEY);
+  const cards = (cached && Array.isArray(cached.cards)) ? cached.cards.filter((x) => x && x.number) : [];
+  if (!cards.length) { wrap.hidden = true; list.innerHTML = ''; return; }
+  list.innerHTML = cards.map((c2, i) => charityCardNumberHtml(c2, i)).join('');
+  bindCharityCopyButtons(list);
+  wrap.hidden = false;
 }
 function renderCharityPage() {
   const c = window.__charityData || {};
@@ -7769,12 +7851,7 @@ function renderCharityPage() {
     html += `</div>`;
   }
   if (c.text) html += `<p class="muted-text" style="margin-bottom:14px">${c.text}</p>`;
-  (c.cards || []).forEach((card2, i) => {
-    html += `<div class="charity-card-number">
-      <span>${card2.label || 'کارت ' + toPersianDigits(i + 1)}<br><strong>${card2.number}</strong></span>
-      <button class="copy-btn" data-copy="${card2.number}">کپی</button>
-    </div>`;
-  });
+  (c.cards || []).forEach((card2, i) => { html += charityCardNumberHtml(card2, i); });
   if ((c.media_items || []).length) {
     const cols = parseInt(c.media_columns, 10) || 2;
     html += `<div class="charity-media-grid" style="grid-template-columns:repeat(${cols},1fr)">`;
@@ -7794,11 +7871,7 @@ function renderCharityPage() {
   card.innerHTML = html;
   el.appendChild(card);
 
-  el.querySelectorAll('.copy-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      navigator.clipboard?.writeText(btn.dataset.copy).then(() => { btn.textContent = 'کپی شد'; setTimeout(() => { btn.textContent = 'کپی'; }, 1500); });
-    });
-  });
+  bindCharityCopyButtons(el);
   const gatewayBtn = document.getElementById('charity-gateway-btn');
   if (gatewayBtn) {
     gatewayBtn.addEventListener('click', () => {
@@ -9317,6 +9390,7 @@ function selectDhikrCard(card) {
     tasbihCount = 0;
     localStorage.setItem(TASBIH_TARGET_KEY, String(tasbihTarget));
     localStorage.setItem(TASBIH_KEY, '0');
+    tasbihRounds = 0; localStorage.setItem(TASBIH_ROUNDS_KEY, '0');
     renderTasbih();
   }
 }

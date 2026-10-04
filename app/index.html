@@ -8,7 +8,7 @@
 <link rel="icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=87">
+<link rel="stylesheet" href="css/style.css?v=88">
 </head>
 <body>
 
@@ -523,12 +523,28 @@
       </div>
 
       <div class="tasbih-counter-area">
-        <p class="tasbih-target-label" id="tasbih-target-label">هدف: ۳۳</p>
-        <div class="tasbih-dial">
+        <div class="tb-chips">
+          <span class="tasbih-target-label tb-chip" id="tasbih-target-label">هدف: ۳۳</span>
+          <span class="tb-chip tb-chip-gold">دور کامل: <b id="tasbih-rounds">۰</b></span>
+        </div>
+        <div class="tasbih-dial tb-dial" id="tasbih-dial">
           <div class="tasbih-dial-glow"></div>
-          <svg class="tasbih-ring" viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet">
-            <circle class="tasbih-ring-bg" cx="100" cy="100" r="90" fill="none"></circle>
-            <circle id="tasbih-ring-progress" class="tasbih-ring-progress" cx="100" cy="100" r="90" fill="none"></circle>
+          <svg class="tb-beads" id="tasbih-beads" viewBox="-120 -120 240 240" aria-hidden="true">
+            <defs>
+              <radialGradient id="tbBeadOff" cx=".34" cy=".3" r=".85">
+                <stop offset="0" style="stop-color:#FFFDF4"/><stop offset=".5" style="stop-color:#D8CFB2"/><stop offset="1" style="stop-color:#8A8168"/>
+              </radialGradient>
+              <radialGradient id="tbBeadOn" cx=".34" cy=".3" r=".85">
+                <stop offset="0" style="stop-color:#FFF3C4"/><stop offset=".5" style="stop-color:#D9A93F"/><stop offset="1" style="stop-color:#7A5614"/>
+              </radialGradient>
+            </defs>
+            <circle class="tb-thread" r="100" fill="none"></circle>
+            <g id="tasbih-beads-g"></g>
+            <path class="tb-marker" d="M-8 -119 L8 -119 L0 -108 Z"></path>
+          </svg>
+          <svg class="tasbih-ring" viewBox="0 0 240 240" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+            <circle class="tasbih-ring-bg" cx="120" cy="120" r="82" fill="none"></circle>
+            <circle id="tasbih-ring-progress" class="tasbih-ring-progress" cx="120" cy="120" r="82" fill="none"></circle>
           </svg>
           <button id="tasbih-counter-btn" class="tasbih-btn" type="button">
             <span class="tasbih-btn-ripple" id="tasbih-btn-ripple"></span>
@@ -991,6 +1007,11 @@
         <p class="zk-note">این محاسبه صرفاً یک برآورد ساده است؛ برای احکام دقیق نصاب و شرایط وجوب زکات با یک عالم دینی مشورت کنید.</p>
       </div>
 
+      <div class="zk-charity" id="zakat-charity" hidden>
+        <h4 class="zk-extra-title">شماره کارت‌های خیرین</h4>
+        <div class="charity-card" id="zakat-charity-list"></div>
+      </div>
+
       <div class="zk-extra" id="zakat-extra" hidden>
         <h4 class="zk-extra-title" id="zakat-extra-title"></h4>
         <div id="zakat-extra-list"></div>
@@ -1279,6 +1300,6 @@
 <script src="js/iran-cities.js?v=14"></script>
 <script src="js/native-config.js"></script>
 <script src="js/native-bridge.js?v=19"></script>
-<script src="js/app.js?v=125"></script>
+<script src="js/app.js?v=126"></script>
 </body>
 </html>
