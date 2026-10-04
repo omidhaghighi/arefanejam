@@ -2766,7 +2766,19 @@ const PRAYER_PLAYED_PREFIX = 'arefanejam_azan_played_';
 
 // ساختِ فهرست اوقات شرعیِ یک روز مشخص (بدون نمایش در صفحه)؛ هم برای نمایش امروز و هم برای
 // سپردنِ اذان‌های چند روز آینده به سرویس‌ورکر (آلارم آفلاین) استفاده می‌شود.
-function buildPrayerListForDate(date) {
+/* اوقاتی که مدیر در پیشخوان «مخفی» کرده (تنظیمات ← مخفی/نمایان کردن اوقات شرعی). حداقل یک اذان واقعی همیشه می‌ماند. */
+const PRAYER_HIDE_KEYS = ['fajr', 'sunrise', 'dhuhr', 'asr', 'sunset', 'maghrib', 'isha'];
+function hiddenPrayerKeys() {
+  try {
+    const raw = (state.settings && state.settings.hidden_prayers) || [];
+    const arr = Array.isArray(raw) ? raw : String(raw).split(',');
+    const set = new Set(arr.map((x) => String(x).trim()).filter((k) => PRAYER_HIDE_KEYS.indexOf(k) !== -1));
+    if (['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'].every((k) => set.has(k))) return new Set();
+    return set;
+  } catch (e) { return new Set(); }
+}
+// includeHidden=true: فهرست کامل (فقط برای صحنهٔ آسمان تب اذان که به فجر/طلوع/غروب نیاز دارد)
+function buildPrayerListForDate(date, includeHidden) {
   const s = state.settings || {};
   const asrFactor = (s.asr_method === 'Shafi') ? 1 : 2;
   const offsets = {
@@ -2822,7 +2834,9 @@ function buildPrayerListForDate(date) {
     { key: 'maghrib', label: 'مغرب', time: times.maghrib },
     { key: 'isha', label: 'عشاء', time: times.isha },
   ];
-  return list;
+  if (includeHidden) return list;
+  const hid = hiddenPrayerKeys();
+  return hid.size ? list.filter((p) => !hid.has(p.key)) : list;
 }
 
 function computePrayerTimes() {
@@ -2830,6 +2844,7 @@ function computePrayerTimes() {
   const s = state.settings || {};
   const date = new Date();
   const list = buildPrayerListForDate(date);
+  const fullList = buildPrayerListForDate(date, true);
 
   const now = new Date();
   let currentKey = list[0].key;
@@ -2843,7 +2858,9 @@ function computePrayerTimes() {
 
   renderPrayerList('home-prayer-list', list, currentKey);
   renderPrayerList('azan-prayer-list', list, currentKey);
-  try { renderAzanHero(list, currentKey, upcoming); } catch (e) { try { console.warn('azan-hero', e); } catch (e2) {} }
+  let heroKey = fullList[0].key;
+  fullList.forEach((p) => { if (now >= p.time) heroKey = p.key; });
+  try { renderAzanHero(fullList, heroKey, upcoming); } catch (e) { try { console.warn('azan-hero', e); } catch (e2) {} }
 
   document.getElementById('home-next-prayer-name').textContent = upcoming.label;
   document.getElementById('home-next-prayer-time').textContent = formatTime(upcoming.time);
@@ -7430,17 +7447,20 @@ function renderRamadanContent(r) {
     }
 
     let rowsHtml = '';
+    const rmCols = [['fajr', 'سحر'], ['dhuhr', 'ظهر'], ['asr', 'عصر'], ['maghrib', 'افطار'], ['isha', 'عشاء']];
+    const rmHid = hiddenPrayerKeys();
+    const rmShown = rmCols.filter((c) => !rmHid.has(c[0]));
+    // تاریخ هر روز رمضان برای نوشتن نام روز هفته (شنبه، یکشنبه، ...)
+    let rmStart = custom ? custom.start : null;
+    if (!rmStart) { const g = hijriToApproxGregorian(hy, 9, 1); rmStart = new Date(g[0], g[1] - 1, g[2]); }
     for (let day = 1; day <= totalRamadanDays; day++) {
       const t = days[day] || {};
       const isToday = hm === 9 && day === hd;
+      const wd = WEEKDAYS_FA[new Date(rmStart.getFullYear(), rmStart.getMonth(), rmStart.getDate() + day - 1).getDay()];
       rowsHtml += `
         <tr class="${isToday ? 'is-today' : ''}">
-          <td>${isToday ? '<span class="ramadan-day-badge"></span>' : ''}${toPersianDigits(day)}</td>
-          <td>${toPersianDigits(t.fajr || '—')}</td>
-          <td>${toPersianDigits(t.dhuhr || '—')}</td>
-          <td>${toPersianDigits(t.asr || '—')}</td>
-          <td>${toPersianDigits(t.maghrib || '—')}</td>
-          <td>${toPersianDigits(t.isha || '—')}</td>
+          <td>${isToday ? '<span class="ramadan-day-badge"></span>' : ''}${toPersianDigits(day)}<span class="ramadan-wd">${wd}</span></td>
+          ${rmShown.map((c) => `<td>${toPersianDigits(t[c[0]] || '—')}</td>`).join('')}
         </tr>`;
     }
 
@@ -7462,7 +7482,7 @@ function renderRamadanContent(r) {
       <h4>${dayLabel}</h4>
       <div class="ramadan-schedule-wrap">
         <table class="ramadan-schedule-table">
-          <thead><tr><th>روز</th><th>سحر</th><th>ظهر</th><th>عصر</th><th>افطار</th><th>عشاء</th></tr></thead>
+          <thead><tr><th>روز</th>${rmShown.map((c) => `<th>${c[1]}</th>`).join('')}</tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>
       </div>`;

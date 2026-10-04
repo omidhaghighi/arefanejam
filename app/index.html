@@ -8,7 +8,7 @@
 <link rel="icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=91">
+<link rel="stylesheet" href="css/style.css?v=92">
 </head>
 <body>
 
@@ -25,7 +25,8 @@
   var KEY = 'arefanejam_intro_cache', DONE = 'arefanejam_intro_done', t0 = Date.now();
   var splash = document.getElementById('intro-splash'), vid = document.getElementById('intro-video'),
       img = document.getElementById('intro-image'), skip = document.getElementById('intro-skip-btn');
-  var started = false, finished = false, timer = null;
+  var started = false, finished = false, timer = null, waiters = [];
+  function release() { var w = waiters; waiters = []; for (var k = 0; k < w.length; k++) { try { w[k](); } catch (e) {} } }
   function sec(u) { return String(u || '').replace(/^http:\/\//i, 'https://'); }
   function cfgFrom(s) {
     s = s || {};
@@ -34,6 +35,7 @@
   }
   function done() {
     if (finished) return; finished = true; clearTimeout(timer);
+    release(); // حالا اپ شروع به بالا آمدن می‌کند
     splash.classList.add('intro-out');
     setTimeout(function () {
       splash.classList.add('hidden'); splash.classList.remove('intro-out');
@@ -64,6 +66,9 @@
       var playing = false;
       vid.addEventListener('playing', function () { playing = true; clearTimeout(timer); }, { once: true });
       vid.addEventListener('ended', done, { once: true });
+      vid.addEventListener('loadedmetadata', function () { // سقف اطمینان: اگر ویدیو وسط کار گیر کرد، اپ برای همیشه معطل نماند
+        if (isFinite(vid.duration)) { clearTimeout(timer); timer = setTimeout(done, vid.duration * 1000 + 15000); }
+      }, { once: true });
       vid.addEventListener('error', function () { if (!playing) bad(); else done(); }, { once: true });
       timer = setTimeout(function () { if (!playing) bad(); }, 10000);
       vid.src = c.v;
@@ -75,6 +80,9 @@
   var cached = null; try { cached = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
   start(cached);
   window.ArefIntro = {
+    // اپ (native-bridge.js و app.js) تا پایان صفحهٔ شروع بالا نمی‌آید؛ اگر صفحهٔ شروعی نباشد همان لحظه اجرا می‌شود
+    whenDone: function (cb) { if (!started || finished) cb(); else waiters.push(cb); },
+    active: function () { return started && !finished; },
     update: function (settings) {
       var c = cfgFrom(settings);
       try { if (c.v || c.i) localStorage.setItem(KEY, JSON.stringify(c)); else localStorage.removeItem(KEY); } catch (e) {}
@@ -1417,7 +1425,19 @@
 
 <script src="js/iran-cities.js?v=14"></script>
 <script src="js/native-config.js"></script>
-<script src="js/native-bridge.js?v=19"></script>
-<script src="js/app.js?v=129"></script>
+<script>
+/* native-bridge.js و app.js (به‌همین ترتیب) فقط بعد از پایان صفحهٔ شروع (ویدیو/عکس/گیف) بارگذاری می‌شوند.
+   اگر صفحهٔ شروعی نباشد یا تمام شده باشد، بی‌درنگ بارگذاری می‌شوند. */
+(function () {
+  var list = ['js/native-bridge.js?v=19', 'js/app.js?v=131'], i = 0;
+  function next() {
+    if (i >= list.length) return;
+    var el = document.createElement('script'); el.src = list[i++];
+    el.onload = next; el.onerror = next;
+    document.body.appendChild(el);
+  }
+  if (window.ArefIntro && window.ArefIntro.whenDone) window.ArefIntro.whenDone(next); else next();
+})();
+</script>
 </body>
 </html>

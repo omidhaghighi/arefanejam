@@ -894,7 +894,8 @@ body.dark-mode #quran-reader-content.mushaf-page .ayah-block.is-playing .ayah-ar
 .ramadan-schedule-table th:not(:first-child), .ramadan-schedule-table td:not(:first-child) {
   border-inline-start: 1px solid rgba(128,128,128,0.22);
 }
-.ramadan-schedule-table th:first-child, .ramadan-schedule-table td:first-child { width: 15%; }
+.ramadan-schedule-table th:first-child, .ramadan-schedule-table td:first-child { width: 22%; }
+.ramadan-wd { display: block; font-size: 10.5px; font-weight: 500; opacity: .85; white-space: nowrap; line-height: 1.3; margin-top: 2px; }
 .ramadan-schedule-table thead th {
   font-weight: 700; font-size: calc(var(--ramadan-font-size, 14px) - 1.5px); opacity: 0.9; position: sticky; top: 0; letter-spacing: 0.2px;
   background: var(--ramadan-header-bg, inherit);
