@@ -3398,3 +3398,142 @@ body.dark-mode #tab-azan .switch-row, body.dark-mode #tab-azan .location-btn-row
 @media (prefers-reduced-motion: reduce) {
   #tab-azan .az-m-main, #tab-azan .az-cloud, #tab-azan .az-stars, #tab-azan .az-m-main g, #azan-prayer-list .prayer-row, #azan-prayer-list .prayer-row::before { animation: none !important; }
 }
+
+/* ===================== پنجرهٔ پیغام‌های اپ (سه‌بعدی) ===================== */
+.adlg-overlay {
+  position: fixed; inset: 0; z-index: 100000; display: flex; align-items: center; justify-content: center;
+  padding: 28px 22px; perspective: 900px; direction: rtl;
+  background: radial-gradient(120% 90% at 50% 30%, rgba(14,66,80,.55), rgba(4,16,22,.82));
+  -webkit-backdrop-filter: blur(7px); backdrop-filter: blur(7px);
+  opacity: 0; transition: opacity .22s ease;
+}
+.adlg-overlay.is-open { opacity: 1; }
+.adlg-overlay.is-closing { opacity: 0; }
+.adlg-card {
+  --ta: #4aa3ff; --tb: #2467d1; --te: #17479a;
+  position: relative; width: min(100%, 360px); text-align: center;
+  padding: 58px 20px 18px; border-radius: 28px; color: #3a3226;
+  background:
+    radial-gradient(120% 60% at 50% -10%, rgba(255,255,255,.95), rgba(255,255,255,0) 60%),
+    var(--pat-soft, none),
+    linear-gradient(170deg, #fffdf6 0%, #f6ecd5 100%);
+  border: 1.5px solid rgba(190,148,64,.55);
+  box-shadow:
+    0 1px 0 #fff inset, 0 -2px 0 rgba(190,148,64,.25) inset,
+    0 9px 0 #cfb277, 0 9px 0 1.5px rgba(120,86,24,.35),
+    0 34px 46px -12px rgba(0,0,0,.55), 0 14px 20px -8px rgba(0,0,0,.35);
+  transform: translateY(46px) rotateX(26deg) scale(.86); transform-origin: 50% 100%;
+  transition: transform .42s cubic-bezier(.2,1.35,.4,1);
+}
+.adlg-overlay.is-open .adlg-card { transform: none; }
+.adlg-overlay.is-closing .adlg-card { transform: translateY(24px) rotateX(14deg) scale(.92); transition-duration: .2s; }
+.adlg-card::before { /* نوار طلایی بالا */
+  content: ''; position: absolute; top: 0; right: 36px; left: 36px; height: 3px; border-radius: 0 0 6px 6px;
+  background: linear-gradient(90deg, transparent, #e8d29b, #be9440, #e8d29b, transparent);
+}
+.adlg-card[data-tone="info"]     { --ta: #3cc3bb; --tb: #14877f; --te: #0b5c56; }
+.adlg-card[data-tone="success"]  { --ta: #55c978; --tb: #22914a; --te: #146a33; }
+.adlg-card[data-tone="warn"]     { --ta: #ffc44d; --tb: #e08a14; --te: #a45f08; }
+.adlg-card[data-tone="danger"]   { --ta: #f2766a; --tb: #c63a2e; --te: #8f251c; }
+.adlg-card[data-tone="download"] { --ta: #55b0ff; --tb: #2468d4; --te: #17479a; }
+.adlg-card[data-tone="question"] { --ta: #ecc872; --tb: #b98a30; --te: #81601a; }
+.adlg-orb {
+  position: absolute; top: -40px; left: 50%; width: 84px; height: 84px; margin-left: -42px; border-radius: 50%;
+  background: radial-gradient(circle at 32% 26%, #fff 0, rgba(255,255,255,.75) 9%, var(--ta) 38%, var(--tb) 78%, var(--te) 100%);
+  border: 4px solid #fffaf0;
+  box-shadow: 0 6px 0 var(--te), 0 14px 18px rgba(0,0,0,.4), inset 0 -8px 14px rgba(0,0,0,.22);
+  display: flex; align-items: center; justify-content: center;
+  animation: adlgFloat 3.2s ease-in-out infinite;
+}
+.adlg-orb::before { /* برق نور روی کره */
+  content: ''; position: absolute; top: 8px; right: 16px; width: 30px; height: 15px; border-radius: 50%;
+  background: linear-gradient(180deg, rgba(255,255,255,.85), rgba(255,255,255,0)); transform: rotate(-18deg);
+}
+.adlg-orb::after { /* سایهٔ زیر کره روی کارت */
+  content: ''; position: absolute; bottom: -22px; left: 14px; right: 14px; height: 10px; border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(0,0,0,.28), rgba(0,0,0,0) 70%);
+}
+.adlg-orb-ico { position: relative; font-size: 38px; line-height: 1; filter: drop-shadow(0 3px 2px rgba(0,0,0,.35)); }
+@keyframes adlgFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+.adlg-title {
+  margin: 0 0 8px; font-family: var(--font-display, 'Lalezar', 'Vazirmatn', sans-serif); font-weight: 400;
+  font-size: 23px; line-height: 1.4; color: #8a6620; text-shadow: 0 1px 0 #fff, 0 2px 4px rgba(176,141,78,.25);
+}
+.adlg-text { font-size: 15px; line-height: 2; white-space: pre-line; padding: 0 4px 6px; }
+.adlg-var { color: var(--te); font-weight: 800; padding: 0 2px; background: linear-gradient(transparent 62%, rgba(190,148,64,.28) 62%); }
+.adlg-actions { display: flex; gap: 12px; margin-top: 14px; padding: 6px 2px 10px; }
+.adlg-btn {
+  flex: 1; border: 0; cursor: pointer; padding: 12px 10px; border-radius: 16px;
+  font-family: var(--font-ui); font-size: 15px; font-weight: 800; color: #fff; text-shadow: 0 1px 1px rgba(0,0,0,.3);
+  background: linear-gradient(180deg, var(--ta), var(--tb));
+  box-shadow: 0 6px 0 var(--te), 0 12px 14px rgba(0,0,0,.25), inset 0 1.5px 0 rgba(255,255,255,.55);
+  transition: transform .09s ease, box-shadow .09s ease;
+}
+.adlg-btn:active { transform: translateY(5px); box-shadow: 0 1px 0 var(--te), 0 3px 5px rgba(0,0,0,.25), inset 0 1.5px 0 rgba(255,255,255,.4); }
+.adlg-btn.adlg-cancel {
+  color: #6b5a34; text-shadow: 0 1px 0 #fff;
+  background: linear-gradient(180deg, #fffaf0, #eadcb8);
+  box-shadow: 0 6px 0 #c7ad74, 0 12px 14px rgba(0,0,0,.18), inset 0 1.5px 0 #fff;
+}
+.adlg-btn.adlg-cancel:active { box-shadow: 0 1px 0 #c7ad74, 0 3px 5px rgba(0,0,0,.2), inset 0 1.5px 0 #fff; }
+.adlg-btn:focus-visible { outline: 3px solid rgba(255,255,255,.8); outline-offset: 2px; }
+body.dark-mode .adlg-card {
+  color: #ece6d6;
+  background:
+    radial-gradient(120% 60% at 50% -10%, rgba(232,210,155,.16), rgba(0,0,0,0) 60%),
+    var(--pat-soft, none), linear-gradient(170deg, #22332f 0%, #14211d 100%);
+  border-color: rgba(232,210,155,.4);
+  box-shadow: 0 1px 0 rgba(255,255,255,.08) inset, 0 9px 0 #0a1411, 0 9px 0 1.5px rgba(232,210,155,.25), 0 34px 46px -12px rgba(0,0,0,.8);
+}
+body.dark-mode .adlg-title { color: #e8d29b; text-shadow: 0 2px 6px rgba(0,0,0,.5); }
+body.dark-mode .adlg-var { color: #f3dca3; }
+body.dark-mode .adlg-btn.adlg-cancel { color: #e8d29b; text-shadow: none; background: linear-gradient(180deg, #2c3f39, #1d2c27); box-shadow: 0 6px 0 #0a1411, 0 12px 14px rgba(0,0,0,.4), inset 0 1.5px 0 rgba(255,255,255,.1); }
+@media (prefers-reduced-motion: reduce) {
+  .adlg-card, .adlg-overlay { transition-duration: .01s; } .adlg-orb { animation: none; }
+}
+
+
+/* ---------- نوار نام قاری‌ها (بالای صفحه‌های قرآن) ---------- */
+.reciter-select { display: none !important; }
+.rc-bar {
+  display: flex; align-items: center; gap: 8px; overflow-x: auto; white-space: nowrap;
+  padding: 8px 2px 10px; margin: 0 0 6px; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+}
+.rc-bar::-webkit-scrollbar { display: none; }
+.qp-view > .rc-bar { padding-inline: 14px; }
+.rc-lab { flex: none; font-size: 12.5px; font-weight: 800; color: var(--gold); }
+.rc-chip {
+  flex: none; padding: 8px 15px; border-radius: 999px; font-family: inherit; font-size: 14px; font-weight: 700; cursor: pointer;
+  color: var(--emerald); background: var(--card-bg); border: 1.5px solid color-mix(in srgb, var(--gold) 55%, transparent);
+  box-shadow: 0 3px 0 color-mix(in srgb, var(--gold) 45%, transparent);
+  transition: transform .12s, box-shadow .12s, background .15s;
+}
+.rc-chip:active { transform: translateY(2px); box-shadow: 0 1px 0 color-mix(in srgb, var(--gold) 45%, transparent); }
+.rc-chip.is-active {
+  color: #fff; border-color: var(--emerald);
+  background: linear-gradient(180deg, var(--emerald-light), var(--emerald));
+  box-shadow: 0 3px 0 #0a2420;
+}
+body.dark-mode .rc-chip { color: #e8d29b; background: #1d2c27; }
+body.dark-mode .rc-chip.is-active { color: #fff; background: linear-gradient(180deg, var(--emerald-light), var(--emerald)); }
+
+/* پنجرهٔ انتخاب قاری برای دانلود سوره */
+.rcpick-list { display: flex; flex-direction: column; gap: 8px; max-height: 46vh; overflow-y: auto; margin: 4px 0 12px; padding: 2px; text-align: start; }
+.rcpick-row { display: flex; align-items: stretch; gap: 6px; }
+.rcpick-main {
+  flex: 1; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 14px; border-radius: 14px;
+  font-family: inherit; cursor: pointer; color: #3a3226; background: #fffdf6; border: 1.5px solid rgba(190,148,64,.55);
+  box-shadow: 0 3px 0 #cfb277;
+}
+.rcpick-main:active { transform: translateY(2px); box-shadow: 0 1px 0 #cfb277; }
+.rcpick-row.is-current .rcpick-main { border-color: var(--emerald); background: #eef7f2; }
+.rcpick-name { font-size: 15px; font-weight: 800; }
+.rcpick-st { font-size: 12px; color: #6b5a33; }
+.rcpick-del {
+  flex: none; min-width: 44px; padding: 0 8px; border-radius: 14px; font-family: inherit; font-size: 15px; cursor: pointer;
+  color: #8f251c; background: #fff3f0; border: 1.5px solid rgba(198,58,46,.45);
+}
+.rcpick-del.is-armed { background: #c63a2e; color: #fff; font-size: 12px; font-weight: 800; }
+body.dark-mode .rcpick-main { color: #e9e4d8; background: #22332d; border-color: rgba(217,189,135,.45); box-shadow: 0 3px 0 #0a1411; }
+body.dark-mode .rcpick-row.is-current .rcpick-main { background: #1b3d36; }
+body.dark-mode .rcpick-st { color: #cdbd93; }

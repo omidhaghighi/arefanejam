@@ -192,8 +192,10 @@
       var n = Number(st.n) || 0, ts = Number(st.ts) || 0;
       if (!force && n > 0 && (n >= 5 || Date.now() - ts < 24 * 3600 * 1000)) return;
       try { localStorage.setItem(BAT_ASK_KEY, JSON.stringify({ n: n + 1, ts: Date.now() })); } catch (e) {}
-      try { window.alert('برای اینکه اذان همیشه سر وقت و حتی با گوشی قفل پخش شود، در پنجرهٔ بعدی لطفاً «اجازه» (Allow) را بزنید.'); } catch (e) {}
-      return AUp.requestBatteryExemption();
+      var shown;
+      if (typeof window.appAlert === 'function') shown = window.appAlert('battery_ask');
+      else { try { window.alert('برای اینکه اذان همیشه سر وقت و حتی با گوشی قفل پخش شود، در پنجرهٔ بعدی لطفاً «اجازه» (Allow) را بزنید.'); } catch (e) {} }
+      return Promise.resolve(shown).then(function () { return AUp.requestBatteryExemption(); });
     }).catch(log);
   }
 
@@ -204,9 +206,12 @@
       var last = Number(localStorage.getItem('arefanejam_exact_asked') || 0);
       if (Date.now() - last < 24 * 3600 * 1000) return;
       localStorage.setItem('arefanejam_exact_asked', String(Date.now()));
-      if (window.confirm('برای اینکه اذان و یادآورها دقیقاً سر وقت بیایند، اجازهٔ «آلارم‌ها و یادآورها» باید فعال باشد. تنظیمات باز شود؟')) {
-        return LN.changeExactNotificationSetting();
-      }
+      var ask = (typeof window.appConfirm === 'function')
+        ? window.appConfirm('exact_alarm_ask')
+        : Promise.resolve(window.confirm('برای اینکه اذان و یادآورها دقیقاً سر وقت بیایند، اجازهٔ «آلارم‌ها و یادآورها» باید فعال باشد. تنظیمات باز شود؟'));
+      return Promise.resolve(ask).then(function (ok) {
+        if (ok) return LN.changeExactNotificationSetting();
+      });
     }).catch(log);
   }
 

@@ -8,7 +8,7 @@
 <link rel="icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=79">
+<link rel="stylesheet" href="css/style.css?v=81">
 </head>
 <body>
 
@@ -718,6 +718,7 @@
           <div class="qs-hero-title">قرآن کریم</div>
           <div class="qs-hero-stats"><span><b>۱۱۴</b> سوره</span><i></i><span><b>۶۰۴</b> صفحه</span><i></i><span><b>۳۰</b> جزء</span></div>
         </div>
+        <div class="rc-bar"></div>
         <div id="quran-mode-switch" class="quran-mode-switch">
           <button type="button" data-mode="page" class="active">📄 مصحف صفحه‌ای</button>
           <button type="button" data-mode="translation">📖 قرآن با ترجمه</button>
@@ -735,6 +736,7 @@
     <!-- متن سوره -->
     <section id="tab-quran-reader" class="tab-panel">
       <div class="section-block qr-classic">
+        <div class="rc-bar"></div>
         <h3 id="quran-reader-title">—</h3>
         <div class="reader-toolbar">
           <button id="surah-play-btn" class="secondary-btn small-btn">🔊 پخش کل سوره</button>
@@ -757,6 +759,7 @@
 
       <!-- مصحف صفحه‌ای: هر بار یک صفحه (۶۰۴ صفحه)، با کشیدن انگشت ورق می‌خورد -->
       <div id="qp-view" class="qp-view">
+        <div class="rc-bar"></div>
         <div class="qp-topbar">
           <span id="qp-juz" class="qp-juz">—</span>
           <span id="qp-page-num" class="qp-pagenum">—</span>
@@ -816,6 +819,7 @@
     <!-- جست‌وجوی قرآن -->
     <section id="tab-quran-search" class="tab-panel">
       <div class="section-block">
+        <div class="rc-bar"></div>
         <h3>جست‌وجو در قرآن</h3>
         <input type="text" id="quran-fulltext-search" placeholder="کلمه یا عبارت فارسی را جست‌وجو کنید...">
       </div>
@@ -825,6 +829,7 @@
     <!-- جزءهای قرآن -->
     <section id="tab-quran-juz" class="tab-panel">
       <div class="section-block">
+        <div class="rc-bar"></div>
         <h3>فهرست جزءها</h3>
         <div id="quran-juz-grid" class="juz-grid"></div>
         <button id="play-selected-juz-btn" class="secondary-btn hidden" style="width:100%;margin-top:12px">▶ پخش این جزء</button>
@@ -833,7 +838,7 @@
 
     <!-- نشان‌شده‌ها -->
     <section id="tab-quran-bookmarks" class="tab-panel">
-      <div class="section-block"><h3>آیات نشان‌شده</h3></div>
+      <div class="section-block"><div class="rc-bar"></div><h3>آیات نشان‌شده</h3></div>
       <div id="quran-bookmarks-list" class="notes-list"></div>
     </section>
 
@@ -1185,7 +1190,7 @@
 
 <script src="js/iran-cities.js?v=14"></script>
 <script src="js/native-config.js"></script>
-<script src="js/native-bridge.js?v=18"></script>
-<script src="js/app.js?v=117"></script>
+<script src="js/native-bridge.js?v=19"></script>
+<script src="js/app.js?v=119"></script>
 </body>
 </html>

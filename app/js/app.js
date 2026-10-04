@@ -411,6 +411,443 @@ function overlayGo(group, steps, fallback) {
   }
 })();
 
+/* ---------- پیغام‌های اپ: پنجرهٔ گرافیکی سه‌بعدی + متن قابل‌ویرایش از پیشخوان ----------
+   همهٔ alert/confirm های اپ حالا از اینجا می‌گذرند. متن پیش‌فرض هر پیغام در APP_MSG_REG است
+   (همان فهرست در app/data/app-messages.json برای پیشخوان هم هست؛ هر دو باید یکی بمانند).
+   مدیر در پیشخوان ← «پیغام‌های اپ» متن را عوض می‌کند و از مسیر /settings (فیلد app_messages) می‌رسد.
+   جای متغیرها با {name} مشخص می‌شود (مثل {surah} و {reciter}) و هنگام نمایش پر می‌شود. */
+const APP_MSG_REG = {
+ "audio_surah_dl_confirm": {
+  "kind": "confirm",
+  "tone": "download",
+  "icon": "⬇️",
+  "title": "دانلود صوت سوره",
+  "text": "صوت سورهٔ {surah} با قرائت {reciter} ({count} آیه) دانلود و روی گوشی ذخیره می‌شود تا دیگر نیازی به دانلود دوباره نباشد. ممکن است از چند مگابایت تا چند ده مگابایت اینترنت مصرف کند. ادامه می‌دهید؟",
+  "ok": "دانلود کن",
+  "cancel": "انصراف"
+ },
+ "audio_surah_delete_confirm": {
+  "kind": "confirm",
+  "tone": "danger",
+  "icon": "🗑️",
+  "title": "حذف صوت ذخیره‌شده",
+  "text": "صوت سورهٔ {surah} با قرائت {reciter} روی گوشی ذخیره است. برای آزاد شدن حافظه حذف شود؟",
+  "ok": "حذف شود",
+  "cancel": "انصراف"
+ },
+ "audio_surah_busy_other": {
+  "kind": "alert",
+  "tone": "warn",
+  "icon": "⏳",
+  "title": "دانلود در حال انجام",
+  "text": "دانلود صوت یک سورهٔ دیگر هنوز در حال انجام است.",
+  "ok": "باشه"
+ },
+ "audio_surah_no_storage": {
+  "kind": "alert",
+  "tone": "danger",
+  "icon": "💾",
+  "title": "ذخیره ممکن نیست",
+  "text": "این دستگاه امکان ذخیرهٔ صوت را ندارد.",
+  "ok": "باشه"
+ },
+ "audio_surah_list_loading": {
+  "kind": "alert",
+  "tone": "info",
+  "icon": "⌛",
+  "title": "کمی صبر کنید",
+  "text": "فهرست کامل سوره‌ها هنوز بارگذاری نشده است؛ چند لحظه بعد دوباره امتحان کنید.",
+  "ok": "باشه"
+ },
+ "audio_surah_need_internet": {
+  "kind": "alert",
+  "tone": "danger",
+  "icon": "📡",
+  "title": "اینترنت وصل نیست",
+  "text": "برای دانلود صوت باید به اینترنت وصل باشید.",
+  "ok": "باشه"
+ },
+ "audio_surah_fail_all": {
+  "kind": "alert",
+  "tone": "danger",
+  "icon": "⚠️",
+  "title": "دانلود انجام نشد",
+  "text": "دانلود انجام نشد؛ اتصال اینترنت را بررسی کنید و دوباره تلاش کنید.",
+  "ok": "باشه"
+ },
+ "audio_surah_fail_some": {
+  "kind": "alert",
+  "tone": "warn",
+  "icon": "🧩",
+  "title": "دانلود ناقص ماند",
+  "text": "صوت {failed} آیه دانلود نشد؛ دوباره آیکون را بزنید تا تکمیل شود.",
+  "ok": "باشه"
+ },
+ "audio_surah_cancelled": {
+  "kind": "alert",
+  "tone": "info",
+  "icon": "⏸️",
+  "title": "دانلود متوقف شد",
+  "text": "دانلود متوقف شد؛ بخش‌های دانلودشده حفظ شده‌اند و با زدن دوباره ادامه پیدا می‌کند.",
+  "ok": "باشه"
+ },
+ "audio_page_confirm": {
+  "kind": "confirm",
+  "tone": "download",
+  "icon": "⬇️",
+  "title": "ذخیرهٔ صوت برای آفلاین",
+  "text": "صوت {count} آیه دانلود و روی گوشی ذخیره می‌شود و ممکن است چند ده مگابایت اینترنت مصرف کند. ادامه می‌دهید؟",
+  "ok": "دانلود کن",
+  "cancel": "انصراف"
+ },
+ "audio_page_busy_other": {
+  "kind": "alert",
+  "tone": "warn",
+  "icon": "⏳",
+  "title": "دانلود در حال انجام",
+  "text": "دانلود صوت یک بخش دیگر هنوز در حال انجام است.",
+  "ok": "باشه"
+ },
+ "audio_page_no_storage": {
+  "kind": "alert",
+  "tone": "danger",
+  "icon": "💾",
+  "title": "ذخیره ممکن نیست",
+  "text": "این مرورگر امکان ذخیرهٔ آفلاین را ندارد.",
+  "ok": "باشه"
+ },
+ "audio_page_loading": {
+  "kind": "alert",
+  "tone": "info",
+  "icon": "⌛",
+  "title": "کمی صبر کنید",
+  "text": "متن هنوز در حال بارگذاری است؛ چند لحظه صبر کنید.",
+  "ok": "باشه"
+ },
+ "audio_page_need_internet": {
+  "kind": "alert",
+  "tone": "danger",
+  "icon": "📡",
+  "title": "اینترنت وصل نیست",
+  "text": "برای ذخیرهٔ صوت باید به اینترنت وصل باشید. صوت‌های ذخیره‌شده قبلی بدون اینترنت پخش می‌شوند.",
+  "ok": "باشه"
+ },
+ "play_ayah_fail_offline": {
+  "kind": "alert",
+  "tone": "danger",
+  "icon": "📡",
+  "title": "اینترنت قطع است",
+  "text": "اتصال اینترنت شما قطع است. لطفاً اتصال را بررسی و دوباره تلاش کنید.",
+  "ok": "باشه"
+ },
+ "play_ayah_fail_online": {
+  "kind": "alert",
+  "tone": "warn",
+  "icon": "🔇",
+  "title": "پخش ممکن نشد",
+  "text": "در حال حاضر امکان پخش صوت این آیه وجود ندارد. لطفاً کمی بعد دوباره تلاش کنید.",
+  "ok": "باشه"
+ },
+ "play_seq_fail_offline": {
+  "kind": "alert",
+  "tone": "danger",
+  "icon": "📡",
+  "title": "اینترنت قطع است",
+  "text": "اتصال اینترنت شما قطع است. پخش خودکار متوقف شد.",
+  "ok": "باشه"
+ },
+ "play_seq_fail_online": {
+  "kind": "alert",
+  "tone": "warn",
+  "icon": "🔇",
+  "title": "پخش ممکن نشد",
+  "text": "پخش این آیه با هیچ‌کدام از منابع صوتی ممکن نشد. لطفاً دوباره روی آیه یا دکمهٔ پخش بزنید.",
+  "ok": "باشه"
+ },
+ "play_text_loading": {
+  "kind": "alert",
+  "tone": "info",
+  "icon": "⌛",
+  "title": "کمی صبر کنید",
+  "text": "متن هنوز در حال بارگذاری است؛ چند لحظه صبر کنید و دوباره روی دکمهٔ پخش بزنید.",
+  "ok": "باشه"
+ },
+ "copy_ayah_done": {
+  "kind": "alert",
+  "tone": "success",
+  "icon": "📋",
+  "title": "کپی شد",
+  "text": "متن آیه کپی شد.",
+  "ok": "باشه"
+ },
+ "azan_copy_done": {
+  "kind": "alert",
+  "tone": "success",
+  "icon": "📋",
+  "title": "کپی شد",
+  "text": "اوقات شرعی کپی شد.",
+  "ok": "باشه"
+ },
+ "azan_share_not_ready": {
+  "kind": "alert",
+  "tone": "info",
+  "icon": "📍",
+  "title": "موقعیت مشخص نیست",
+  "text": "هنوز اوقات شرعی محاسبه نشده؛ موقعیت مکانی را مشخص کنید.",
+  "ok": "باشه"
+ },
+ "note_delete_confirm": {
+  "kind": "confirm",
+  "tone": "danger",
+  "icon": "🗑️",
+  "title": "حذف یادداشت",
+  "text": "این یادداشت حذف شود؟",
+  "ok": "حذف شود",
+  "cancel": "انصراف"
+ },
+ "shariq_ask_sent": {
+  "kind": "alert",
+  "tone": "success",
+  "icon": "📨",
+  "title": "سؤال شما ارسال شد",
+  "text": "سوال شما ارسال شد. پس از پاسخ‌گویی، پاسخ در بخش «سوالات من» و «سوالات شرعی» نمایش داده می‌شود.",
+  "ok": "باشه"
+ },
+ "khatm_created": {
+  "kind": "alert",
+  "tone": "success",
+  "icon": "🤲",
+  "title": "ختم ثبت شد",
+  "text": "ختم شما ثبت شد و برای همه نمایش داده می‌شود. هر بخشی که برداشته شود، در «درخواست‌های من» می‌بینید.",
+  "ok": "باشه"
+ },
+ "khatm_has_open": {
+  "kind": "alert",
+  "tone": "warn",
+  "icon": "📖",
+  "title": "ختم ناتمام دارید",
+  "text": "شما یک ختم ناتمام دارید. تا زمانی که قرآنِ آن کامل خوانده نشود (همهٔ بخش‌ها برداشته و انجام شود) یا آن را نبندید، نمی‌توانید درخواست جدید ثبت کنید.",
+  "ok": "باشه"
+ },
+ "khatm_join_ok": {
+  "kind": "alert",
+  "tone": "success",
+  "icon": "🤲",
+  "title": "مشارکت ثبت شد",
+  "text": "مشارکت شما ثبت شد. خدا قبول کند 🤲",
+  "ok": "باشه"
+ },
+ "khatm_leave_ok": {
+  "kind": "alert",
+  "tone": "info",
+  "icon": "✔️",
+  "title": "مشارکت برداشته شد",
+  "text": "مشارکت شما برداشته شد.",
+  "ok": "باشه"
+ },
+ "khatm_conflict": {
+  "kind": "alert",
+  "tone": "warn",
+  "icon": "⚡",
+  "title": "بخش از دست رفت",
+  "text": "بخش‌هایی که همزمان کس دیگری برداشت، به شما نرسید. لطفاً بخش دیگری انتخاب کنید.",
+  "ok": "باشه"
+ },
+ "khatm_all_taken": {
+  "kind": "alert",
+  "tone": "info",
+  "icon": "✅",
+  "title": "ختم پر شد",
+  "text": "همهٔ بخش‌های این ختم برداشته شده است.",
+  "ok": "باشه"
+ },
+ "khatm_set_fail": {
+  "kind": "alert",
+  "tone": "danger",
+  "icon": "⚠️",
+  "title": "ثبت انجام نشد",
+  "text": "ثبت انجام نشد. اینترنت را بررسی کنید و دوباره تلاش کنید.",
+  "ok": "باشه"
+ },
+ "khatm_undo_done_confirm": {
+  "kind": "confirm",
+  "tone": "question",
+  "icon": "❓",
+  "title": "برداشتن علامت",
+  "text": "علامت «انجام شد» برداشته شود؟",
+  "ok": "بله، بردار",
+  "cancel": "انصراف"
+ },
+ "khatm_done_ok": {
+  "kind": "alert",
+  "tone": "success",
+  "icon": "🤲",
+  "title": "ثبت شد",
+  "text": "ثبت شد. خدا قبول کند 🤲 درخواست‌دهنده می‌بیند که ختم شما انجام شده است.",
+  "ok": "باشه"
+ },
+ "khatm_done_fail": {
+  "kind": "alert",
+  "tone": "danger",
+  "icon": "⚠️",
+  "title": "ثبت انجام نشد",
+  "text": "ثبت انجام نشد. اینترنت را بررسی کنید و دوباره تلاش کنید.",
+  "ok": "باشه"
+ },
+ "khatm_inquire_ok": {
+  "kind": "alert",
+  "tone": "success",
+  "icon": "🔔",
+  "title": "استعلام ارسال شد",
+  "text": "استعلام ارسال شد{count_text}. وقتی برداشت‌کننده اپ را باز کند می‌پرسد و با یک لمس جواب می‌دهد؛ جواب را همین‌جا می‌بینید.",
+  "ok": "باشه"
+ },
+ "khatm_inquire_fail": {
+  "kind": "alert",
+  "tone": "danger",
+  "icon": "⚠️",
+  "title": "استعلام انجام نشد",
+  "text": "استعلام انجام نشد. اینترنت را بررسی کنید و دوباره تلاش کنید.",
+  "ok": "باشه"
+ },
+ "khatm_close_confirm": {
+  "kind": "confirm",
+  "tone": "question",
+  "icon": "❓",
+  "title": "بستن درخواست ختم",
+  "text": "این درخواست بسته شود؟ دیگر در فهرست عمومی نمایش داده نمی‌شود.",
+  "ok": "بله، بسته شود",
+  "cancel": "انصراف"
+ },
+ "khatm_close_fail": {
+  "kind": "alert",
+  "tone": "danger",
+  "icon": "⚠️",
+  "title": "بستن انجام نشد",
+  "text": "بستن درخواست انجام نشد. دوباره تلاش کنید.",
+  "ok": "باشه"
+ },
+ "battery_ask": {
+  "kind": "alert",
+  "tone": "warn",
+  "icon": "🔋",
+  "title": "اجازهٔ اجرا در پس‌زمینه",
+  "text": "برای اینکه اذان همیشه سر وقت و حتی با گوشی قفل پخش شود، در پنجرهٔ بعدی لطفاً «اجازه» (Allow) را بزنید.",
+  "ok": "باشه"
+ },
+ "exact_alarm_ask": {
+  "kind": "confirm",
+  "tone": "warn",
+  "icon": "⏰",
+  "title": "اجازهٔ آلارم دقیق",
+  "text": "برای اینکه اذان و یادآورها دقیقاً سر وقت بیایند، اجازهٔ «آلارم‌ها و یادآورها» باید فعال باشد. تنظیمات باز شود؟",
+  "ok": "باز کن",
+  "cancel": "فعلاً نه"
+ },
+ "api_url_saved": {
+  "kind": "alert",
+  "tone": "success",
+  "icon": "✅",
+  "title": "ذخیره شد",
+  "text": "آدرس ذخیره شد. لطفاً اپ را مجدد باز کنید.",
+  "ok": "باشه"
+ }
+};
+function appMsgCfg(key) {
+  const base = APP_MSG_REG[key] || { kind: 'alert', tone: 'info', icon: 'ℹ️', title: '', text: '' };
+  const ov = ((state.settings || {}).app_messages || {})[key] || {};
+  const pick = (a, b) => (typeof a === 'string' && a.trim() !== '') ? a : b;
+  return {
+    kind: base.kind, tone: base.tone, icon: base.icon,
+    title: pick(ov.title, base.title),
+    text: pick(ov.text, base.text),
+    ok: pick(ov.ok, base.ok || 'باشه'),
+    cancel: pick(ov.cancel, base.cancel || 'انصراف'),
+  };
+}
+// «سُورَةُ الأَعْلَى» ← «الأَعْلَى» (تا در متن «سورهٔ {surah}» کلمهٔ سوره دوبار نیاید)
+function msgSurahName(n) {
+  return String(n || '').replace(/^\s*[\u0633][\u064B-\u065F\u0670]*[\u0648][\u064B-\u065F\u0670]*[\u0631][\u064B-\u065F\u0670]*[\u0629\u0647\u06C0][\u064B-\u065F\u0670]*\s+/, '').trim();
+}
+// «قاری: علافاسی» ← «علافاسی»
+function msgReciterName(n) {
+  return String(n || '').replace(/^\s*قاری\s*[:：]?\s*/, '').trim();
+}
+function appMsgFill(el, tpl, vars) {
+  vars = vars || {};
+  String(tpl).split(/(\{[A-Za-z_]+\})/).forEach((part) => {
+    const m = /^\{([A-Za-z_]+)\}$/.exec(part);
+    if (m && Object.prototype.hasOwnProperty.call(vars, m[1])) {
+      const b = document.createElement('b');
+      b.className = 'adlg-var';
+      b.textContent = String(vars[m[1]]);
+      el.appendChild(b);
+    } else if (part) {
+      el.appendChild(document.createTextNode(part));
+    }
+  });
+}
+let appDlgChain = Promise.resolve();
+function appDialog(key, vars, opts) {
+  opts = opts || {};
+  const run = () => new Promise((resolve) => {
+    const c = appMsgCfg(key);
+    const isConfirm = (opts.kind || c.kind) === 'confirm';
+    const text = opts.text || c.text || '';
+    const ov = document.createElement('div');
+    ov.className = 'adlg-overlay';
+    ov.innerHTML =
+      '<div class="adlg-card" role="dialog" aria-modal="true" data-tone="' + (opts.tone || c.tone) + '">' +
+      '<div class="adlg-orb"><span class="adlg-orb-ico"></span></div>' +
+      '<h3 class="adlg-title"></h3><div class="adlg-text"></div>' +
+      '<div class="adlg-actions"><button type="button" class="adlg-btn adlg-ok"></button>' +
+      (isConfirm ? '<button type="button" class="adlg-btn adlg-cancel"></button>' : '') +
+      '</div></div>';
+    ov.querySelector('.adlg-orb-ico').textContent = opts.icon || c.icon;
+    const tEl = ov.querySelector('.adlg-title');
+    tEl.textContent = opts.title || c.title || '';
+    if (!tEl.textContent) tEl.classList.add('hidden');
+    appMsgFill(ov.querySelector('.adlg-text'), text, vars);
+    ov.querySelector('.adlg-ok').textContent = c.ok;
+    if (isConfirm) ov.querySelector('.adlg-cancel').textContent = c.cancel;
+    document.body.appendChild(ov);
+    requestAnimationFrame(() => ov.classList.add('is-open'));
+    try { if (navigator.vibrate) navigator.vibrate(12); } catch (e) {}
+
+    let res = false, closed = false;
+    const finish = () => {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener('keydown', onKey, true);
+      ov.classList.remove('is-open');
+      ov.classList.add('is-closing');
+      setTimeout(() => { if (ov.parentNode) ov.parentNode.removeChild(ov); }, 220);
+      resolve(res);
+    };
+    // دکمهٔ برگشت گوشی = «انصراف»
+    const pushed = pushOverlay('appdlg', finish);
+    const close = (v) => { res = v; if (pushed) overlayGo('appdlg', 0, finish); else finish(); };
+    function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); close(false); } }
+    document.addEventListener('keydown', onKey, true);
+    ov.querySelector('.adlg-ok').addEventListener('click', () => close(true));
+    if (isConfirm) ov.querySelector('.adlg-cancel').addEventListener('click', () => close(false));
+    else ov.addEventListener('click', (e) => { if (e.target === ov) close(true); });
+    setTimeout(() => { try { ov.querySelector('.adlg-ok').focus({ preventScroll: true }); } catch (e) {} }, 60);
+  });
+  appDlgChain = appDlgChain.then(run, run);
+  return appDlgChain;
+}
+// پیغام یک‌دکمه‌ای (برای منتظر ماندن، قبلش await بگذارید)
+function appAlert(key, vars, opts) { return appDialog(key, vars, Object.assign({}, opts, { kind: 'alert' })).then(() => undefined); }
+// پنجرهٔ تأیید؛ نتیجه true (تأیید) یا false (انصراف/برگشت)
+function appConfirm(key, vars, opts) { return appDialog(key, vars, Object.assign({}, opts, { kind: 'confirm' })); }
+// خطای سرور (اگر سایت پیام مشخصی داده همان) وگرنه متن پیغامِ ثبت‌شده
+function appAlertErr(key, e, vars) {
+  return appAlert(key, vars, (e && e.httpError && e.message) ? { text: e.message } : undefined);
+}
+window.appAlert = appAlert;
+window.appConfirm = appConfirm;
+
 /* ---------- تأیید خروج از برنامه ---------- */
 let exitGuardPushed = false;
 function maybeConfirmExit() {
@@ -2094,12 +2531,12 @@ function shareAzanTimesAsText() {
   if (navigator.share) {
     navigator.share({ title, text }).catch(() => {});
   } else if (navigator.clipboard) {
-    navigator.clipboard.writeText(text).then(() => alert('اوقات شرعی کپی شد.'));
+    navigator.clipboard.writeText(text).then(() => appAlert('azan_copy_done'));
   }
 }
 
 function openAzanShareChoiceModal() {
-  if (!lastPrayerList.length) { alert('هنوز اوقات شرعی محاسبه نشده؛ موقعیت مکانی را مشخص کنید.'); return; }
+  if (!lastPrayerList.length) { appAlert('azan_share_not_ready'); return; }
   document.getElementById('azan-share-choice-modal').classList.remove('hidden');
 }
 function closeAzanShareChoiceModal() {
@@ -4163,9 +4600,9 @@ document.getElementById('note-save-btn').addEventListener('click', () => {
   loadNotes();
 });
 
-document.getElementById('note-delete-btn').addEventListener('click', () => {
+document.getElementById('note-delete-btn').addEventListener('click', async () => {
   if (!state.editingNoteId) return;
-  if (!confirm('این یادداشت حذف شود؟')) return;
+  if (!(await appConfirm('note_delete_confirm'))) return;
   const deletedNoteId = state.editingNoteId;
   saveLocalNotes(getLocalNotes().filter((n) => n.id !== deletedNoteId));
   syncNoteReminder({ id: deletedNoteId, title: '', content: '', reminderAt: null });
@@ -4659,18 +5096,18 @@ async function downloadAudioForOffline() {
   const btn = document.getElementById('audio-offline-btn');
   if (audioDownloadCtl) {
     if (audioDownloadCtl.owner === currentQueueOwner()) { audioDownloadCtl.cancelled = true; }
-    else alert('دانلود صوت یک بخش دیگر هنوز در حال انجام است.');
+    else appAlert('audio_page_busy_other');
     return;
   }
-  if (!window.caches) { alert('این مرورگر امکان ذخیرهٔ آفلاین را ندارد.'); return; }
-  if (!playbackQueue.length) { alert('متن هنوز در حال بارگذاری است؛ چند لحظه صبر کنید.'); return; }
-  if (!navigator.onLine) { alert('برای ذخیرهٔ صوت باید به اینترنت وصل باشید. صوت‌های ذخیره‌شده قبلی بدون اینترنت پخش می‌شوند.'); return; }
+  if (!window.caches) { appAlert('audio_page_no_storage'); return; }
+  if (!playbackQueue.length) { appAlert('audio_page_loading'); return; }
+  if (!navigator.onLine) { appAlert('audio_page_need_internet'); return; }
   const reciter = currentReciter;
   const list = playbackQueue.slice();
   const have = await getCachedAyahSet(reciter);
   const todo = list.filter((a) => !have.has(a.number));
   if (!todo.length) { refreshAudioOfflineStatus(); return; }
-  if (!confirm(`صوت ${toPersianDigits(todo.length)} آیه دانلود و روی گوشی ذخیره می‌شود و ممکن است چند ده مگابایت اینترنت مصرف کند. ادامه می‌دهید؟`)) return;
+  if (!(await appConfirm('audio_page_confirm', { count: toPersianDigits(todo.length) }))) return;
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
   const ctl = { cancelled: false, owner: list[0].number };
   audioDownloadCtl = ctl;
@@ -4688,20 +5125,7 @@ async function downloadAudioForOffline() {
     while (queue.length && !ctl.cancelled) {
       const ayah = queue.shift();
       let ok = false;
-      for (const b of [128, 64]) {
-        try {
-          const url = buildAudioUrl(reciter, b, ayah.number);
-          const res = await fetch(url);
-          if (res.ok) {
-            const blob = await res.blob();
-            if (blob.size > 0) {
-              await cache.put(url, new Response(blob, { status: 200, headers: { 'Content-Type': res.headers.get('Content-Type') || 'audio/mpeg' } }));
-              ok = true;
-              break;
-            }
-          }
-        } catch (e) {}
-      }
+      try { ok = await downloadAyahToCache(cache, reciter, ayah.number); } catch (e) {}
       if (ok) done++; else failed++;
       showProgress();
       if (done === 0 && failed >= 4) ctl.cancelled = true; // احتمالاً اینترنت قطع است یا دسترسی به سرور صوت ممکن نیست
@@ -5025,28 +5449,143 @@ function renderSurahList(surahs, filter) {
 }
 
 /* ---------- دانلود صوت یک سورهٔ کامل (آیکون ⬇ جلوی هر سوره) ----------
-   صوت هر آیه با همان قاریِ انتخاب‌شده در همان کش «arefanejam-quran-audio-v1» ذخیره می‌شود که پخش‌کنندهٔ سوره هم از آن می‌خواند؛
-   پس بعد از دانلود، سوره بدون اینترنت پخش می‌شود و دوباره دانلود نمی‌شود. ⬇ = دانلود نشده، ✅ = کامل ذخیره است (لمس = حذف)،
-   وسط دانلود درصد نمایش داده می‌شود (لمس = توقف). */
+   با لمس آیکون، اپ می‌پرسد «کدام قاری؟»؛ بعد از انتخاب، صوت همان قاری برای همان سوره روی گوشی ذخیره می‌شود
+   (کش «arefanejam-quran-audio-v1» که پخش‌کنندهٔ قرآن هم از آن می‌خواند) و قرائت از همان صدا پخش می‌شود.
+   ⬇ = دانلود نشده، ✅ = کامل ذخیره است، وسط دانلود درصد نمایش داده می‌شود (لمس = توقف).
+   راه‌های دریافت هر آیه: ۱) fetch عادی از cdn.islamic.network ۲) اگر مرورگر داخل اپ (CORS) اجازه نداد، HTTP بومی کاپاسیتور
+   ۳) سرور دومِ cdn.alquran.cloud. */
 let surahAudioDl = null; // { num, cancelled }
-function surahAudioRange(n) {
+let silentDl = null;     // دانلود بی‌صدای سورهٔ آیه‌ای که کاربر لمس کرده { num, reciter, cancelled }
+let silentBackoffUntil = 0;
+let lastAudioDlError = '';
+let audioSrcPref = 0;
+function surahInfoByNumber(n) {
   const list = (qsAllSurahs || []).slice().sort((a, b) => a.number - b.number);
   if (list.length < 114) return null;
   let start = 0;
   for (const s of list) {
     const c = Number(s.numberOfAyahs) || 0;
-    if (s.number === n) return c ? { from: start + 1, count: c } : null;
+    if (s.number === n) return c ? { num: n, name: s.name, from: start + 1, count: c } : null;
     start += c;
   }
   return null;
 }
-function currentReciterName() {
-  const opt = document.querySelector('#reciter-select option[value="' + currentReciter + '"]');
-  return opt ? opt.textContent.trim() : currentReciter;
+function surahOfGlobalAyah(g) {
+  const list = (qsAllSurahs || []).slice().sort((a, b) => a.number - b.number);
+  if (list.length < 114) return null;
+  let start = 0;
+  for (const s of list) {
+    const c = Number(s.numberOfAyahs) || 0;
+    if (g > start && g <= start + c) return { num: s.number, name: s.name, from: start + 1, count: c };
+    start += c;
+  }
+  return null;
 }
+function surahAudioRange(n) {
+  const i = surahInfoByNumber(n);
+  return i ? { from: i.from, count: i.count } : null;
+}
+function currentReciterName() {
+  const r = RECITERS.find((x) => x.id === currentReciter);
+  return r ? r.name : currentReciter;
+}
+function reciterNameById(id) {
+  const r = RECITERS.find((x) => x.id === id);
+  return r ? r.name : id;
+}
+// مجموعهٔ آیه‌های ذخیره‌شده برای همهٔ قاری‌ها (یک بار خواندن کش)
+async function getCachedAyahMap() {
+  const map = {};
+  if (!window.caches) return map;
+  try {
+    const cache = await caches.open(QURAN_AUDIO_CACHE_NAME);
+    const keys = await cache.keys();
+    keys.forEach((k) => {
+      const m = /\/quran\/audio\/\d+\/([^/]+)\/(\d+)\.mp3/.exec(k.url);
+      if (m) (map[m[1]] || (map[m[1]] = new Set())).add(Number(m[2]));
+    });
+  } catch (e) {}
+  return map;
+}
+function countInRange(set, r) {
+  let c = 0;
+  if (!set) return 0;
+  for (let i = 0; i < r.count; i++) if (set.has(r.from + i)) c++;
+  return c;
+}
+
+/* ---- دریافت صوت یک آیه ---- */
+function audioDlSources(reciter, g) {
+  const list = [];
+  [128, 64, 192].forEach((b) => { const u = buildAudioUrl(reciter, b, g); list.push({ key: u, url: u }); });
+  list.push({ key: buildAudioUrl(reciter, 128, g), url: 'https://cdn.alquran.cloud/media/audio/ayah/' + reciter + '/' + g });
+  return list;
+}
+async function fetchAudioBlob(url) {
+  try {
+    const res = await fetch(url);
+    if (res.ok) {
+      const blob = await res.blob();
+      if (blob && blob.size > 1000) return blob;
+      lastAudioDlError = 'فایل ناقص';
+    } else { lastAudioDlError = 'HTTP ' + res.status; }
+  } catch (e) { lastAudioDlError = String((e && e.message) || e).slice(0, 60); }
+  // روش دوم: HTTP بومی اندروید (محدودیت CORS مرورگر را ندارد)
+  try {
+    const CH = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp;
+    if (CH && typeof CH.get === 'function') {
+      const r = await CH.get({ url: url, responseType: 'blob', connectTimeout: 15000, readTimeout: 40000 });
+      if (r && r.status === 200 && typeof r.data === 'string' && r.data.length > 1400) {
+        const bin = atob(r.data);
+        const u8 = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        return new Blob([u8], { type: 'audio/mpeg' });
+      }
+      if (r && r.status && r.status !== 200) lastAudioDlError = 'HTTP ' + r.status;
+    }
+  } catch (e) { lastAudioDlError = String((e && e.message) || e).slice(0, 60); }
+  return null;
+}
+async function downloadAyahToCache(cache, reciter, g) {
+  const srcs = audioDlSources(reciter, g);
+  for (let k = 0; k < srcs.length; k++) {
+    const idx = (audioSrcPref + k) % srcs.length;
+    const src = srcs[idx];
+    const blob = await fetchAudioBlob(src.url);
+    if (!blob) continue;
+    try {
+      await cache.put(src.key, new Response(blob, { status: 200, headers: { 'Content-Type': 'audio/mpeg' } }));
+    } catch (e) { lastAudioDlError = 'ذخیره: ' + String((e && e.message) || e).slice(0, 50); return false; }
+    audioSrcPref = idx;
+    return true;
+  }
+  return false;
+}
+async function runSurahDownload(ctl, reciter, todo, workers, onProgress) {
+  let done = 0, failed = 0;
+  try {
+    const cache = await caches.open(QURAN_AUDIO_CACHE_NAME);
+    const queue = todo.slice();
+    const worker = async () => {
+      while (queue.length && !ctl.cancelled) {
+        const g = queue.shift();
+        let ok = false;
+        try { ok = await downloadAyahToCache(cache, reciter, g); } catch (e) { lastAudioDlError = String((e && e.message) || e).slice(0, 60); }
+        if (ok) done++; else failed++;
+        if (onProgress) onProgress(done, failed);
+        if (done === 0 && failed >= 4) ctl.cancelled = true; // احتمالاً اینترنت قطع است یا سرور صوت در دسترس نیست
+      }
+    };
+    const ws = [];
+    for (let i = 0; i < workers; i++) ws.push(worker());
+    await Promise.all(ws);
+  } catch (e) { lastAudioDlError = String((e && e.message) || e).slice(0, 60); }
+  return { done, failed };
+}
+
 function setSurahDlState(b, st, have, total, pct) {
   b.classList.remove('is-done', 'is-part', 'is-busy');
-  if (st === 'done') { b.textContent = '✅'; b.classList.add('is-done'); b.title = 'صوت این سوره روی گوشی ذخیره است (برای حذف بزنید)'; }
+  if (st === 'done') { b.textContent = '✅'; b.classList.add('is-done'); b.title = 'صوت این سوره روی گوشی ذخیره است'; }
   else if (st === 'busy') { b.textContent = toPersianDigits(pct) + '٪'; b.classList.add('is-busy'); b.title = 'در حال دانلود (برای توقف بزنید)'; }
   else if (st === 'part') { b.textContent = '⬇'; b.classList.add('is-part'); b.title = 'ادامهٔ دانلود صوت (' + toPersianDigits(have) + ' از ' + toPersianDigits(total) + ' آیه ذخیره است)'; }
   else { b.textContent = '⬇'; b.title = 'دانلود صوت این سوره'; }
@@ -5061,84 +5600,161 @@ async function refreshSurahAudioIcons() {
       if (surahAudioDl && surahAudioDl.num === n) return;
       const r = surahAudioRange(n);
       if (!r) return;
-      let c = 0;
-      for (let i = 0; i < r.count; i++) if (have.has(r.from + i)) c++;
+      const c = countInRange(have, r);
       setSurahDlState(b, c === r.count ? 'done' : (c > 0 ? 'part' : 'none'), c, r.count);
     });
   } catch (e) { /* بی‌صدا */ }
 }
+
+/* ---- پنجرهٔ «کدام قاری را دانلود کنم؟» ---- */
+function pickReciterForSurah(info) {
+  return new Promise((resolve) => {
+    const ov = document.createElement('div');
+    ov.className = 'adlg-overlay';
+    ov.innerHTML =
+      '<div class="adlg-card rcpick-card" role="dialog" aria-modal="true" data-tone="download">' +
+      '<div class="adlg-orb"><span class="adlg-orb-ico">🎙️</span></div>' +
+      '<h3 class="adlg-title"></h3><div class="adlg-text"></div>' +
+      '<div class="rcpick-list"></div>' +
+      '<div class="adlg-actions"><button type="button" class="adlg-btn adlg-cancel">انصراف</button></div></div>';
+    ov.querySelector('.adlg-title').textContent = 'دانلود صوت سورهٔ ' + msgSurahName(info.name);
+    ov.querySelector('.adlg-text').textContent = 'قاری مورد نظر را انتخاب کنید. صوت همان قاری روی گوشی ذخیره می‌شود و قرآن با همان صدا خوانده می‌شود.';
+    const listEl = ov.querySelector('.rcpick-list');
+    document.body.appendChild(ov);
+    requestAnimationFrame(() => ov.classList.add('is-open'));
+
+    let res = null, closed = false;
+    const finish = () => {
+      if (closed) return;
+      closed = true;
+      ov.classList.remove('is-open');
+      ov.classList.add('is-closing');
+      setTimeout(() => { if (ov.parentNode) ov.parentNode.removeChild(ov); }, 220);
+      resolve(res);
+    };
+    const pushed = pushOverlay('appdlg', finish);
+    const close = (v) => { res = v; if (pushed) overlayGo('appdlg', 0, finish); else finish(); };
+    ov.querySelector('.adlg-cancel').addEventListener('click', () => close(null));
+    ov.addEventListener('click', (e) => { if (e.target === ov) close(null); });
+
+    const range = { from: info.from, count: info.count };
+    const render = async () => {
+      const map = await getCachedAyahMap();
+      listEl.innerHTML = '';
+      RECITERS.forEach((r) => {
+        const c = countInRange(map[r.id], range);
+        const full = c === info.count;
+        const row = document.createElement('div');
+        row.className = 'rcpick-row' + (r.id === currentReciter ? ' is-current' : '');
+        const main = document.createElement('button');
+        main.type = 'button';
+        main.className = 'rcpick-main';
+        const nm = document.createElement('span'); nm.className = 'rcpick-name'; nm.textContent = r.name;
+        const st = document.createElement('span'); st.className = 'rcpick-st';
+        st.textContent = full ? '✅ ذخیره شده — انتخاب' : (c > 0 ? ('⬇ ادامه (' + toPersianDigits(c) + ' از ' + toPersianDigits(info.count) + ')') : '⬇ دانلود');
+        main.appendChild(nm); main.appendChild(st);
+        main.addEventListener('click', () => close({ id: r.id, mode: full ? 'use' : 'download' }));
+        row.appendChild(main);
+        if (c > 0) {
+          const del = document.createElement('button');
+          del.type = 'button'; del.className = 'rcpick-del'; del.textContent = '🗑'; del.title = 'حذف از گوشی';
+          let armed = false, t = null;
+          del.addEventListener('click', async () => {
+            if (!armed) {
+              armed = true; del.textContent = 'حذف؟'; del.classList.add('is-armed');
+              t = setTimeout(() => { armed = false; del.textContent = '🗑'; del.classList.remove('is-armed'); }, 3000);
+              return;
+            }
+            clearTimeout(t);
+            try {
+              const cache = await caches.open(QURAN_AUDIO_CACHE_NAME);
+              const keys = await cache.keys();
+              for (const k of keys) {
+                const m = /\/quran\/audio\/\d+\/([^/]+)\/(\d+)\.mp3/.exec(k.url);
+                if (m && m[1] === r.id) { const g = Number(m[2]); if (g >= range.from && g < range.from + range.count) await cache.delete(k); }
+              }
+            } catch (e) {}
+            refreshSurahAudioIcons();
+            refreshAudioOfflineStatus();
+            render();
+          });
+          row.appendChild(del);
+        }
+        listEl.appendChild(row);
+      });
+    };
+    render();
+  });
+}
+
 async function onSurahAudioClick(btn) {
   const n = Number(btn.dataset.n);
-  const name = btn.dataset.name || ('سورهٔ ' + toPersianDigits(n));
   if (surahAudioDl) {
     if (surahAudioDl.num === n) surahAudioDl.cancelled = true;
-    else alert('دانلود صوت یک سورهٔ دیگر هنوز در حال انجام است.');
+    else appAlert('audio_surah_busy_other');
     return;
   }
-  if (!window.caches) { alert('این دستگاه امکان ذخیرهٔ صوت را ندارد.'); return; }
-  const r = surahAudioRange(n);
-  if (!r) { alert('فهرست کامل سوره‌ها هنوز بارگذاری نشده است؛ چند لحظه بعد دوباره امتحان کنید.'); return; }
-  const reciter = currentReciter;
+  if (!window.caches) { appAlert('audio_surah_no_storage'); return; }
+  const info = surahInfoByNumber(n);
+  if (!info) { appAlert('audio_surah_list_loading'); return; }
+
+  const pick = await pickReciterForSurah(info);
+  if (!pick) return;
+  applyReciter(pick.id, { fromDownload: true }); // قاریِ انتخابی همان قاریِ پخش می‌شود
+  if (pick.mode === 'use') return;
+
+  const reciter = pick.id;
+  const r = { from: info.from, count: info.count };
   const have = await getCachedAyahSet(reciter);
   const todo = [];
   for (let i = 0; i < r.count; i++) if (!have.has(r.from + i)) todo.push(r.from + i);
-
-  if (!todo.length) { // کامل ذخیره شده: فقط حذف
-    if (!confirm('صوت سورهٔ ' + name + ' با قاری «' + currentReciterName() + '» روی گوشی ذخیره است. برای آزاد شدن حافظه حذف شود؟')) return;
-    try {
-      const cache = await caches.open(QURAN_AUDIO_CACHE_NAME);
-      const keys = await cache.keys();
-      for (const k of keys) {
-        const m = /\/quran\/audio\/\d+\/([^/]+)\/(\d+)\.mp3/.exec(k.url);
-        if (m && m[1] === reciter) { const g = Number(m[2]); if (g >= r.from && g < r.from + r.count) await cache.delete(k); }
-      }
-    } catch (e) {}
-    refreshSurahAudioIcons();
-    refreshAudioOfflineStatus();
-    return;
-  }
-  if (!navigator.onLine) { alert('برای دانلود صوت باید به اینترنت وصل باشید.'); return; }
-  if (!confirm('صوت سورهٔ ' + name + ' با قاری «' + currentReciterName() + '» (' + toPersianDigits(todo.length) + ' آیه) دانلود و روی گوشی ذخیره می‌شود تا دیگر نیازی به دانلود دوباره نباشد. ممکن است از چند مگابایت تا چند ده مگابایت اینترنت مصرف کند. ادامه می‌دهید؟')) return;
+  if (!todo.length) { refreshSurahAudioIcons(); return; }
+  if (!navigator.onLine) { appAlert('audio_surah_need_internet'); return; }
+  if (silentDl) silentDl.cancelled = true;
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
 
   const ctl = { num: n, cancelled: false };
   surahAudioDl = ctl;
+  lastAudioDlError = '';
   setSurahDlState(btn, 'busy', 0, todo.length, 0);
-  let done = 0, failed = 0;
-  try {
-    const cache = await caches.open(QURAN_AUDIO_CACHE_NAME);
-    const queue = todo.slice();
-    const worker = async () => {
-      while (queue.length && !ctl.cancelled) {
-        const g = queue.shift();
-        let ok = false;
-        for (const b of [128, 64]) {
-          try {
-            const url = buildAudioUrl(reciter, b, g);
-            const res = await fetch(url);
-            if (res.ok) {
-              const blob = await res.blob();
-              if (blob.size > 0) {
-                await cache.put(url, new Response(blob, { status: 200, headers: { 'Content-Type': res.headers.get('Content-Type') || 'audio/mpeg' } }));
-                ok = true;
-                break;
-              }
-            }
-          } catch (e) {}
-        }
-        if (ok) done++; else failed++;
-        setSurahDlState(btn, 'busy', done, todo.length, Math.min(99, Math.round((done + failed) * 100 / todo.length)));
-        if (done === 0 && failed >= 4) ctl.cancelled = true; // احتمالاً اینترنت قطع است
-      }
-    };
-    await Promise.all([worker(), worker(), worker()]);
-  } catch (e) { /* بی‌صدا */ }
+  const res = await runSurahDownload(ctl, reciter, todo, 3, (done, failed) => {
+    setSurahDlState(btn, 'busy', done, todo.length, Math.min(99, Math.round((done + failed) * 100 / todo.length)));
+  });
   surahAudioDl = null;
   await refreshSurahAudioIcons();
   refreshAudioOfflineStatus();
-  if (done === 0 && failed > 0) alert('دانلود انجام نشد؛ اتصال اینترنت را بررسی کنید و دوباره تلاش کنید.');
-  else if (failed > 0) alert('صوت ' + toPersianDigits(failed) + ' آیه دانلود نشد؛ دوباره آیکون را بزنید تا تکمیل شود.');
-  else if (ctl.cancelled) alert('دانلود متوقف شد؛ بخش‌های دانلودشده حفظ شده‌اند و با زدن دوباره ادامه پیدا می‌کند.');
+  const detail = lastAudioDlError ? (' (کد خطا: ' + lastAudioDlError + ')') : '';
+  if (res.done === 0 && res.failed > 0) appAlert('audio_surah_fail_all', null, { text: appMsgCfg('audio_surah_fail_all').text + detail });
+  else if (res.failed > 0) appAlert('audio_surah_fail_some', { failed: toPersianDigits(res.failed) });
+  else if (ctl.cancelled) appAlert('audio_surah_cancelled');
+}
+
+/* ---- لمس یک آیه: اگر صوت سورهٔ آن ذخیره نیست، بی‌صدا و در پس‌زمینه کل سوره با همین قاری ذخیره می‌شود ---- */
+async function silentEnsureSurahAudio(globalAyah) {
+  try {
+    if (!window.caches || !navigator.onLine || surahAudioDl) return;
+    if (Date.now() < silentBackoffUntil) return;
+    const info = surahOfGlobalAyah(Number(globalAyah));
+    if (!info) return;
+    const reciter = currentReciter;
+    if (silentDl && !silentDl.cancelled && silentDl.num === info.num && silentDl.reciter === reciter) return;
+    if (silentDl) silentDl.cancelled = true;
+    const have = await getCachedAyahSet(reciter);
+    const g = Number(globalAyah);
+    const todo = [];
+    // اول آیه‌های بعد از آیهٔ لمس‌شده (تا پخش پیوسته از حافظه ادامه پیدا کند)، بعد آیه‌های قبل، و آیهٔ لمس‌شده آخر
+    for (let x = g + 1; x < info.from + info.count; x++) if (!have.has(x)) todo.push(x);
+    for (let x = info.from; x < g; x++) if (!have.has(x)) todo.push(x);
+    if (!have.has(g)) todo.push(g);
+    if (!todo.length) return;
+    const ctl = { num: info.num, reciter: reciter, cancelled: false };
+    silentDl = ctl;
+    const res = await runSurahDownload(ctl, reciter, todo, 2, null);
+    if (silentDl === ctl) silentDl = null;
+    if (res.done === 0 && res.failed > 0) silentBackoffUntil = Date.now() + 5 * 60 * 1000;
+    refreshSurahAudioIcons();
+    refreshAudioOfflineStatus();
+  } catch (e) { /* بی‌صدا */ }
 }
 
 document.getElementById('quran-search-input').addEventListener('input', (e) => {
@@ -5146,16 +5762,70 @@ document.getElementById('quran-search-input').addEventListener('input', (e) => {
 });
 
 let currentSurahNumber = null;
+const RECITERS = [
+  { id: 'ar.alafasy', name: 'علافاسی' },
+  { id: 'ar.abdulbasitmurattal', name: 'عبدالباسط' },
+  { id: 'ar.husary', name: 'حصری' },
+  { id: 'ar.minshawi', name: 'منشاوی' },
+  { id: 'ar.abdurrahmaansudais', name: 'سدیس' },
+  { id: 'ar.mahermuaiqly', name: 'ماهر المعیقلی' },
+  { id: 'ar.shaatree', name: 'ابوبکر شاطری' },
+  { id: 'ar.hudhaify', name: 'حذیفی' },
+  { id: 'ar.muhammadjibreel', name: 'محمد جبریل' },
+  { id: 'ar.abdullahbasfar', name: 'عبدالله بصفر' },
+];
 let currentReciter = localStorage.getItem('arefanejam_reciter') || 'ar.alafasy';
+if (!RECITERS.some((r) => r.id === currentReciter)) currentReciter = 'ar.alafasy';
 const recitationAudio = new Audio();
 
-document.getElementById('reciter-select').value = currentReciter;
-document.getElementById('reciter-select').addEventListener('change', (e) => {
-  currentReciter = e.target.value;
-  localStorage.setItem('arefanejam_reciter', currentReciter);
+// فهرست قاری‌ها داخل همان select قدیمی هم ساخته می‌شود (پنهان است؛ فقط برای هماهنگی)
+(function fillReciterSelect() {
+  const sel = document.getElementById('reciter-select');
+  if (!sel) return;
+  sel.innerHTML = '';
+  RECITERS.forEach((r) => { const o = document.createElement('option'); o.value = r.id; o.textContent = 'قاری: ' + r.name; sel.appendChild(o); });
+  sel.value = currentReciter;
+})();
+
+/* نوار نام قاری‌ها بالای همهٔ صفحه‌های قرآن (فهرست سوره‌ها، متن سوره، مصحف صفحه‌ای، جزءها، جست‌وجو، نشان‌شده‌ها) */
+function renderReciterBars() {
+  document.querySelectorAll('.rc-bar').forEach((bar) => {
+    if (!bar.dataset.built) {
+      bar.dataset.built = '1';
+      bar.innerHTML = '<span class="rc-lab">🎙️ قاری</span>';
+      RECITERS.forEach((r) => {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'rc-chip'; b.dataset.id = r.id; b.textContent = r.name;
+        b.addEventListener('click', () => applyReciter(r.id));
+        bar.appendChild(b);
+      });
+    }
+    bar.querySelectorAll('.rc-chip').forEach((c) => c.classList.toggle('is-active', c.dataset.id === currentReciter));
+    const act = bar.querySelector('.rc-chip.is-active');
+    if (act && bar.offsetParent !== null) { try { act.scrollIntoView({ block: 'nearest', inline: 'center' }); } catch (e) {} }
+  });
+}
+function applyReciter(id, opts) {
+  if (!RECITERS.some((r) => r.id === id)) return;
+  const changed = id !== currentReciter;
+  currentReciter = id;
+  localStorage.setItem('arefanejam_reciter', id);
+  const sel = document.getElementById('reciter-select');
+  if (sel) sel.value = id;
+  renderReciterBars();
   refreshAudioOfflineStatus();
   refreshSurahAudioIcons();
-});
+  if (!changed) return;
+  if (silentDl) silentDl.cancelled = true;
+  // اگر همین الان قرآن پخش می‌شود، از همین آیه با صدای قاری جدید ادامه بده
+  if (isSequentialPlaying && playbackQueue.length && playQueueIndex >= 0 && playQueueIndex < playbackQueue.length) {
+    playbackSession++;
+    try { recitationAudio.pause(); } catch (e) {}
+    playCurrentQueueItem(window.__currentSurahName || '');
+  }
+}
+renderReciterBars();
+document.getElementById('reciter-select').addEventListener('change', (e) => applyReciter(e.target.value));
 
 const savedFontSize = localStorage.getItem('arefanejam_arabic_font_size') || '22';
 document.documentElement.style.setProperty('--arabic-font-size', savedFontSize + 'px');
@@ -5239,7 +5909,7 @@ function shareAyah(text, ref) {
   if (navigator.share) {
     navigator.share({ text: fullText }).catch(() => {});
   } else if (navigator.clipboard) {
-    navigator.clipboard.writeText(fullText).then(() => alert('متن آیه کپی شد.'));
+    navigator.clipboard.writeText(fullText).then(() => appAlert('copy_ayah_done'));
   }
 }
 
@@ -5317,6 +5987,7 @@ function renderSurahContent(data, scrollToAyah, autoPlay) {
         document.getElementById('surah-play-btn').textContent = '🔊 پخش کل سوره';
         return;
       }
+      silentEnsureSurahAudio(ayah.number);
       startSequentialPlayback(playbackQueue, playbackBlocks, i, arabicEdition.name);
     });
     block.querySelector('.bookmark-btn').addEventListener('click', (e) => {
@@ -5417,9 +6088,7 @@ function playAyahAudio(globalAyahNumber, blockEl) {
   }, () => {
     if (session !== playbackSession) return;
     blockEl.classList.remove('is-playing');
-    alert(navigator.onLine === false
-      ? 'اتصال اینترنت شما قطع است. لطفاً اتصال را بررسی و دوباره تلاش کنید.'
-      : 'در حال حاضر امکان پخش صوت این آیه وجود ندارد. لطفاً کمی بعد دوباره تلاش کنید.');
+    appAlert(navigator.onLine === false ? 'play_ayah_fail_offline' : 'play_ayah_fail_online');
   });
 }
 
@@ -5468,9 +6137,7 @@ function playCurrentQueueItem(surahName) {
     if (session !== playbackSession) return;
     isSequentialPlaying = false;
     document.getElementById('surah-play-btn').textContent = '🔊 پخش کل سوره';
-    alert(navigator.onLine === false
-      ? 'اتصال اینترنت شما قطع است. پخش خودکار متوقف شد.'
-      : 'پخش این آیه با هیچ‌کدام از منابع صوتی ممکن نشد. لطفاً دوباره روی آیه یا دکمهٔ پخش بزنید.');
+    appAlert(navigator.onLine === false ? 'play_seq_fail_offline' : 'play_seq_fail_online');
   });
 }
 // بعد از تمام‌شدن کامل یک سوره در حالت پخش پیوسته، خودکار سراغ سورهٔ بعد می‌رود.
@@ -5499,7 +6166,7 @@ recitationAudio.addEventListener('ended', () => {
 
 document.getElementById('surah-play-btn').addEventListener('click', () => {
   if (!playbackQueue.length) {
-    alert('متن هنوز در حال بارگذاری است؛ چند لحظه صبر کنید و دوباره روی دکمهٔ پخش بزنید.');
+    appAlert('play_text_loading');
     return;
   }
   if (isSequentialPlaying) {
@@ -5638,6 +6305,7 @@ function renderJuzContent(data) {
         document.getElementById('surah-play-btn').textContent = '🔊 پخش کل سوره';
         return;
       }
+      silentEnsureSurahAudio(ayah.number);
       startSequentialPlayback(playbackQueue, playbackBlocks, i, 'جزء');
     });
     block.querySelector('.bookmark-btn').addEventListener('click', (e) => {
@@ -7799,7 +8467,7 @@ document.getElementById('shariq-ask-submit-btn').addEventListener('click', async
     const device_id = await ensureDeviceId();
     await apiFetch('/shariq/ask', { method: 'POST', body: JSON.stringify({ device_id, question_text: text }) });
     document.getElementById('shariq-ask-modal').classList.add('hidden');
-    alert('سوال شما ارسال شد. پس از پاسخ‌گویی، پاسخ در بخش «سوالات من» و «سوالات شرعی» نمایش داده می‌شود.');
+    appAlert('shariq_ask_sent');
   } catch (e) {
     errEl.textContent = 'ارسال سوال با خطا مواجه شد. دوباره تلاش کنید.';
     errEl.classList.remove('hidden');
@@ -8107,7 +8775,7 @@ function renderKhatmMyDone() {
 async function khatmMarkDone(ps, done) {
   const d = khatmViewData;
   if (!d) return;
-  if (!done && !confirm('علامت «انجام شد» برداشته شود؟')) return;
+  if (!done && !(await appConfirm('khatm_undo_done_confirm'))) return;
   try {
     const device_id = await ensureDeviceId();
     await apiFetch('/khatm/done', { method: 'POST', body: JSON.stringify({ device_id, request_id: d.id, portions: ps, done: !!done }) });
@@ -8116,9 +8784,9 @@ async function khatmMarkDone(ps, done) {
     renderKhatmMyDone();
     // خانهٔ همان بخش در جدول هم به‌روز شود (برای بخش‌های من ظاهرش همان تیک‌خورده می‌ماند)
     khatmSetInquiry((d.taken || []).some((t) => t.mine && t.ask));
-    if (done) alert('ثبت شد. خدا قبول کند 🤲 درخواست‌دهنده می‌بیند که ختم شما انجام شده است.');
+    if (done) appAlert('khatm_done_ok');
   } catch (e) {
-    alert(khatmErr(e, 'ثبت انجام نشد. اینترنت را بررسی کنید و دوباره تلاش کنید.'));
+    appAlertErr('khatm_done_fail', e);
   }
 }
 
@@ -8254,22 +8922,22 @@ async function khatmInquire(requestId, who, btn) {
   try {
     const device_id = await ensureDeviceId();
     const res = await apiFetch('/khatm/inquire', { method: 'POST', body: JSON.stringify({ device_id, request_id: Number(requestId), who }) });
-    alert('استعلام ارسال شد' + (res && res.asked ? ' (' + toPersianDigits(res.asked) + ' بخش)' : '') + '. وقتی برداشت‌کننده اپ را باز کند می‌پرسد و با یک لمس جواب می‌دهد؛ جواب را همین‌جا می‌بینید.');
+    appAlert('khatm_inquire_ok', { count_text: (res && res.asked ? ' (' + toPersianDigits(res.asked) + ' بخش)' : '') });
     loadKhatmMine();
   } catch (e) {
-    alert(khatmErr(e, 'استعلام انجام نشد. اینترنت را بررسی کنید و دوباره تلاش کنید.'));
+    appAlertErr('khatm_inquire_fail', e);
     if (btn) btn.disabled = false;
   }
 }
 
 async function closeKhatmRequest(id) {
-  if (!confirm('این درخواست بسته شود؟ دیگر در فهرست عمومی نمایش داده نمی‌شود.')) return;
+  if (!(await appConfirm('khatm_close_confirm'))) return;
   try {
     const device_id = await ensureDeviceId();
     await apiFetch('/khatm/close', { method: 'POST', body: JSON.stringify({ device_id, request_id: Number(id) }) });
     loadKhatmMine();
   } catch (e) {
-    alert(khatmErr(e, 'بستن درخواست انجام نشد. دوباره تلاش کنید.'));
+    appAlertErr('khatm_close_fail', e);
   }
 }
 
@@ -8332,7 +9000,7 @@ function khatmUpdatePreview() {
         const device_id = await ensureDeviceId();
         const mine = shariqAsArray(await shariqGet('/khatm/mine?device_id=' + encodeURIComponent(device_id)));
         if (mine.some((r) => r.status === 'open' && !r.completed)) {
-          alert('شما یک ختم ناتمام دارید. تا زمانی که قرآنِ آن کامل خوانده نشود (همهٔ بخش‌ها برداشته و انجام شود) یا آن را نبندید، نمی‌توانید درخواست جدید ثبت کنید.');
+          await appAlert('khatm_has_open');
           switchToTab('khatm-mine', { push: true });
           return;
         }
@@ -8375,7 +9043,7 @@ function khatmUpdatePreview() {
         try { localStorage.setItem(KHATM_HAS_KEY, '1'); if (name) localStorage.setItem(KHATM_NAME_KEY, name); } catch (e) {}
         $('khatm-new-modal').classList.add('hidden');
         loadKhatmList();
-        alert('ختم شما ثبت شد و برای همه نمایش داده می‌شود. هر بخشی که برداشته شود، در «درخواست‌های من» می‌بینید.');
+        appAlert('khatm_created');
       } catch (e) {
         errEl.textContent = khatmErr(e, 'ثبت درخواست انجام نشد. اینترنت را بررسی کنید و دوباره تلاش کنید.');
         errEl.classList.remove('hidden');
@@ -8400,7 +9068,7 @@ function khatmUpdatePreview() {
           return;
         }
       }
-      alert('همهٔ بخش‌های این ختم برداشته شده است.');
+      appAlert('khatm_all_taken');
     });
     $('khatm-view-confirm-btn').addEventListener('click', async () => {
       const d = khatmViewData;
@@ -8415,12 +9083,12 @@ function khatmUpdatePreview() {
         const conflicts = (res && res.conflicts) || [];
         await loadKhatmView();
         if (conflicts.length) {
-          alert('بخش‌هایی که همزمان کس دیگری برداشت، به شما نرسید. لطفاً بخش دیگری انتخاب کنید.');
+          appAlert('khatm_conflict');
         } else {
-          alert(khatmSel.size ? 'مشارکت شما ثبت شد. خدا قبول کند 🤲' : 'مشارکت شما برداشته شد.');
+          appAlert(khatmSel.size ? 'khatm_join_ok' : 'khatm_leave_ok');
         }
       } catch (e) {
-        alert(khatmErr(e, 'ثبت انجام نشد. اینترنت را بررسی کنید و دوباره تلاش کنید.'));
+        appAlertErr('khatm_set_fail', e);
         khatmUpdateConfirmState();
       }
     });
@@ -9130,7 +9798,7 @@ document.getElementById('settings-save-api-btn').addEventListener('click', () =>
   if (url) {
     state.apiUrl = url;
     localStorage.setItem('arefanejam_api_url', url);
-    alert('آدرس ذخیره شد. لطفاً اپ را مجدد باز کنید.');
+    appAlert('api_url_saved');
   }
 });
 
@@ -9571,6 +10239,7 @@ document.getElementById('qp-act-play').addEventListener('click', () => {
     document.querySelectorAll('.ayah-block.is-playing').forEach((b) => b.classList.remove('is-playing'));
     return;
   }
+  silentEnsureSurahAudio(qpAyahs[i].number);
   startSequentialPlayback(playbackQueue, playbackBlocks, i, qpAyahs[i].surahName);
 });
 document.getElementById('qp-act-bookmark').addEventListener('click', (e) => {
