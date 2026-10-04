@@ -344,6 +344,8 @@ function switchToTab(tabName, opts) {
   if (tabName === 'khatm') loadKhatmList();
   if (tabName === 'khatm-mine') loadKhatmMine();
   if (tabName === 'khatm-view') loadKhatmView();
+  if (tabName !== 'game-ayah') gaStopTimer();
+  if (tabName === 'game-ayah') gaOpen();
 }
 
 document.querySelectorAll('.nav-btn').forEach((btn) => {
@@ -7474,7 +7476,8 @@ function renderRamadanContent(r) {
       const wd = WEEKDAYS_FA[new Date(rmStart.getFullYear(), rmStart.getMonth(), rmStart.getDate() + day - 1).getDay()];
       rowsHtml += `
         <tr class="${isToday ? 'is-today' : ''}">
-          <td>${isToday ? '<span class="ramadan-day-badge"></span>' : ''}${toPersianDigits(day)}<span class="ramadan-wd">${wd}</span></td>
+          <td>${isToday ? '<span class="ramadan-day-badge"></span>' : ''}${toPersianDigits(day)}</td>
+          <td class="ramadan-wd-col">${wd}</td>
           ${rmShown.map((c) => `<td>${toPersianDigits(t[c[0]] || '—')}</td>`).join('')}
         </tr>`;
     }
@@ -7497,7 +7500,7 @@ function renderRamadanContent(r) {
       <h4>${dayLabel}</h4>
       <div class="ramadan-schedule-wrap">
         <table class="ramadan-schedule-table">
-          <thead><tr><th>روز</th>${rmShown.map((c) => `<th>${c[1]}</th>`).join('')}</tr></thead>
+          <thead><tr><th>روز</th><th class="ramadan-wd-col">هفته</th>${rmShown.map((c) => `<th>${c[1]}</th>`).join('')}</tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>
       </div>`;
@@ -11387,5 +11390,226 @@ document.getElementById('hb-close').addEventListener('click', hbClose);
 document.getElementById('hb-page-close').addEventListener('click', () => overlayGo('hbpage', 0, closeHbPage));
 document.getElementById('hb-page').addEventListener('click', (e) => { if (e.target.id === 'hb-page') overlayGo('hbpage', 0, closeHbPage); });
 hbLoad();
+
+/* ---------- سرگرمی ← بازی «حدس آیه» ----------
+   بیشتر ← سرگرمی ← حدس آیه قرآنی. اول کاربر رشته (۱ تا ۳۰ جزء) را انتخاب می‌کند؛ هر دور ۱۰ سؤال: «صفحهٔ N مصحف (عثمان طاها): از آیهٔ a سورهٔ X تا ابتدای آیهٔ b را بخوان».
+   شمارهٔ صفحه‌ها همان فیلد page متن داخل اپ (data/quran-uthmani.json) است که مصحف مدینه (۶۰۴ صفحه) است.
+   بعد از ۱۰ ثانیه شمارش معکوس، پاسخ درست نشان داده می‌شود و خود کاربر می‌گوید درست خوانده یا نه؛ در پایان امتیاز جمع می‌شود.
+   همه‌چیز آفلاین کار می‌کند. گزینه‌ها: GA_ROUNDS تعداد سؤال، GA_SECS ثانیهٔ شمارش معکوس، GA_MAX_WORDS سقف طول پاسخ. */
+var GA_ROUNDS = 10;
+var GA_SECS = 10;
+var GA_MAX_WORDS = 55;
+var gaTimer = null;
+var gaGame = null;
+var gaDataPromise = null;
+
+function gaEsc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function gaStopTimer() { if (gaTimer) { clearInterval(gaTimer); gaTimer = null; } }
+function gaRoot() { return document.getElementById('ga-root'); }
+function gaShuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) { const k = Math.floor(Math.random() * (i + 1)); const t = a[i]; a[i] = a[k]; a[k] = t; }
+  return a;
+}
+function gaWords(t) { return String(t).split(/\s+/).filter(Boolean).length; }
+// بسم‌الله اول سوره‌ها (جز فاتحه و توبه) در متن آیهٔ ۱ چسبیده است؛ برای سؤال حذف می‌شود
+function gaStripBsm(t, n, s) {
+  if (n !== 1 || s === 1 || s === 9) return t;
+  const w = String(t).split(' ');
+  const first = (w[0] || '').replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '').replace(/ٱ/g, 'ا');
+  return (w.length > 4 && first === 'بسم') ? w.slice(4).join(' ') : t;
+}
+function gaData() {
+  if (!gaDataPromise) {
+    gaDataPromise = (async () => {
+      try {
+        const all = await getOfflineQuranText();
+        if (!Array.isArray(all) || all.length !== 114) return null;
+        const flat = [], pages = {};
+        all.forEach((sr) => {
+          (sr.ayahs || []).forEach((a) => {
+            const o = { s: sr.number, n: a.numberInSurah, p: a.page, j: a.juz, t: gaStripBsm(a.text, a.numberInSurah, sr.number) };
+            (pages[o.p] = pages[o.p] || []).push(flat.length);
+            flat.push(o);
+          });
+        });
+        const meta = await khatmMeta();
+        return { flat, pages, meta };
+      } catch (e) { return null; }
+    })().then((d) => { if (!d) gaDataPromise = null; return d; });
+  }
+  return gaDataPromise;
+}
+// رشتهٔ N جزء: رشتهٔ ۱ = جزء اول + جزء آخر (۳۰)؛ رشتهٔ N (۲ تا ۳۰) = جزءهای ۱ تا N
+function gaAllowed(N, j) { return N === 1 ? (j === 1 || j === 30) : j <= N; }
+function gaCatLabel(N) { return N === 1 ? '۱ جزء (جزء اول و آخر)' : (N === 30 ? '۳۰ جزء (کل قرآن)' : toPersianDigits(N) + ' جزء (جزء ۱ تا ' + toPersianDigits(N) + ')'); }
+// ۱۰ سؤال با صفحه‌های متفاوت از جزءهای رشتهٔ انتخابی: شروع از یک آیهٔ همان صفحه، تا ابتدای آیه‌ای که ۱ تا ۳ آیه بعدتر است
+function gaBuild(D, N) {
+  const ok = (i) => gaAllowed(N, D.flat[i].j);
+  const pages = gaShuffle(Object.keys(D.pages).map(Number));
+  const qs = [];
+  for (const p of pages) {
+    if (qs.length >= GA_ROUNDS) break;
+    const idxs = gaShuffle(D.pages[p].slice());
+    for (const i of idxs) {
+      if (i >= D.flat.length - 1 || !ok(i) || gaWords(D.flat[i].t) > GA_MAX_WORDS) continue;
+      let k = Math.min(1 + Math.floor(Math.random() * 3), D.flat.length - 1 - i);
+      let w = 0;
+      for (let x = 0; x < k; x++) w += gaWords(D.flat[i + x].t);
+      while (k > 1 && w > GA_MAX_WORDS) { k--; w -= gaWords(D.flat[i + k].t); }
+      let good = true;
+      for (let x = 0; x <= k; x++) if (!ok(i + x)) { good = false; break; }
+      if (!good) { k = 1; if (!ok(i + 1)) continue; }
+      qs.push({ page: p, from: i, to: i + k });
+      break;
+    }
+  }
+  return qs;
+}
+function gaDots(g, curDone) {
+  let h = '<div class="ga-dots">';
+  for (let i = 0; i < g.qs.length; i++) {
+    let cls = 'ga-dot';
+    if (i < g.res.length) cls += g.res[i] ? ' ok' : ' bad';
+    else if (i === g.i && !curDone) cls += ' cur';
+    h += `<span class="${cls}"></span>`;
+  }
+  return h + '</div>';
+}
+function gaHeaderHtml(g, curDone) {
+  return `<div class="ga-head">
+    <span class="ga-head-q">سؤال ${toPersianDigits(g.i + 1)} از ${toPersianDigits(g.qs.length)}</span>
+    <span class="ga-head-c">${toPersianDigits(g.N)} جزء</span>
+    <span class="ga-head-s">⭐ امتیاز: ${toPersianDigits(g.score)}</span>
+  </div>${gaDots(g, curDone)}`;
+}
+
+function gaOpen() {
+  gaStopTimer();
+  gaGame = null;
+  let cats = '';
+  for (let n = 1; n <= 30; n++) cats += `<button class="ga-cat" data-n="${n}"><b>${toPersianDigits(n)}</b><span>جزء</span></button>`;
+  gaRoot().innerHTML = `<div class="ga-card ga-intro">
+    <div class="ga-hero">🧩</div>
+    <h3 class="ga-title">حدس آیه قرآنی</h3>
+    <p class="ga-pick-title">رشتهٔ خود را انتخاب کنید</p>
+    <p class="muted-text small ga-pick-note">رشتهٔ ۱ جزء: جزء اول و جزء آخر قرآن · رشتهٔ ۲ جزء: دو جزء اول · رشتهٔ ۳ جزء: سه جزء اول · و همین‌طور تا رشتهٔ ۳۰ جزء (کل قرآن)</p>
+    <div class="ga-cats">${cats}</div>
+    <ul class="ga-rules">
+      <li>هر دور <b>${toPersianDigits(GA_ROUNDS)} سؤال</b> بر اساس <b>مصحف عثمان طاها</b> (شمارهٔ واقعی صفحه‌ها)</li>
+      <li>بعد از <b>${toPersianDigits(GA_SECS)} ثانیه</b> شمارش معکوس، پاسخ درست نشان داده می‌شود و خودتان می‌گویید درست خواندید یا نه.</li>
+    </ul>
+  </div>`;
+  gaRoot().querySelectorAll('.ga-cat').forEach((b) => b.addEventListener('click', () => gaStart(Number(b.dataset.n))));
+}
+
+async function gaStart(N) {
+  N = Number(N) || (gaGame && gaGame.N) || 30;
+  gaRoot().innerHTML = '<div class="ga-card"><p class="muted-text">…</p></div>';
+  const D = await gaData();
+  if (currentTab !== 'game-ayah') return;
+  if (!D) {
+    gaRoot().innerHTML = '<div class="ga-card"><p class="muted-text">متن قرآن در دسترس نیست؛ لطفاً یک‌بار با اینترنت اپ را باز کنید و دوباره تلاش کنید.</p><button class="secondary-btn" id="ga-retry-btn">تلاش دوباره</button></div>';
+    document.getElementById('ga-retry-btn').addEventListener('click', gaOpen);
+    return;
+  }
+  gaGame = { D, N, qs: gaBuild(D, N), i: 0, score: 0, res: [] };
+  gaShowQuestion();
+}
+
+function gaShowQuestion() {
+  gaStopTimer();
+  const g = gaGame, D = g.D, q = g.qs[g.i];
+  const a = D.flat[q.from], b = D.flat[q.to];
+  const nm = (s) => gaEsc(khatmSurahName(D.meta, s));
+  const C = 2 * Math.PI * 45;
+  gaRoot().innerHTML = `${gaHeaderHtml(g, false)}
+  <div class="ga-card">
+    <div class="ga-page-chip">📖 صفحهٔ ${toPersianDigits(q.page)} <small>(مصحف عثمان طاها)</small></div>
+    <p class="ga-q">از <b>آیهٔ ${toPersianDigits(a.n)}</b> سورهٔ <b>${nm(a.s)}</b><br>تا ابتدای <b>آیهٔ ${toPersianDigits(b.n)}</b>${b.s !== a.s ? ' سورهٔ <b>' + nm(b.s) + '</b>' : ''}<br>را بخوان</p>
+    <div class="ga-timer">
+      <svg viewBox="0 0 100 100" class="ga-ring" aria-hidden="true">
+        <circle class="ga-ring-bg" cx="50" cy="50" r="45"></circle>
+        <circle class="ga-ring-fg" id="ga-ring-fg" cx="50" cy="50" r="45" stroke-dasharray="${C}" stroke-dashoffset="0" transform="rotate(-90 50 50)"></circle>
+      </svg>
+      <div class="ga-count" id="ga-count">${toPersianDigits(GA_SECS)}</div>
+    </div>
+    <p class="muted-text small ga-hint">بعد از پایان شمارش، پاسخ نشان داده می‌شود</p>
+  </div>`;
+  const end = Date.now() + GA_SECS * 1000;
+  const fg = document.getElementById('ga-ring-fg'), cnt = document.getElementById('ga-count');
+  gaTimer = setInterval(() => {
+    if (currentTab !== 'game-ayah') { gaStopTimer(); return; }
+    const remain = Math.max(0, end - Date.now());
+    fg.style.strokeDashoffset = String(C * (1 - remain / (GA_SECS * 1000)));
+    cnt.textContent = toPersianDigits(Math.ceil(remain / 1000));
+    cnt.classList.toggle('ga-urgent', remain <= 3000);
+    if (remain <= 0) { gaStopTimer(); gaShowAnswer(); }
+  }, 200);
+}
+
+function gaShowAnswer() {
+  const g = gaGame, D = g.D, q = g.qs[g.i];
+  const nm = (s) => gaEsc(khatmSurahName(D.meta, s));
+  const a = D.flat[q.from], last = D.flat[q.to - 1];
+  let ref;
+  if (a.s === last.s) ref = `سورهٔ ${nm(a.s)}، ` + (a.n === last.n ? `آیهٔ ${toPersianDigits(a.n)}` : `آیهٔ ${toPersianDigits(a.n)} تا ${toPersianDigits(last.n)}`);
+  else ref = `از سورهٔ ${nm(a.s)} آیهٔ ${toPersianDigits(a.n)} تا سورهٔ ${nm(last.s)} آیهٔ ${toPersianDigits(last.n)}`;
+  let txt = '';
+  for (let x = q.from; x < q.to; x++) {
+    const o = D.flat[x];
+    if (x > q.from && o.s !== D.flat[x - 1].s) txt += `<div class="ga-surah-sep">سورهٔ ${nm(o.s)}</div>`;
+    txt += `<span class="ga-ayah">${gaEsc(o.t)} <span class="ga-num">﴿${toPersianDigits(o.n)}﴾</span></span> `;
+  }
+  gaRoot().innerHTML = `${gaHeaderHtml(g, true)}
+  <div class="ga-card">
+    <div class="ga-page-chip">📖 صفحهٔ ${toPersianDigits(q.page)} <small>(مصحف عثمان طاها)</small></div>
+    <p class="ga-ans-label">پاسخ درست</p>
+    <div class="ga-answer" dir="rtl">${txt}</div>
+    <p class="muted-text small ga-ref">${ref}</p>
+    <p class="ga-judge-q">جوابت درست بود؟</p>
+    <div class="ga-judge">
+      <button class="ga-yes" id="ga-yes-btn">✅ بله، درست بود</button>
+      <button class="ga-no" id="ga-no-btn">❌ نه، درست نبود</button>
+    </div>
+  </div>`;
+  let done = false;
+  const judge = (ok) => { if (done) return; done = true; gaJudge(ok); };
+  document.getElementById('ga-yes-btn').addEventListener('click', () => judge(true));
+  document.getElementById('ga-no-btn').addEventListener('click', () => judge(false));
+}
+
+function gaJudge(ok) {
+  const g = gaGame;
+  if (!g) return;
+  g.res.push(!!ok);
+  if (ok) g.score++;
+  g.i++;
+  if (g.i >= g.qs.length) gaShowResult(); else gaShowQuestion();
+}
+
+function gaShowResult() {
+  const g = gaGame, sc = g.score, tot = g.qs.length;
+  let icon, msg;
+  if (sc === tot) { icon = '🏆'; msg = 'ماشاءالله! همهٔ پاسخ‌ها درست بود.'; }
+  else if (sc >= tot * 0.8) { icon = '🥇'; msg = 'آفرین! حافظهٔ قوی و آیه‌شناسی عالی.'; }
+  else if (sc >= tot * 0.5) { icon = '🌟'; msg = 'خوب بود! با کمی مرور بهتر هم می‌شود.'; }
+  else { icon = '📖'; msg = 'ادامه بده؛ با مرور بیشتر پیشرفت می‌کنی. دوباره تلاش کن!'; }
+  gaRoot().innerHTML = `<div class="ga-card ga-result">
+    <div class="ga-hero">${icon}</div>
+    <h3 class="ga-title">نتیجهٔ نهایی</h3>
+    <div class="ga-score"><b>${toPersianDigits(sc)}</b><span> از ${toPersianDigits(tot)}</span></div>
+    <p class="muted-text small">رشتهٔ ${gaCatLabel(g.N)} — ${toPersianDigits(Math.round(sc * 100 / tot))}٪ پاسخ‌ها درست بود</p>
+    ${gaDots(g, true)}
+    <p class="ga-msg">${msg}</p>
+    <div class="ga-result-btns">
+      <button class="secondary-btn" id="ga-again-btn">🔄 دور جدید (همین رشته)</button>
+      <button class="ghost-btn" id="ga-cat-btn">تغییر رشته</button>
+      <button class="ghost-btn" id="ga-back-btn">بازگشت به سرگرمی</button>
+    </div>
+  </div>`;
+  document.getElementById('ga-again-btn').addEventListener('click', () => gaStart(g.N));
+  document.getElementById('ga-cat-btn').addEventListener('click', gaOpen);
+  document.getElementById('ga-back-btn').addEventListener('click', goBackInApp);
+}
 
 window.__arefBooted = true;

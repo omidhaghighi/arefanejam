@@ -457,6 +457,7 @@ button:active, .nav-btn:active, .note-card:active, .menu-row:active {
 .tile-charity  { --tile-c: #E8745A; --tile-cd: #B84C34; }
 .tile-shariq   { --tile-c: #B159D8; --tile-cd: #7B32A0; }
 .tile-khatm    { --tile-c: #2FA67C; --tile-cd: #166A4D; }
+.tile-fun, .tile-fun-ayah { --tile-c: #7B61D9; --tile-cd: #4B3A9E; }
 .tile-mokatib  { --tile-c: #C9A876; --tile-cd: #8F6C34; }
 .tile-mokatib .menu-tile-badge { overflow: hidden; }
 
@@ -894,8 +895,10 @@ body.dark-mode #quran-reader-content.mushaf-page .ayah-block.is-playing .ayah-ar
 .ramadan-schedule-table th:not(:first-child), .ramadan-schedule-table td:not(:first-child) {
   border-inline-start: 1px solid rgba(128,128,128,0.22);
 }
-.ramadan-schedule-table th:first-child, .ramadan-schedule-table td:first-child { width: 22%; }
-.ramadan-wd { display: block; font-size: 10.5px; font-weight: 500; opacity: .85; white-space: nowrap; line-height: 1.3; margin-top: 2px; }
+.ramadan-schedule-table th:first-child, .ramadan-schedule-table td:first-child { width: 10%; }
+/* ستون جدا برای نام روز هفته (شنبه، یکشنبه، ...) */
+.ramadan-schedule-table th.ramadan-wd-col, .ramadan-schedule-table td.ramadan-wd-col { width: 19%; padding-inline: 2px; font-size: calc(var(--ramadan-font-size, 14px) - 2px); font-weight: 600; }
+.ramadan-schedule-table tr.is-today td.ramadan-wd-col { color: var(--gold-light, #D9BD87); }
 .ramadan-schedule-table thead th {
   font-weight: 700; font-size: calc(var(--ramadan-font-size, 14px) - 1.5px); opacity: 0.9; position: sticky; top: 0; letter-spacing: 0.2px;
   background: var(--ramadan-header-bg, inherit);
@@ -4213,3 +4216,77 @@ body.dark-mode .myev-time { color: #CDB9FF; background: rgba(169,139,232,.2); }
 #hb-page { z-index: 95; }
 body.dark-mode .hb-panel { background: var(--card-bg, #14262b); }
 @media (prefers-reduced-motion: reduce) { .hb-panel, .hb-backdrop, .hb-item { transition: none; animation: none; } }
+
+/* ---------- سرگرمی ← بازی حدس آیه (ga-*) ---------- */
+.ga-wrap { padding: 14px 14px 28px; }
+.ga-card {
+  background: var(--card-bg); border: 1px solid var(--line); border-radius: 18px;
+  box-shadow: var(--raised-md); padding: 18px 16px; text-align: center; margin-top: 10px;
+}
+.ga-hero { font-size: 54px; line-height: 1.1; margin-bottom: 6px; }
+.ga-title { margin: 4px 0 10px; font-size: 20px; font-weight: 800; color: var(--ink); }
+.ga-rules { text-align: right; margin: 0 0 16px; padding: 0 18px 0 0; line-height: 2; font-size: 14px; color: var(--ink); }
+.ga-start { width: 100%; padding: 13px; font-size: 16px; }
+.ga-head { display: flex; justify-content: space-between; align-items: center; font-weight: 700; font-size: 14px; color: var(--ink); padding: 0 4px; }
+.ga-head-s { color: var(--gold); }
+.ga-dots { display: flex; gap: 6px; justify-content: center; margin: 8px 0 2px; }
+.ga-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--paper-alt); box-shadow: var(--well); }
+.ga-dot.cur { box-shadow: 0 0 0 2px var(--gold); }
+.ga-dot.ok { background: #2FA67C; box-shadow: none; }
+.ga-dot.bad { background: var(--danger); box-shadow: none; }
+.ga-page-chip {
+  display: inline-block; background: var(--paper-alt); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 999px; padding: 6px 16px; font-weight: 800; font-size: 15px;
+}
+.ga-page-chip small { font-weight: 500; opacity: .75; font-size: 11px; }
+.ga-q { font-size: 17px; line-height: 2.1; margin: 14px 0 6px; color: var(--ink); }
+.ga-q b { color: var(--gold); font-size: 19px; }
+.ga-timer { position: relative; width: 150px; height: 150px; margin: 10px auto 4px; }
+.ga-ring { width: 100%; height: 100%; }
+.ga-ring-bg { fill: none; stroke: var(--line); stroke-width: 8; }
+.ga-ring-fg { fill: none; stroke: var(--gold); stroke-width: 8; stroke-linecap: round; transition: stroke-dashoffset .2s linear; }
+.ga-count { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 46px; font-weight: 800; color: var(--ink); transition: color .2s; }
+.ga-count.ga-urgent { color: var(--danger); animation: ga-pulse .9s ease-in-out infinite; }
+@keyframes ga-pulse { 50% { transform: scale(1.12); } }
+.ga-hint { margin: 4px 0 0; }
+.ga-ans-label { margin: 14px 0 6px; font-weight: 800; color: #2FA67C; font-size: 14px; }
+.ga-answer {
+  background: var(--paper-alt); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--well);
+  padding: 14px 12px; font-family: var(--font-quran); font-size: 25px; line-height: 2.4; color: var(--ink); text-align: center;
+}
+.ga-num { color: var(--gold); font-size: 20px; }
+.ga-surah-sep { font-family: var(--font-ui); font-size: 13px; font-weight: 700; color: var(--gold); margin: 6px 0; }
+.ga-ref { margin: 8px 0 0; }
+.ga-judge-q { margin: 16px 0 8px; font-weight: 800; font-size: 16px; color: var(--ink); }
+.ga-judge { display: flex; gap: 10px; }
+.ga-judge button {
+  flex: 1; border: none; border-radius: 12px; padding: 13px 6px; font-size: 14px; font-weight: 800; color: #fff; cursor: pointer;
+  font-family: var(--font-ui); box-shadow: var(--raised-sm);
+}
+.ga-yes { background: #2FA67C; }
+.ga-no { background: var(--danger); }
+.ga-judge button:active { transform: scale(0.96); box-shadow: var(--pressed); }
+.ga-score { font-size: 24px; color: var(--ink); margin: 4px 0; }
+.ga-score b { font-size: 62px; color: var(--gold); font-weight: 800; }
+.ga-msg { font-size: 16px; font-weight: 700; line-height: 1.9; color: var(--ink); margin: 12px 0; }
+.ga-result-btns { display: flex; flex-direction: column; gap: 8px; }
+.ga-result-btns button { width: 100%; padding: 12px; font-size: 15px; }
+body.dark-mode .ga-answer { color: var(--ink); }
+@media (prefers-reduced-motion: reduce) {
+  .ga-ring-fg { transition: none; }
+  .ga-count.ga-urgent { animation: none; }
+}
+
+/* انتخاب رشته (۱ تا ۳۰ جزء) */
+.ga-pick-title { font-weight: 800; font-size: 16px; margin: 6px 0 2px; color: var(--ink); }
+.ga-pick-note { margin: 0 0 10px; line-height: 1.9; }
+.ga-cats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 14px; }
+.ga-cat {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
+  padding: 8px 2px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer;
+  background: var(--paper-alt); color: var(--ink); box-shadow: var(--raised-sm); font-family: var(--font-ui);
+}
+.ga-cat b { font-size: 20px; color: var(--gold); line-height: 1.3; }
+.ga-cat span { font-size: 11px; opacity: .8; }
+.ga-cat:active { transform: scale(0.94); box-shadow: var(--pressed); }
+.ga-head-c { background: var(--paper-alt); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; font-size: 12px; }
