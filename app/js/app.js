@@ -11556,7 +11556,7 @@ function gaShowQuestion() {
     <div class="ga-page-chip">📖 صفحهٔ ${toPersianDigits(q.page)} <small>(مصحف عثمان طاها)</small></div>
     <p class="ga-q">از <b>آیهٔ ${toPersianDigits(a.n)}</b> سورهٔ <b>${nm(a.s)}</b><br><b>${toPersianDigits(GA_LINES)} خط</b> به پایین بیا<br>و تا ابتدای <b>آیهٔ ${toPersianDigits(b.n)}</b>${b.s !== a.s ? ' سورهٔ <b>' + nm(b.s) + '</b>' : ''}<br>را بخوان</p>
     <p class="muted-text small ga-hint">وقتی خواندید یا آماده بودید، پاسخ را ببینید</p>
-    <button class="secondary-btn ga-show" id="ga-show-btn">👁 نمایش پاسخ</button>
+    <button class="secondary-btn ga-show" id="ga-show-btn">نمایش پاسخ</button>
   </div>`;
   document.getElementById('ga-show-btn').addEventListener('click', gaShowAnswer);
 }
