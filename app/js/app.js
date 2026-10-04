@@ -2638,6 +2638,7 @@ function computePrayerTimes() {
   scheduleNextAzanTimer(list, now);
   updateStickyNotification(upcoming);
   syncScheduleToServiceWorker(list);
+  try { weatherEnsure(); } catch (e) {}
 }
 
 /* ---------- ارسال زمان‌بندی امروز به سرویس‌ورکر (لایهٔ یدکیِ پخش اذان در پس‌زمینه) ----------
@@ -3364,10 +3365,22 @@ function renderDailyDeeds() {
   renderDailyDeedsHistory();
 }
 
+/* گزارش اعمال: هفته (۷ روز اخیر)، ماه (۳۰ روز اخیر)، سال (۳۶۵ روز اخیر) */
+const DEEDS_RANGES = {
+  7:   { word: 'هفته', recent: '۷ روز اخیر' },
+  30:  { word: 'ماه',  recent: '۳۰ روز اخیر' },
+  365: { word: 'سال',  recent: '۳۶۵ روز اخیر' },
+};
+let dailyDeedsRange = 7;
 function renderDailyDeedsWeekReport() {
   const el = document.getElementById('daily-deeds-week-report');
   const totalEl = document.getElementById('daily-deeds-week-total');
   if (!el) return;
+  const range = DEEDS_RANGES[dailyDeedsRange] ? dailyDeedsRange : 7;
+  const meta = DEEDS_RANGES[range];
+  const titleEl = document.getElementById('daily-deeds-report-title');
+  if (titleEl) titleEl.textContent = 'گزارش ' + meta.word + ' (' + meta.recent + ')';
+  document.querySelectorAll('#daily-deeds-range button').forEach((b) => b.classList.toggle('active', Number(b.dataset.range) === range));
   const log = getDailyDeedsLog();
   const counts = {}; // id -> { title, count }
   const currentTitles = {};
@@ -3375,7 +3388,7 @@ function renderDailyDeedsWeekReport() {
     currentTitles[it.id] = (it.icon ? it.icon + ' ' : '') + it.title;
   });
   let confirmedDays = 0, totalDeeds = 0;
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < range; i++) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const e = log[dailyDeedsDateKey(d)];
@@ -3389,7 +3402,7 @@ function renderDailyDeedsWeekReport() {
       totalDeeds++;
     });
   }
-  // اعمالی که هنوز در فهرست هستند ولی این هفته انجام نشده‌اند هم با عدد صفر نشان داده می‌شوند
+  // اعمالی که هنوز در فهرست هستند ولی در این بازه انجام نشده‌اند هم با عدد صفر نشان داده می‌شوند
   Object.keys(currentTitles).forEach((id) => {
     if (!counts[id]) counts[id] = { title: currentTitles[id], count: 0 };
   });
@@ -3397,18 +3410,27 @@ function renderDailyDeedsWeekReport() {
   el.innerHTML = '';
   if (!rows.length) { totalEl.textContent = ''; return; }
   totalEl.textContent = confirmedDays
-    ? 'در این هفته ' + toPersianDigits(totalDeeds) + ' عمل نیک ثبت کرده‌اید (در ' + toPersianDigits(confirmedDays) + ' روز از ۷ روز).'
-    : 'در ۷ روز اخیر هنوز عملی ثبت نشده است.';
+    ? 'در این ' + meta.word + ' ' + toPersianDigits(totalDeeds) + ' عمل نیک ثبت کرده‌اید (در ' + toPersianDigits(confirmedDays) + ' روز از ' + toPersianDigits(range) + ' روز).'
+    : 'در ' + meta.recent + ' هنوز عملی ثبت نشده است.';
+  const max = Math.max(1, rows[0].count);
   rows.forEach((r) => {
     const row = document.createElement('div');
     row.className = 'daily-deeds-history-row is-block' + (r.count ? '' : ' is-empty');
     row.innerHTML = '<div class="deeds-row-top"><span></span><span class="deeds-count"></span></div><div class="deeds-bar"><i></i></div>';
     row.querySelector('span').textContent = r.title;
     row.querySelector('.deeds-count').textContent = toPersianDigits(r.count) + ' بار';
-    row.querySelector('i').style.width = Math.round((r.count / 7) * 100) + '%';
+    row.querySelector('i').style.width = r.count ? Math.max(4, Math.round((r.count / max) * 100)) + '%' : '0%';
     el.appendChild(row);
   });
 }
+document.querySelectorAll('#daily-deeds-range button').forEach((b) => {
+  b.addEventListener('click', () => {
+    dailyDeedsRange = Number(b.dataset.range) || 7;
+    try { localStorage.setItem('arefanejam_deeds_range', String(dailyDeedsRange)); } catch (e) {}
+    renderDailyDeedsWeekReport();
+  });
+});
+try { const r = Number(localStorage.getItem('arefanejam_deeds_range')); if (DEEDS_RANGES[r]) dailyDeedsRange = r; } catch (e) {}
 
 function renderDailyDeedsHistory() {
   renderDailyDeedsWeekReport();
@@ -3441,9 +3463,9 @@ function saveDailyDeedsForToday(draft) {
   const titles = {};
   dailyDeedsItems.forEach((it) => { if (draft[it.id]) titles[it.id] = (it.icon ? it.icon + ' ' : '') + it.title; });
   log[dailyDeedsDateKey()] = { confirmed: true, done, titles, total: dailyDeedsItems.length, at: Date.now() };
-  // نگهداری فقط ۶۰ روز اخیر تا حافظه بیهوده پر نشود
+  // نگهداری ۴۰۰ روز اخیر (برای گزارش سالانه) تا حافظه بیهوده پر نشود
   const keys = Object.keys(log).sort();
-  while (keys.length > 60) delete log[keys.shift()];
+  while (keys.length > 400) delete log[keys.shift()];
   saveDailyDeedsLog(log);
 }
 document.getElementById('daily-deeds-confirm').addEventListener('click', () => {
@@ -9445,6 +9467,25 @@ function renderMokatibDetailSlider(urls) {
   restart();
 }
 
+/* مرتب‌کردن نوشتار دکمه‌های مساجد: فاصلهٔ اضافه حذف، فاصلهٔ قبل از «(»، و کلمه‌هایی که نباید از هم جدا شوند
+   (مثل «رسول الله» یا «مولوی + نام») با فاصلهٔ چسبان به هم بسته می‌شوند تا در شکستن خط وسط کلمه‌ها نیفتند. */
+function mkTidy(t) {
+  let x = String(t == null ? '' : t).replace(/[\u200B\u200E\u200F]/g, '').replace(/\s+/g, ' ').trim();
+  x = x.replace(/\s*([(（])\s*/g, ' $1').replace(/\s*([)）])/g, '$1');
+  const NB = '\u00A0';
+  x = x.replace(/(محمد|رسول)\s+(رسول|الله)/g, '$1' + NB + '$2');
+  x = x.replace(/(رسول|عبد|ابو|ابی|ابن)\s+(الله|الرحمن|الرحیم|العظیم|الدین|ذر|بکر)/g, '$1' + NB + '$2');
+  x = x.replace(/(مولوی|شیخ|حاج|دکتر|آقای|حافظ|قاری|مهندس)\s+/g, '$1' + NB);
+  x = x.replace(/(\s)(\S{1,2})\s+(?=\S)/g, '$1$2' + NB); // کلمهٔ خیلی کوتاه به کلمهٔ بعدی بچسبد
+  return x;
+}
+function mkSplitName(name) {
+  const t = String(name == null ? '' : name).replace(/\s+/g, ' ').trim();
+  const m = /^(.*?)\s*[(（]\s*([^)）]+?)\s*[)）]\s*$/.exec(t);
+  if (m && m[1]) return { main: m[1], place: m[2] };
+  return { main: t, place: '' };
+}
+
 function renderMokatibBtn2View() {
   const parentId = mokatibBtn2Path.length ? mokatibBtn2Path[mokatibBtn2Path.length - 1] : null;
   const mosques = mokatibState.publicMosques || [];
@@ -9456,8 +9497,12 @@ function renderMokatibBtn2View() {
     if (m) {
       renderMokatibDetailSlider(m.slides);
       detailBlock.classList.remove('hidden');
-      document.getElementById('mokatib-btn2-detail-name').textContent = m.name;
-      document.getElementById('mokatib-btn2-detail-info').textContent = m.imam_name ? 'مسئول: ' + m.imam_name : '';
+      const dNameEl = document.getElementById('mokatib-btn2-detail-name');
+      dNameEl.textContent = mkTidy(m.name);
+      dNameEl.style.fontSize = Number(m.name_size) > 0 ? (Number(m.name_size) + 4) + 'px' : '';
+      const dInfoEl = document.getElementById('mokatib-btn2-detail-info');
+      dInfoEl.textContent = m.imam_name ? 'مسئول: ' + mkTidy(m.imam_name) : '';
+      dInfoEl.style.fontSize = Number(m.imam_size) > 0 ? (Number(m.imam_size) + 1.5) + 'px' : '';
       const imgEl = document.getElementById('mokatib-btn2-detail-img');
       const wrapEl = document.getElementById('mokatib-btn2-detail-imgwrap');
       if (m.image_url) {
@@ -9488,14 +9533,25 @@ function renderMokatibBtn2View() {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'secondary-btn';
+    // نام مسجد: بخش اصلی در یک خط (مرتب و متوازن)، نام محله (داخل پرانتز) جدا زیرش
+    const parts = mkSplitName(m.name);
     const nameEl = document.createElement('span');
     nameEl.className = 'mokatib-btn2-name';
-    nameEl.textContent = m.name;
+    nameEl.textContent = mkTidy(parts.main);
+    if (Number(m.name_size) > 0) nameEl.style.fontSize = Number(m.name_size) + 'px';
     btn.appendChild(nameEl);
+    if (parts.place) {
+      const placeEl = document.createElement('span');
+      placeEl.className = 'mokatib-btn2-place';
+      placeEl.textContent = mkTidy(parts.place);
+      if (Number(m.name_size) > 0) placeEl.style.fontSize = (Number(m.name_size) * 0.82) + 'px';
+      btn.appendChild(placeEl);
+    }
     if (m.imam_name) {
       const imamEl = document.createElement('span');
       imamEl.className = 'mokatib-btn2-imam';
-      imamEl.textContent = 'مسئول: ' + m.imam_name;
+      imamEl.textContent = 'مسئول: ' + mkTidy(m.imam_name);
+      if (Number(m.imam_size) > 0) imamEl.style.fontSize = Number(m.imam_size) + 'px';
       btn.appendChild(imamEl);
     }
     btn.title = m.name + (m.imam_name ? ' — مسئول: ' + m.imam_name : '');
@@ -9507,6 +9563,15 @@ function renderMokatibBtn2View() {
     });
     grid.appendChild(btn);
   });
+  // همهٔ دکمه‌های یک صفحه هم‌قد می‌شوند (ظاهر منظم)؛ اگر پنجره هنوز دیده نمی‌شود، بعد از نمایش دوباره اندازه‌گیری می‌شود
+  const equalize = () => {
+    grid.style.removeProperty('--btn2-h');
+    let mx = 0;
+    grid.querySelectorAll('.secondary-btn').forEach((b) => { mx = Math.max(mx, b.offsetHeight); });
+    if (mx > 0) grid.style.setProperty('--btn2-h', mx + 'px'); else setTimeout(equalize, 250);
+  };
+  requestAnimationFrame(equalize);
+
 }
 
 function undoMokatibBtn2Step() {
@@ -10439,6 +10504,332 @@ function qpJumpTo(p) {
 
   // اگر حالت تاریک از جای دیگر (بالای صفحه یا تنظیمات) عوض شد، برچسب منو هم هماهنگ شود
   document.addEventListener('click', () => { setTimeout(qpMenuRefresh, 0); }, true);
+})();
+
+/* ---------- آب‌وهوا بر اساس موقعیت (کارت گرافیکی صفحهٔ خانه) ----------
+   منبع داده: Open-Meteo (رایگان، بدون کلید). مختصات همان state.coords است (GPS یا شهر انتخابی)،
+   پس با عوض شدن موقعیت، آب‌وهوا هم خودکار عوض می‌شود. آخرین نتیجه ذخیره می‌ماند و آفلاین هم نشان داده می‌شود. */
+const WX_CACHE_KEY = 'arefanejam_weather_cache';
+const WX_NAMES_KEY = 'arefanejam_weather_names';
+const WX_MAX_AGE = 30 * 60 * 1000;
+let wxBusy = false, wxLastTry = 0, wxData = null, wxRenderedKey = '', wxRenderedStamp = '', wxPlaceKey = '';
+
+function wxInfo(code) {
+  const c = Number(code);
+  if (c === 0) return { kind: 'clear', text: 'آسمان صاف' };
+  if (c === 1) return { kind: 'clear', text: 'عمدتاً صاف' };
+  if (c === 2) return { kind: 'partly', text: 'نیمه‌ابری' };
+  if (c === 3) return { kind: 'cloudy', text: 'ابری' };
+  if (c === 45 || c === 48) return { kind: 'fog', text: 'مه‌آلود' };
+  if (c >= 51 && c <= 55) return { kind: 'rain', text: 'نم‌نم باران' };
+  if (c === 56 || c === 57) return { kind: 'rain', text: 'نم‌نم باران یخ‌زده' };
+  if (c === 61) return { kind: 'rain', text: 'باران ضعیف' };
+  if (c === 63) return { kind: 'rain', text: 'باران' };
+  if (c === 65) return { kind: 'rain', text: 'باران شدید' };
+  if (c === 66 || c === 67) return { kind: 'rain', text: 'باران یخ‌زده' };
+  if (c === 71) return { kind: 'snow', text: 'برف ضعیف' };
+  if (c === 73) return { kind: 'snow', text: 'برف' };
+  if (c === 75) return { kind: 'snow', text: 'برف سنگین' };
+  if (c === 77) return { kind: 'snow', text: 'دانه‌های برف' };
+  if (c >= 80 && c <= 82) return { kind: 'rain', text: c === 82 ? 'رگبار شدید' : 'رگبار' };
+  if (c === 85 || c === 86) return { kind: 'snow', text: 'بارش برف' };
+  if (c === 95) return { kind: 'thunder', text: 'رعدوبرق' };
+  if (c === 96 || c === 99) return { kind: 'thunder', text: 'رعدوبرق و تگرگ' };
+  return { kind: 'cloudy', text: 'نامشخص' };
+}
+
+/* آیکون‌های SVG (بدون فایل عکس) */
+function wxIcon(kind, isDay) {
+  const sun = '<g stroke="#FFB300" stroke-width="3" stroke-linecap="round"><path d="M32 6v6M32 52v6M6 32h6M52 32h6M13.6 13.6l4.2 4.2M46.2 46.2l4.2 4.2M13.6 50.4l4.2-4.2M46.2 17.8l4.2-4.2"/></g><circle cx="32" cy="32" r="12" fill="#FFD54A"/><circle cx="28" cy="28" r="5" fill="#FFF3B0" opacity=".7"/>';
+  const moon = '<path d="M40 8a24 24 0 1 0 16 38A19 19 0 0 1 40 8z" fill="#F7EBB5"/><circle cx="26" cy="30" r="3" fill="#E4D48C" opacity=".6"/><circle cx="34" cy="42" r="2" fill="#E4D48C" opacity=".6"/>';
+  const cloud = (fill, dy) => '<path transform="translate(0 ' + (dy || 0) + ')" d="M16 48a10 10 0 0 1 1.4-19.9A15 15 0 0 1 46 30.5 8.8 8.8 0 0 1 46 48z" fill="' + fill + '"/>';
+  let body = '';
+  if (kind === 'clear') body = isDay ? sun : moon;
+  else if (kind === 'partly') body = '<g transform="translate(-8 -9) scale(.72)">' + (isDay ? sun : moon) + '</g>' + cloud('#F4F8FC', 4);
+  else if (kind === 'cloudy') body = '<g transform="translate(10 -4) scale(.7)">' + cloud('#B9C6D3', 0) + '</g>' + cloud('#E6EDF4', 2);
+  else if (kind === 'fog') body = cloud('#D5DEE6', -6) + '<g stroke="#B7C3CD" stroke-width="3.2" stroke-linecap="round"><path d="M12 46h40M18 53h34M12 60h28" opacity=".9"/></g>';
+  else if (kind === 'rain') body = cloud('#C9D6E3', -6) + '<g stroke="#4FA3F7" stroke-width="3.4" stroke-linecap="round"><path d="M22 46l-3 8M33 46l-3 8M44 46l-3 8"/></g>';
+  else if (kind === 'snow') body = cloud('#DCE6F0', -6) + '<g fill="#fff" stroke="#9DB7D1" stroke-width="1"><circle cx="21" cy="50" r="3"/><circle cx="33" cy="54" r="3"/><circle cx="45" cy="50" r="3"/></g>';
+  else if (kind === 'thunder') body = cloud('#8E9BAE', -8) + '<path d="M35 38l-9 13h7l-4 11 13-15h-8l5-9z" fill="#FFD43B" stroke="#E5A800" stroke-width="1" stroke-linejoin="round"/>';
+  return '<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' + body + '</svg>';
+}
+
+/* لایهٔ متحرک آسمان بر اساس وضعیت و روز/شب */
+function wxFxHtml(kind, isDay) {
+  const cloud = (cls) => '<svg class="wx-cloud ' + cls + '" viewBox="0 0 120 60" aria-hidden="true"><path d="M26 54a18 18 0 0 1 2-35.8A28 28 0 0 1 84 22a16 16 0 0 1 4 32z" fill="currentColor"/></svg>';
+  let h = '';
+  if (!isDay) {
+    let stars = '';
+    for (let i = 0; i < 22; i++) stars += '<i style="left:' + ((i * 47 + 13) % 100) + '%;top:' + ((i * 29 + 7) % 55) + '%;animation-delay:' + ((i * 0.37) % 3).toFixed(2) + 's"></i>';
+    if (kind === 'clear' || kind === 'partly') h += '<div class="wx-stars">' + stars + '</div>';
+    if (kind === 'clear' || kind === 'partly') h += '<div class="wx-moon"></div>';
+  } else if (kind === 'clear' || kind === 'partly') {
+    h += '<div class="wx-sunorb"><span></span></div>';
+  }
+  if (kind === 'partly') h += cloud('c1') + cloud('c3');
+  if (kind === 'cloudy' || kind === 'rain' || kind === 'thunder') h += cloud('c1 dark') + cloud('c2 dark') + cloud('c3 dark');
+  if (kind === 'snow') h += cloud('c1') + cloud('c2');
+  if (kind === 'fog') h += '<div class="wx-fogband f1"></div><div class="wx-fogband f2"></div><div class="wx-fogband f3"></div>';
+  if (kind === 'rain' || kind === 'thunder') {
+    let d = '';
+    for (let i = 0; i < 46; i++) d += '<i style="left:' + ((i * 37 + 5) % 100) + '%;animation-delay:-' + ((i * 0.23) % 1.6).toFixed(2) + 's;animation-duration:' + (0.55 + (i % 5) * 0.12).toFixed(2) + 's"></i>';
+    h += '<div class="wx-rain">' + d + '</div>';
+  }
+  if (kind === 'snow') {
+    let f = '';
+    for (let i = 0; i < 34; i++) f += '<i style="left:' + ((i * 31 + 9) % 100) + '%;width:' + (3 + (i % 4)) + 'px;height:' + (3 + (i % 4)) + 'px;animation-delay:-' + ((i * 0.41) % 6).toFixed(2) + 's;animation-duration:' + (4 + (i % 5)) + 's"></i>';
+    h += '<div class="wx-snow">' + f + '</div>';
+  }
+  if (kind === 'thunder') h += '<div class="wx-flash"></div>';
+  return h;
+}
+
+function wxNum(n, d) { return toPersianDigits((Math.round(Number(n) * (d ? 10 : 1)) / (d ? 10 : 1)).toString().replace('-', '−')); }
+function wxTemp(n) { return wxNum(n) + '°'; }
+function wxKm(la1, ln1, la2, ln2) {
+  const R = 6371, rad = Math.PI / 180;
+  const dLa = (la2 - la1) * rad, dLn = (ln2 - ln1) * rad;
+  const a = Math.sin(dLa / 2) ** 2 + Math.cos(la1 * rad) * Math.cos(la2 * rad) * Math.sin(dLn / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+const WX_DAYS = ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنجشنبه', 'جمعه', 'شنبه'];
+function wxUvLabel(u) { return u < 3 ? 'کم' : u < 6 ? 'متوسط' : u < 8 ? 'زیاد' : u < 11 ? 'بسیار زیاد' : 'شدید'; }
+function wxWindLabel(k) { return k < 6 ? 'آرام' : k < 20 ? 'نسیم' : k < 39 ? 'باد' : k < 62 ? 'باد شدید' : 'طوفانی'; }
+function wxMin(s) { const m = /T(\d\d):(\d\d)/.exec(s || ''); return m ? (+m[1]) * 60 + (+m[2]) : null; }
+
+async function wxFetchJson(url) {
+  try {
+    const ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    const t = ctl ? setTimeout(() => ctl.abort(), 15000) : null;
+    const res = await fetch(url, { cache: 'no-store', signal: ctl ? ctl.signal : undefined });
+    if (t) clearTimeout(t);
+    if (res.ok) return await res.json();
+  } catch (e) {}
+  try {
+    const CH = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp;
+    if (CH && typeof CH.get === 'function') {
+      const r = await CH.get({ url: url, connectTimeout: 15000, readTimeout: 20000 });
+      if (r && r.status === 200) return (typeof r.data === 'string') ? JSON.parse(r.data) : r.data;
+    }
+  } catch (e) {}
+  return null;
+}
+
+function wxReadCache() {
+  try { const c = JSON.parse(localStorage.getItem(WX_CACHE_KEY) || 'null'); if (c && c.data && c.key) return c; } catch (e) {}
+  return null;
+}
+
+/* نام محل: شهر انتخابی ← شهر نزدیک (تا ۴۰ کیلومتر) ← نام‌یابی آنلاین ← «موقعیت شما» */
+async function wxResolvePlace(lat, lng) {
+  if (state.manualCity && state.manualCity.name) return state.manualCity.name;
+  const nc = findNearestCity(lat, lng);
+  const cc = loadCachedCoords();
+  if (state.activeCityName && !(cc && cc.precise)) return state.activeCityName;
+  if (nc && wxKm(lat, lng, nc.lat, nc.lng) <= 40) return nc.name;
+  const nk = lat.toFixed(2) + ',' + lng.toFixed(2);
+  let names = {};
+  try { names = JSON.parse(localStorage.getItem(WX_NAMES_KEY) || '{}') || {}; } catch (e) {}
+  if (names[nk]) return names[nk];
+  const j = await wxFetchJson('https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=' + lat.toFixed(4) + '&longitude=' + lng.toFixed(4) + '&localityLanguage=fa');
+  const nm = j && (j.city || j.locality || j.principalSubdivision);
+  if (nm) {
+    names[nk] = nm;
+    try { const ks = Object.keys(names); if (ks.length > 12) delete names[ks[0]]; localStorage.setItem(WX_NAMES_KEY, JSON.stringify(names)); } catch (e) {}
+    return nm;
+  }
+  if (nc && wxKm(lat, lng, nc.lat, nc.lng) <= 150) return 'نزدیک ' + nc.name;
+  return 'موقعیت شما';
+}
+
+function wxRender(entry, offline) {
+  const card = document.getElementById('wx-card');
+  if (!card || !entry || !entry.data) return;
+  const d = entry.data, cur = d.current || {}, hr = d.hourly || {}, dy = d.daily || {};
+  if (!cur || cur.temperature_2m === undefined || !dy.time) return;
+  const off = Number(d.utc_offset_seconds || 0) * 1000;
+  const nowStr = new Date(Date.now() + off).toISOString().slice(0, 16); // ساعت محلیِ همان مکان
+  const isDay = cur.is_day === 1 || cur.is_day === true;
+  const info = wxInfo(cur.weather_code);
+
+  card.setAttribute('data-kind', info.kind);
+  card.setAttribute('data-day', isDay ? '1' : '0');
+  card.classList.remove('is-loading', 'is-error');
+
+  const fxKey = info.kind + (isDay ? 'd' : 'n');
+  const fx = document.getElementById('wx-fx');
+  if (fx && fx.getAttribute('data-fx') !== fxKey) { fx.innerHTML = wxFxHtml(info.kind, isDay); fx.setAttribute('data-fx', fxKey); }
+
+  document.getElementById('wx-place').textContent = entry.place || 'موقعیت شما';
+  document.getElementById('wx-icon').innerHTML = wxIcon(info.kind, isDay);
+  document.getElementById('wx-temp').textContent = wxNum(cur.temperature_2m);
+  document.getElementById('wx-cond').textContent = info.text;
+  const sub = [];
+  if (dy.temperature_2m_max) sub.push('<span>▲ ' + wxTemp(dy.temperature_2m_max[0]) + '</span>');
+  if (dy.temperature_2m_min) sub.push('<span>▼ ' + wxTemp(dy.temperature_2m_min[0]) + '</span>');
+  if (cur.apparent_temperature !== undefined) sub.push('<span>احساس ' + wxTemp(cur.apparent_temperature) + '</span>');
+  document.getElementById('wx-sub').innerHTML = sub.join('');
+
+  // قطعه‌های آمار
+  const rainP = dy.precipitation_probability_max ? dy.precipitation_probability_max[0] : null;
+  const uv = dy.uv_index_max ? dy.uv_index_max[0] : null;
+  const wd = Number(cur.wind_direction_10m || 0);
+  const chips = [
+    ['💧', 'رطوبت', wxNum(cur.relative_humidity_2m) + '٪', ''],
+    ['💨', 'باد', wxNum(cur.wind_speed_10m) + ' km/h', '<b class="wx-arrow" style="transform:rotate(' + Math.round(wd + 180) + 'deg)">↑</b> ' + wxWindLabel(cur.wind_speed_10m)],
+    ['☔', 'احتمال بارش', rainP === null ? '—' : wxNum(rainP) + '٪', ''],
+    ['🧭', 'فشار هوا', wxNum(cur.surface_pressure) + ' hPa', ''],
+    ['🕶️', 'شاخص UV', uv === null ? '—' : wxNum(uv, 1), uv === null ? '' : wxUvLabel(uv)],
+  ];
+  document.getElementById('wx-chips').innerHTML = chips.map((c) =>
+    '<div class="wx-chip"><span class="wx-chip-ic">' + c[0] + '</span><span class="wx-chip-k">' + c[1] + '</span><span class="wx-chip-v">' + c[2] + '</span>' + (c[3] ? '<span class="wx-chip-s">' + c[3] + '</span>' : '') + '</div>').join('');
+
+  // کمان خورشید (طلوع تا غروب)
+  const sr = wxMin(dy.sunrise && dy.sunrise[0]), ss = wxMin(dy.sunset && dy.sunset[0]), nm = wxMin(nowStr);
+  const sunEl = document.getElementById('wx-sun');
+  if (sr !== null && ss !== null && nm !== null && ss > sr) {
+    const t = Math.max(0, Math.min(1, (nm - sr) / (ss - sr)));
+    const up = nm >= sr && nm <= ss;
+    const x = 200 - ((1 - t) * (1 - t) * 10 + 2 * (1 - t) * t * 100 + t * t * 190);
+    const y = (1 - t) * (1 - t) * 60 + 2 * (1 - t) * t * (-36) + t * t * 60;
+    const left = Math.max(0, ss - nm), lh = Math.floor(left / 60), lm = left % 60;
+    sunEl.innerHTML =
+      '<svg viewBox="0 0 200 74" class="wx-sun-svg" aria-hidden="true"><path d="M190 60Q100 -36 10 60" class="wx-sun-track"/>' +
+      (up ? '<path d="M190 60Q100 -36 10 60" class="wx-sun-done" pathLength="100" stroke-dasharray="' + (t * 100).toFixed(1) + ' 100"/>' : '') +
+      '<line x1="4" y1="60" x2="196" y2="60" class="wx-sun-ground"/>' +
+      (up ? '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="9" class="wx-sun-glow"/><circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="5.5" class="wx-sun-dot"/>' : '<text x="100" y="40" text-anchor="middle" class="wx-sun-night">🌙</text>') +
+      '</svg>' +
+      '<div class="wx-sun-row"><span>🌅 طلوع ' + toPersianDigits(String(dy.sunrise[0]).slice(11, 16)) + '</span>' +
+      (up ? '<span class="wx-sun-mid">' + (lh ? toPersianDigits(lh) + ' ساعت و ' : '') + toPersianDigits(lm) + ' دقیقه تا غروب</span>' : '') +
+      '<span>🌇 غروب ' + toPersianDigits(String(dy.sunset[0]).slice(11, 16)) + '</span></div>';
+    sunEl.classList.remove('hidden');
+  } else { sunEl.classList.add('hidden'); }
+
+  // ساعت‌به‌ساعت (۲۴ ساعت آینده)
+  let i0 = 0;
+  const hTimes = hr.time || [];
+  const nowH = nowStr.slice(0, 13) + ':00';
+  for (let i = 0; i < hTimes.length; i++) { if (hTimes[i] >= nowH) { i0 = i; break; } }
+  let hh = '';
+  for (let i = i0; i < Math.min(hTimes.length, i0 + 24); i++) {
+    const inf = wxInfo(hr.weather_code[i]);
+    const p = hr.precipitation_probability ? hr.precipitation_probability[i] : null;
+    hh += '<div class="wx-hour' + (i === i0 ? ' is-now' : '') + '"><span class="wx-hour-t">' + (i === i0 ? 'اکنون' : toPersianDigits(hTimes[i].slice(11, 13)) + ':۰۰') + '</span>' +
+      '<span class="wx-hour-ic">' + wxIcon(inf.kind, hr.is_day ? hr.is_day[i] === 1 : true) + '</span>' +
+      '<span class="wx-hour-v">' + wxTemp(hr.temperature_2m[i]) + '</span>' +
+      '<span class="wx-hour-p">' + (p >= 20 ? '💧' + wxNum(p) + '٪' : '&nbsp;') + '</span></div>';
+  }
+  document.getElementById('wx-hours').innerHTML = hh;
+
+  // ۷ روز آینده
+  const mins = dy.temperature_2m_min || [], maxs = dy.temperature_2m_max || [];
+  const lo = Math.min.apply(null, mins), hi = Math.max.apply(null, maxs), span = Math.max(1, hi - lo);
+  let dd = '';
+  for (let i = 0; i < dy.time.length; i++) {
+    const inf = wxInfo(dy.weather_code[i]);
+    const dt = new Date(dy.time[i] + 'T00:00:00Z');
+    const name = i === 0 ? 'امروز' : (i === 1 ? 'فردا' : WX_DAYS[dt.getUTCDay()]);
+    const a = ((mins[i] - lo) / span) * 100, b = ((maxs[i] - lo) / span) * 100;
+    const p = dy.precipitation_probability_max ? dy.precipitation_probability_max[i] : null;
+    dd += '<div class="wx-day"><span class="wx-day-n">' + name + '</span><span class="wx-day-ic" title="' + inf.text + '">' + wxIcon(inf.kind, true) + '</span>' +
+      '<span class="wx-day-p">' + (p >= 20 ? '💧' + wxNum(p) + '٪' : '') + '</span>' +
+      '<span class="wx-day-lo">' + wxTemp(mins[i]) + '</span>' +
+      '<span class="wx-day-bar"><i style="right:' + a.toFixed(1) + '%;left:' + (100 - b).toFixed(1) + '%"></i></span>' +
+      '<span class="wx-day-hi">' + wxTemp(maxs[i]) + '</span></div>';
+  }
+  document.getElementById('wx-days').innerHTML = dd;
+
+  const ageMin = Math.round((Date.now() - entry.ts) / 60000);
+  document.getElementById('wx-foot').textContent = 'بروزرسانی: ' + formatTime(new Date(entry.ts)) + (offline ? ' • ذخیره‌شده (بدون اینترنت)' : '') + ' • Open-Meteo';
+  card.classList.toggle('is-stale', !!offline && ageMin > 180);
+  wxRenderedKey = entry.key;
+  wxRenderedStamp = nowH;
+}
+
+function wxShowState(kind, cond, sub) {
+  const card = document.getElementById('wx-card');
+  if (!card) return;
+  card.setAttribute('data-kind', kind);
+  card.classList.toggle('is-loading', kind === 'loading');
+  card.classList.toggle('is-error', kind === 'error');
+  if (kind === 'loading') card.setAttribute('data-kind', 'cloudy');
+  document.getElementById('wx-cond').textContent = cond;
+  document.getElementById('wx-sub').textContent = sub || '';
+  if (kind === 'error') { document.getElementById('wx-temp').textContent = '--'; document.getElementById('wx-icon').innerHTML = wxIcon('cloudy', true); }
+}
+
+function weatherEnsure(force) {
+  try { return weatherEnsureRun(force).catch(() => {}); } catch (e) { return null; }
+}
+async function weatherEnsureRun(force) {
+  const card = document.getElementById('wx-card');
+  if (!card || !state.coords) return;
+  const lat = Number(state.coords.lat), lng = Number(state.coords.lng);
+  if (!isFinite(lat) || !isFinite(lng)) return;
+  const key = lat.toFixed(2) + ',' + lng.toFixed(2);
+  card.classList.remove('hidden');
+
+  let cached = wxReadCache();
+  if (cached && cached.key !== key) cached = null;
+  const fresh = cached && (Date.now() - cached.ts) < WX_MAX_AGE;
+
+  if (cached && wxRenderedKey !== key) wxRender(cached, !navigator.onLine);
+  else if (cached && wxRenderedStamp !== (new Date(Date.now() + Number(cached.data.utc_offset_seconds || 0) * 1000).toISOString().slice(0, 13) + ':00')) wxRender(cached, !fresh && !navigator.onLine);
+  if (!cached && wxRenderedKey !== key) wxShowState('loading', 'در حال دریافت آب‌وهوا...', 'بر اساس موقعیت شما');
+
+  // نام محل (اگر عوض شده)
+  const pk = key + '|' + (state.manualCity ? state.manualCity.name : '');
+  if (pk !== wxPlaceKey && cached) {
+    wxPlaceKey = pk;
+    wxResolvePlace(lat, lng).then((nm) => { document.getElementById('wx-place').textContent = nm; const c = wxReadCache(); if (c && c.key === key) { c.place = nm; try { localStorage.setItem(WX_CACHE_KEY, JSON.stringify(c)); } catch (e) {} } }).catch(() => {});
+  }
+
+  if (fresh && !force) return;
+  if (wxBusy) return;
+  if (!force && Date.now() - wxLastTry < 60000) return;
+  wxLastTry = Date.now();
+  wxBusy = true;
+  card.classList.add('is-busy');
+  try {
+    const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat.toFixed(3) + '&longitude=' + lng.toFixed(3) +
+      '&current=temperature_2m,apparent_temperature,relative_humidity_2m,is_day,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure' +
+      '&hourly=temperature_2m,weather_code,precipitation_probability,is_day' +
+      '&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_probability_max' +
+      '&timezone=auto&forecast_days=7&wind_speed_unit=kmh';
+    const data = await wxFetchJson(url);
+    // اگر در این فاصله موقعیت عوض شده، نتیجهٔ قدیمی را کنار بگذار
+    const k2 = state.coords ? Number(state.coords.lat).toFixed(2) + ',' + Number(state.coords.lng).toFixed(2) : key;
+    if (data && data.current && k2 === key) {
+      const place = await wxResolvePlace(lat, lng).catch(() => 'موقعیت شما');
+      const entry = { key: key, ts: Date.now(), data: data, place: place };
+      try { localStorage.setItem(WX_CACHE_KEY, JSON.stringify(entry)); } catch (e) {}
+      wxPlaceKey = key + '|' + (state.manualCity ? state.manualCity.name : '');
+      wxRender(entry, false);
+    } else if (!data && !cached) {
+      wxShowState('error', 'دریافت آب‌وهوا ممکن نشد', 'اینترنت را بررسی کنید و دکمهٔ ⟳ را بزنید');
+    } else if (!data && cached) {
+      wxRender(cached, true);
+    }
+  } catch (e) {
+    if (!cached) wxShowState('error', 'دریافت آب‌وهوا ممکن نشد', 'اینترنت را بررسی کنید و دکمهٔ ⟳ را بزنید');
+  }
+  wxBusy = false;
+  card.classList.remove('is-busy');
+}
+
+(function wxInit() {
+  const btn = document.getElementById('wx-refresh');
+  if (btn) btn.addEventListener('click', (e) => { e.stopPropagation(); weatherEnsure(true); });
+  const place = document.getElementById('wx-place-btn');
+  if (place) place.addEventListener('click', (e) => {
+    e.stopPropagation();
+    populateCityList('');
+    document.getElementById('city-modal').classList.remove('hidden');
+  });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { try { weatherEnsure(); } catch (e) {} } });
+  window.addEventListener('online', () => { try { weatherEnsure(true); } catch (e) {} });
+  setInterval(() => { if (!document.hidden) { try { weatherEnsure(); } catch (e) {} } }, 10 * 60 * 1000);
+  if (state.coords) { try { weatherEnsure(); } catch (e) {} }
 })();
 
 // نشانهٔ «اجرای کامل app.js» برای بروزرسانی ظاهر اپ از سایت (اگر تا اینجا نرسد، اپ به نسخهٔ داخلی برمی‌گردد)

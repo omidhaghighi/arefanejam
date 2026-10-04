@@ -8,7 +8,7 @@
 <link rel="icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=81">
+<link rel="stylesheet" href="css/style.css?v=84">
 </head>
 <body>
 
@@ -78,6 +78,34 @@
         <p class="hero-sub" id="home-next-prayer-time">—</p>
         <p class="hero-countdown" id="home-countdown"></p>
         <p class="hero-hint">برای مشاهده همه اوقات شرعی ضربه بزنید ←</p>
+      </div>
+
+      <!-- آب‌وهوا (بر اساس موقعیت) -->
+      <div class="wx-card hidden" id="wx-card" data-kind="cloudy" data-day="1">
+        <div class="wx-scene">
+          <div class="wx-fx" id="wx-fx" aria-hidden="true"></div>
+          <div class="wx-head">
+            <button id="wx-place-btn" class="wx-place" type="button" title="تغییر شهر"><span>📍</span><span id="wx-place">—</span></button>
+            <button id="wx-refresh" class="wx-refresh" type="button" title="بروزرسانی آب‌وهوا">⟳</button>
+          </div>
+          <div class="wx-main">
+            <div class="wx-main-txt">
+              <div class="wx-temp"><span id="wx-temp">--</span><sup>°</sup></div>
+              <div class="wx-cond" id="wx-cond">در حال دریافت آب‌وهوا...</div>
+              <div class="wx-sub" id="wx-sub"></div>
+            </div>
+            <div class="wx-icon" id="wx-icon"></div>
+          </div>
+        </div>
+        <div class="wx-body">
+          <div class="wx-chips" id="wx-chips"></div>
+          <div class="wx-sun hidden" id="wx-sun"></div>
+          <h4 class="wx-h">ساعت به ساعت</h4>
+          <div class="wx-hours" id="wx-hours"></div>
+          <h4 class="wx-h">پیش‌بینی ۷ روز آینده</h4>
+          <div class="wx-days" id="wx-days"></div>
+          <p class="wx-foot" id="wx-foot"></p>
+        </div>
       </div>
 
       <div class="section-block home-list-block">
@@ -382,7 +410,12 @@
         <p class="muted-text small" id="daily-deeds-status" style="margin-top:8px"></p>
       </div>
       <div class="section-block">
-        <h3>گزارش این هفته (۷ روز اخیر)</h3>
+        <h3 id="daily-deeds-report-title">گزارش هفته (۷ روز اخیر)</h3>
+        <div id="daily-deeds-range" class="quran-mode-switch deeds-range-switch">
+          <button type="button" data-range="7" class="active">هفتگی</button>
+          <button type="button" data-range="30">ماهانه</button>
+          <button type="button" data-range="365">سالانه</button>
+        </div>
         <p class="muted-text small" id="daily-deeds-week-total">—</p>
         <div id="daily-deeds-week-report" class="daily-deeds-history"></div>
       </div>
@@ -1191,6 +1224,6 @@
 <script src="js/iran-cities.js?v=14"></script>
 <script src="js/native-config.js"></script>
 <script src="js/native-bridge.js?v=19"></script>
-<script src="js/app.js?v=119"></script>
+<script src="js/app.js?v=122"></script>
 </body>
 </html>

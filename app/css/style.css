@@ -1614,14 +1614,28 @@ body.dark-mode .qb-prompt-link { color: var(--gold-light); }
   flex: 0 0 calc((100% - (var(--btn2-cols) - 1) * 12px) / var(--btn2-cols));
   max-width: calc((100% - (var(--btn2-cols) - 1) * 12px) / var(--btn2-cols));
   min-width: 0; /* بدون این، فلکس‌آیتم به‌جای رعایت عرض تعیین‌شده، به‌اندازهٔ طول متنِ داخلش بزرگ می‌شود */
-  min-height: 48px; height: auto; margin: 0;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 3px;
-  text-align: center; padding: 10px 8px; line-height: 1.4;
-  overflow: visible; white-space: normal; word-break: break-word; overflow-wrap: anywhere;
+  min-height: var(--btn2-h, 48px); height: auto; margin: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+  gap: 5px;
+  text-align: center; padding: 12px 8px 11px; line-height: 1.55;
+  overflow: visible; white-space: normal;
+  /* شکستن خط مرتب: فقط بین کلمه‌ها (نه وسط کلمه)، و خط‌ها متوازن */
+  word-break: normal; overflow-wrap: break-word; hyphens: none;
+  text-wrap: balance;
 }
-.mokatib-btn2-btn-grid .secondary-btn .mokatib-btn2-name { font-size: 14px; font-weight: 700; }
-.mokatib-btn2-btn-grid .secondary-btn .mokatib-btn2-imam { font-size: 11.5px; font-weight: 400; opacity: .85; }
+.mokatib-btn2-btn-grid .secondary-btn .mokatib-btn2-name { font-size: 14px; font-weight: 800; line-height: 1.6; }
+/* نام محله: قرص کوچک جدا زیر نام مسجد */
+.mokatib-btn2-btn-grid .secondary-btn .mokatib-btn2-place {
+  font-size: 11.5px; font-weight: 700; line-height: 1.5; padding: 1px 10px; border-radius: 999px;
+  background: rgba(255,255,255,.16); color: var(--gold-light);
+  max-width: 100%; text-wrap: balance;
+}
+/* مسئول همیشه پایین دکمه؛ با خط جداکننده، تا در همهٔ دکمه‌ها هم‌تراز باشد */
+.mokatib-btn2-btn-grid .secondary-btn .mokatib-btn2-imam {
+  margin-top: auto; padding-top: 6px; width: 86%;
+  border-top: 1px solid rgba(255,255,255,.2);
+  font-size: 11.5px; font-weight: 500; opacity: .92; line-height: 1.6;
+}
 .mokatib-btn2-detail { margin-bottom: 16px; }
 .mokatib-btn2-detail h3 { margin: 6px 0 8px; color: var(--emerald); }
 .mokatib-btn2-detail .secondary-btn { margin-bottom: 10px; }
@@ -3537,3 +3551,159 @@ body.dark-mode .rc-chip.is-active { color: #fff; background: linear-gradient(180
 body.dark-mode .rcpick-main { color: #e9e4d8; background: #22332d; border-color: rgba(217,189,135,.45); box-shadow: 0 3px 0 #0a1411; }
 body.dark-mode .rcpick-row.is-current .rcpick-main { background: #1b3d36; }
 body.dark-mode .rcpick-st { color: #cdbd93; }
+
+
+/* انتخاب بازهٔ گزارش اعمال: هفتگی / ماهانه / سالانه */
+.deeds-range-switch { display: flex; gap: 4px; margin: 4px 0 10px; }
+.deeds-range-switch button { flex: 1; padding: 9px 6px; font-family: inherit; font-size: 14px; border: 0; background: transparent; color: var(--emerald); cursor: pointer; }
+body.dark-mode .deeds-range-switch button { color: #e8d29b; }
+body.dark-mode .deeds-range-switch button.active { color: #fff; }
+
+
+/* ============ آب‌وهوا (کارت گرافیکی صفحهٔ خانه) ============ */
+.wx-card {
+  --sky1: #3FA9F5; --sky2: #8ED3FF;
+  margin: 14px 0; border-radius: 26px; overflow: hidden; background: var(--card-bg);
+  box-shadow: var(--raised-lg); position: relative;
+}
+.wx-card[data-kind="clear"][data-day="0"]   { --sky1: #0A1738; --sky2: #2D4580; }
+.wx-card[data-kind="partly"]                { --sky1: #3F8FD6; --sky2: #9CCBEF; }
+.wx-card[data-kind="partly"][data-day="0"]  { --sky1: #0F1E45; --sky2: #3A4F86; }
+.wx-card[data-kind="cloudy"]                { --sky1: #6E839A; --sky2: #AEBDCB; }
+.wx-card[data-kind="cloudy"][data-day="0"]  { --sky1: #232C3B; --sky2: #475365; }
+.wx-card[data-kind="rain"]                  { --sky1: #3E5066; --sky2: #7389A0; }
+.wx-card[data-kind="rain"][data-day="0"]    { --sky1: #151C28; --sky2: #36445A; }
+.wx-card[data-kind="thunder"]               { --sky1: #232740; --sky2: #4D5473; }
+.wx-card[data-kind="snow"]                  { --sky1: #6F8BA8; --sky2: #BDCFE0; }
+.wx-card[data-kind="snow"][data-day="0"]    { --sky1: #263249; --sky2: #5A6E8A; }
+.wx-card[data-kind="fog"]                   { --sky1: #84919B; --sky2: #BAC3CA; }
+.wx-card[data-kind="fog"][data-day="0"]     { --sky1: #2E363F; --sky2: #59626D; }
+
+.wx-scene {
+  position: relative; min-height: 210px; padding: 14px 16px 16px; color: #fff; overflow: hidden;
+  background: linear-gradient(170deg, var(--sky1), var(--sky2));
+  transition: background .6s;
+}
+.wx-scene::after { /* برق ملایم لبهٔ پایین */
+  content: ''; position: absolute; inset: auto 0 0 0; height: 46px;
+  background: linear-gradient(180deg, transparent, rgba(0,0,0,.18)); pointer-events: none;
+}
+.wx-fx { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.wx-head, .wx-main { position: relative; z-index: 2; }
+.wx-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.wx-place {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 70%;
+  background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.28); color: #fff;
+  border-radius: 999px; padding: 6px 13px; font: 700 13px var(--font-ui);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); cursor: pointer;
+}
+.wx-place #wx-place { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wx-refresh {
+  width: 34px; height: 34px; border-radius: 50%; border: 1px solid rgba(255,255,255,.28);
+  background: rgba(255,255,255,.18); color: #fff; font-size: 19px; line-height: 1; cursor: pointer;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+.wx-card.is-busy .wx-refresh { animation: wxSpin 1s linear infinite; }
+@keyframes wxSpin { to { transform: rotate(360deg); } }
+
+.wx-main { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
+.wx-main-txt { min-width: 0; }
+.wx-temp { font: 800 72px/1 var(--font-ui); letter-spacing: -2px; text-shadow: 0 4px 18px rgba(0,0,0,.28); display: flex; align-items: flex-start; }
+.wx-temp sup { font-size: 34px; font-weight: 700; margin-top: 6px; }
+.wx-cond { font: 800 20px var(--font-ui); margin-top: 4px; text-shadow: 0 2px 8px rgba(0,0,0,.3); }
+.wx-sub { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 6px; font: 600 12.5px var(--font-ui); opacity: .95; text-shadow: 0 1px 4px rgba(0,0,0,.3); }
+.wx-icon { width: 118px; height: 118px; flex: none; filter: drop-shadow(0 10px 14px rgba(0,0,0,.28)); animation: wxFloat 5s ease-in-out infinite; }
+.wx-icon svg { width: 100%; height: 100%; }
+@keyframes wxFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+.wx-card.is-loading .wx-temp, .wx-card.is-loading .wx-icon { opacity: .35; animation: wxPulse 1.4s ease-in-out infinite; }
+@keyframes wxPulse { 50% { opacity: .7; } }
+.wx-card.is-error .wx-icon { opacity: .6; animation: none; }
+.wx-card.is-error .wx-body, .wx-card.is-loading .wx-body { display: none; }
+
+/* --- لایه‌های متحرک آسمان --- */
+.wx-sunorb { position: absolute; top: -40px; left: -30px; width: 190px; height: 190px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,236,150,.95) 0 22%, rgba(255,214,90,.55) 38%, rgba(255,214,90,0) 70%); }
+.wx-sunorb span { position: absolute; inset: 10px; border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg, rgba(255,240,170,.35) 0 6deg, transparent 6deg 24deg);
+  -webkit-mask: radial-gradient(circle, transparent 28%, #000 30%, transparent 72%); mask: radial-gradient(circle, transparent 28%, #000 30%, transparent 72%);
+  animation: wxRay 40s linear infinite; }
+@keyframes wxRay { to { transform: rotate(360deg); } }
+.wx-moon { position: absolute; top: 22px; left: 26px; width: 58px; height: 58px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #FFFBE6, #F1E3A5 60%, #D9C77C);
+  box-shadow: 0 0 40px 10px rgba(255,244,190,.35); }
+.wx-moon::after { content: ''; position: absolute; top: -4px; left: 14px; width: 54px; height: 54px; border-radius: 50%; background: var(--sky1); opacity: .96; }
+.wx-stars { position: absolute; inset: 0; }
+.wx-stars i { position: absolute; width: 3px; height: 3px; border-radius: 50%; background: #fff; animation: wxTw 3s ease-in-out infinite; }
+@keyframes wxTw { 0%,100% { opacity: .25; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.3); } }
+
+.wx-cloud { position: absolute; width: 150px; color: rgba(255,255,255,.88); animation: wxDrift 38s linear infinite; }
+.wx-cloud.dark { color: rgba(60,72,90,.78); }
+.wx-card[data-day="0"] .wx-cloud { color: rgba(170,185,210,.35); }
+.wx-card[data-day="0"] .wx-cloud.dark { color: rgba(18,24,36,.7); }
+.wx-cloud.c1 { top: 18px; width: 170px; animation-duration: 46s; }
+.wx-cloud.c2 { top: 70px; width: 120px; animation-duration: 34s; animation-delay: -14s; opacity: .85; }
+.wx-cloud.c3 { top: 120px; width: 150px; animation-duration: 54s; animation-delay: -30s; opacity: .7; }
+@keyframes wxDrift { from { transform: translateX(-200px); } to { transform: translateX(520px); } }
+
+.wx-fogband { position: absolute; left: -20%; width: 140%; height: 34px; border-radius: 40px; background: rgba(255,255,255,.35); filter: blur(10px); animation: wxFog 14s ease-in-out infinite alternate; }
+.wx-fogband.f1 { top: 55px; } .wx-fogband.f2 { top: 105px; animation-delay: -5s; opacity: .8; } .wx-fogband.f3 { top: 150px; animation-delay: -9s; opacity: .65; }
+@keyframes wxFog { from { transform: translateX(-9%); } to { transform: translateX(9%); } }
+
+.wx-rain { position: absolute; inset: 0; }
+.wx-rain i { position: absolute; top: -20px; width: 2px; height: 16px; border-radius: 2px; background: linear-gradient(180deg, rgba(255,255,255,0), rgba(190,225,255,.85));
+  transform: rotate(12deg); animation: wxDrop linear infinite; }
+@keyframes wxDrop { to { transform: translate(-28px, 260px) rotate(12deg); } }
+.wx-snow { position: absolute; inset: 0; }
+.wx-snow i { position: absolute; top: -10px; border-radius: 50%; background: #fff; opacity: .9; animation: wxFlake linear infinite; }
+@keyframes wxFlake { 0% { transform: translate(0,0); } 50% { transform: translate(14px,130px); } 100% { transform: translate(-8px,270px); } }
+.wx-flash { position: absolute; inset: 0; background: #fff; opacity: 0; animation: wxFlashA 7s infinite; }
+@keyframes wxFlashA { 0%,92%,100% { opacity: 0; } 93% { opacity: .55; } 94% { opacity: .05; } 95% { opacity: .4; } 97% { opacity: 0; } }
+
+/* --- بدنهٔ کارت --- */
+.wx-body { padding: 14px 14px 12px; }
+.wx-chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.wx-chip { background: var(--paper-alt); border-radius: 16px; padding: 9px 6px; text-align: center; box-shadow: var(--well); display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 0; }
+.wx-chip-ic { font-size: 20px; line-height: 1.2; }
+.wx-chip-k { font: 500 11px var(--font-ui); color: var(--gold); }
+.wx-chip-v { font: 800 13.5px var(--font-ui); color: var(--ink); direction: ltr; unicode-bidi: plaintext; }
+.wx-chip-s { font: 600 11px var(--font-ui); color: var(--ink); opacity: .7; }
+.wx-arrow { display: inline-block; font-size: 13px; color: var(--gold); transition: transform .6s; }
+
+.wx-sun { margin-top: 12px; background: var(--paper-alt); border-radius: 18px; padding: 8px 12px 10px; box-shadow: var(--well); }
+.wx-sun-svg { width: 100%; height: 74px; display: block; }
+.wx-sun-track { fill: none; stroke: var(--line); stroke-width: 2.4; stroke-dasharray: 3 5; stroke-linecap: round; }
+.wx-sun-done { fill: none; stroke: #F5B52E; stroke-width: 3; stroke-linecap: round; }
+.wx-sun-ground { stroke: var(--line); stroke-width: 1.5; }
+.wx-sun-glow { fill: rgba(255,200,60,.28); animation: wxPulse 2.4s ease-in-out infinite; }
+.wx-sun-dot { fill: #FFC21A; stroke: #fff; stroke-width: 1.5; }
+.wx-sun-night { font-size: 20px; }
+.wx-sun-row { display: flex; justify-content: space-between; align-items: center; gap: 6px; font: 600 11.5px var(--font-ui); color: var(--ink); }
+.wx-sun-mid { color: var(--gold); font-weight: 700; text-align: center; }
+
+.wx-h { margin: 16px 2px 8px; font: 800 14px var(--font-ui); color: var(--ink); }
+.wx-hours { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 8px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.wx-hours::-webkit-scrollbar { display: none; }
+.wx-hour { flex: none; width: 62px; background: var(--paper-alt); border-radius: 18px; padding: 8px 4px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 2px; box-shadow: var(--raised-sm); }
+.wx-hour.is-now { background: linear-gradient(170deg, var(--sky1), var(--sky2)); color: #fff; }
+.wx-hour.is-now .wx-hour-t, .wx-hour.is-now .wx-hour-v, .wx-hour.is-now .wx-hour-p { color: #fff; }
+.wx-hour-t { font: 600 11.5px var(--font-ui); color: var(--gold); }
+.wx-hour-ic { width: 34px; height: 34px; } .wx-hour-ic svg { width: 100%; height: 100%; }
+.wx-hour-v { font: 800 14px var(--font-ui); color: var(--ink); }
+.wx-hour-p { font: 600 10.5px var(--font-ui); color: #3B8FE0; min-height: 14px; }
+
+.wx-days { display: flex; flex-direction: column; gap: 4px; }
+.wx-day { display: grid; grid-template-columns: 62px 34px 40px 34px 1fr 34px; align-items: center; gap: 6px; padding: 5px 4px; border-bottom: 1px solid var(--line); }
+.wx-day:last-child { border-bottom: none; }
+.wx-day-n { font: 700 13px var(--font-ui); color: var(--ink); }
+.wx-day-ic { width: 32px; height: 32px; } .wx-day-ic svg { width: 100%; height: 100%; }
+.wx-day-p { font: 600 10.5px var(--font-ui); color: #3B8FE0; }
+.wx-day-lo, .wx-day-hi { font: 700 13px var(--font-ui); color: var(--ink); text-align: center; direction: ltr; }
+.wx-day-lo { opacity: .65; }
+.wx-day-bar { position: relative; height: 7px; border-radius: 6px; background: var(--paper-alt); box-shadow: var(--well); }
+.wx-day-bar i { position: absolute; top: 0; bottom: 0; border-radius: 6px; background: linear-gradient(270deg, #4FA3F7, #FFC83D, #FF7A45); min-width: 8px; }
+.wx-foot { margin: 10px 0 0; text-align: center; font: 500 10.5px var(--font-ui); color: var(--ink); opacity: .55; }
+.wx-card.is-stale .wx-foot { color: var(--danger); opacity: .9; }
+
+@media (prefers-reduced-motion: reduce) {
+  .wx-card *, .wx-card *::before, .wx-card *::after { animation: none !important; }
+}
