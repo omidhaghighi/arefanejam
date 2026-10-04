@@ -4290,3 +4290,7 @@ body.dark-mode .ga-answer { color: var(--ink); }
 .ga-cat span { font-size: 11px; opacity: .8; }
 .ga-cat:active { transform: scale(0.94); box-shadow: var(--pressed); }
 .ga-head-c { background: var(--paper-alt); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; font-size: 12px; }
+
+/* حدس آیه: بدون زمان، دکمهٔ نمایش پاسخ */
+.ga-show { width: 100%; padding: 14px; font-size: 16px; margin-top: 10px; }
+.ga-approx { margin: 2px 0 0; opacity: .8; }
