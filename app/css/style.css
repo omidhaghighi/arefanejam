@@ -1629,7 +1629,7 @@ body.dark-mode .qb-prompt-link { color: var(--gold-light); }
   text-align: center; padding: 12px 8px 11px; line-height: 1.55;
   overflow: visible; white-space: normal;
   /* شکستن خط مرتب: فقط بین کلمه‌ها (نه وسط کلمه)، و خط‌ها متوازن */
-  word-break: normal; overflow-wrap: break-word; hyphens: none;
+  word-break: normal; overflow-wrap: normal; hyphens: none; /* هیچ کلمه‌ای وسط شکسته نمی‌شود؛ کلمهٔ جا‌نشده کامل به خط بعد می‌رود */
   text-wrap: balance;
 }
 .mokatib-btn2-btn-grid .secondary-btn .mokatib-btn2-name { font-size: 14px; font-weight: 800; line-height: 1.6; }
@@ -4309,3 +4309,47 @@ body.dark-mode .ga-answer { color: var(--ink); }
 .ga-dots-more { opacity: .6; }
 .ga-hint-btn { width: 100%; padding: 11px; font-size: 15px; margin-top: 8px; }
 .ga-hint-btn.hidden { display: none; }
+
+
+/* دکمه‌های مکاتب: کلمه هرگز تقسیم نمی‌شود (فقط بین کلمه‌ها خط عوض می‌شود) */
+.mokatib-btn2-btn-grid .secondary-btn .mokatib-btn2-name,
+.mokatib-btn2-btn-grid .secondary-btn .mokatib-btn2-place,
+.mokatib-btn2-btn-grid .secondary-btn .mokatib-btn2-imam,
+#mokatib-btn2-detail-name, #mokatib-btn2-detail-info { overflow-wrap: normal; word-break: normal; hyphens: none; max-width: 100%; }
+
+/* ===== نظر و پشتیبانی: ستاره‌ها + گفتگو ===== */
+.tile-feedback { --tile-c: #E0883F; --tile-cd: #A8561A; }
+.tile-feedback .menu-tile-badge { position: relative; }
+.tile-feedback.has-news .menu-tile-badge::after {
+  content: ""; position: absolute; top: 4px; left: 4px; width: 11px; height: 11px;
+  border-radius: 50%; background: #E0453A; border: 2px solid #fff;
+}
+.fb-rate-box { text-align: center; }
+.fb-rate-title { margin: 0 0 6px; color: var(--emerald); font-size: 15px; }
+body.dark-mode .fb-rate-title { color: var(--gold-light); }
+.fb-stars { display: flex; justify-content: center; gap: 6px; direction: ltr; margin: 8px 0 4px; }
+.fb-star {
+  background: none; border: none; cursor: pointer; padding: 2px 4px; line-height: 1;
+  font-size: 40px; color: #D9D2BF; transition: transform .12s ease, color .12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.fb-star.on { color: #E9A82B; text-shadow: 0 2px 6px rgba(176,141,78,.45); }
+.fb-star:active { transform: scale(1.18); }
+body.dark-mode .fb-star { color: #3C4A44; }
+body.dark-mode .fb-star.on { color: #E9B948; }
+.fb-rate-msg { min-height: 20px; margin: 4px 0 0; }
+.fb-preview { white-space: pre-wrap; word-break: break-word; }
+.fb-count { text-align: left; margin: -4px 0 8px; }
+
+.fb-thread { display: flex; flex-direction: column; gap: 10px; padding: 0 14px 6px; }
+.fb-msg {
+  max-width: 88%; padding: 10px 13px; border-radius: 14px; line-height: 1.9; font-size: 13.5px;
+  border: 1px solid var(--line); box-shadow: 0 2px 6px rgba(var(--sh-color), .08);
+}
+.fb-msg.from-user  { align-self: flex-start; background: var(--card-bg); border-bottom-right-radius: 4px; }
+.fb-msg.from-admin { align-self: flex-end; background: #E3F3EA; border-color: #BFE0CE; border-bottom-left-radius: 4px; }
+.fb-msg-head { font-size: 11px; color: #8A8378; margin-bottom: 3px; font-weight: 700; }
+.fb-msg-body { white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; color: var(--ink); }
+body.dark-mode .fb-msg.from-admin { background: #1E5A50; border-color: #2B7566; }
+body.dark-mode .fb-msg-head { color: var(--gold-light); }
+@media (prefers-reduced-motion: reduce) { .fb-star { transition: none; } }

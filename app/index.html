@@ -8,7 +8,7 @@
 <link rel="icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=97">
+<link rel="stylesheet" href="css/style.css?v=99">
 </head>
 <body>
 
@@ -449,6 +449,10 @@
         <button class="menu-tile tile-charity" id="charity-tile" data-goto="charity">
           <span class="menu-tile-badge">🤝</span>
           <span class="menu-tile-label">کمک‌های مردمی</span>
+        </button>
+        <button class="menu-tile tile-feedback" id="feedback-more-tile" data-goto="feedback">
+          <span class="menu-tile-badge">⭐</span>
+          <span class="menu-tile-label" id="feedback-tile-label">نظر و پشتیبانی</span>
         </button>
         <button class="menu-tile tile-fun" id="fun-more-tile" data-goto="fun">
           <span class="menu-tile-badge">🎮</span>
@@ -1194,6 +1198,47 @@
       <div id="khatm-view-grid" class="khatm-grid"></div>
     </section>
 
+    <!-- نظر و پشتیبانی: امتیاز + گفتگو با پشتیبان (فقط متن) -->
+    <section id="tab-feedback" class="tab-panel">
+      <div class="section-block">
+        <h3 id="feedback-page-title">نظر و پشتیبانی</h3>
+        <p class="muted-text small" id="feedback-intro">به عملکرد اپ امتیاز بدهید و انتقاد، پیشنهاد یا مشکل خود را برای پشتیبان بنویسید. پاسخ پشتیبان در همین بخش نمایش داده می‌شود.</p>
+      </div>
+      <div class="section-block fb-rate-box">
+        <h4 class="fb-rate-title">به عملکرد اپ امتیاز بدهید</h4>
+        <div class="fb-stars" id="fb-stars" role="group" aria-label="امتیاز از ۱ تا ۵">
+          <button type="button" class="fb-star" data-v="1" aria-label="۱ ستاره">★</button>
+          <button type="button" class="fb-star" data-v="2" aria-label="۲ ستاره">★</button>
+          <button type="button" class="fb-star" data-v="3" aria-label="۳ ستاره">★</button>
+          <button type="button" class="fb-star" data-v="4" aria-label="۴ ستاره">★</button>
+          <button type="button" class="fb-star" data-v="5" aria-label="۵ ستاره">★</button>
+        </div>
+        <p class="muted-text small fb-rate-msg" id="fb-rate-msg">برای امتیاز دادن یکی از ستاره‌ها را لمس کنید.</p>
+      </div>
+      <div class="section-block">
+        <div class="shariq-top-actions">
+          <button class="secondary-btn small-btn" id="fb-new-btn">✉️ ارسال انتقاد یا پیشنهاد</button>
+        </div>
+        <p class="muted-text small" style="margin-top:8px">گفتگوهای شما همیشه در همین صفحه می‌ماند تا هر وقت پاسخ آمد ببینید.</p>
+      </div>
+      <div id="fb-list" class="shariq-list"></div>
+    </section>
+
+    <section id="tab-feedback-view" class="tab-panel">
+      <div class="section-block">
+        <h3 id="fb-view-title">—</h3>
+        <p class="muted-text small" id="fb-view-meta"></p>
+      </div>
+      <div id="fb-thread" class="fb-thread"></div>
+      <div class="section-block" id="fb-reply-wrap">
+        <textarea id="fb-reply-text" rows="3" maxlength="2000" placeholder="پیام شما (فقط متن)"></textarea>
+        <p class="muted-text small fb-count" id="fb-reply-count">۰ / ۲۰۰۰</p>
+        <p class="muted-text small hidden" id="fb-reply-err"></p>
+        <button id="fb-reply-btn" class="secondary-btn" style="width:100%">ارسال پیام</button>
+      </div>
+      <div class="section-block muted-text small hidden" id="fb-view-closed"></div>
+    </section>
+
   </main>
 
   <div id="mini-player" class="mini-player hidden">
@@ -1215,6 +1260,47 @@
   </nav>
 
 </div>
+<script>
+/* نمایش فوریِ آخرین اطلاعات ذخیره‌شدهٔ گوشی (نام و لوگوی بالا، آیکون «سوالات شرعی» و «مکاتب») همین لحظهٔ اول،
+   پیش از بارگذاری app.js و پیش از هر اتصال به اینترنت؛ تا آیکون/عکس پیش‌فرض یک لحظه هم دیده نشود. */
+(function () {
+  function rd(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } }
+  function su(u) { return (u && typeof u === 'string') ? u.replace(/^http:\/\//i, 'https://') : ''; }
+  function setIcon(el, obj, emojiKey) {
+    if (!el || !obj) return;
+    var img = obj.nav_icon_image || obj.icon;
+    if (img) {
+      el.textContent = '';
+      var i = document.createElement('img');
+      i.src = su(img);
+      i.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:50%';
+      el.appendChild(i);
+    } else if (emojiKey && obj[emojiKey]) { el.textContent = obj[emojiKey]; }
+  }
+  try {
+    var st = rd('arefanejam_settings_cache');
+    if (st) {
+      var tt = document.getElementById('topbar-title'); if (tt && st.brand_name) tt.textContent = st.brand_name;
+      var tl = document.getElementById('topbar-logo'); if (tl && st.logo_url) tl.src = su(st.logo_url);
+    }
+    var sh = rd('arefanejam_api_cache:/shariq/settings');
+    sh = sh && sh.data;
+    if (sh) {
+      setIcon(document.getElementById('shariq-nav-icon'), sh, 'nav_icon_emoji');
+      setIcon(document.getElementById('shariq-tile-badge'), sh, 'nav_icon_emoji');
+      var lb = sh.nav_label;
+      if (lb) {
+        ['shariq-nav-label', 'shariq-tile-label', 'shariq-page-title'].forEach(function (id) {
+          var e = document.getElementById(id); if (e) e.textContent = lb;
+        });
+      }
+    }
+    var mk = rd('arefanejam_api_cache:/mokatib/icon');
+    mk = mk && mk.data;
+    if (mk && mk.icon) setIcon(document.getElementById('mokatib-tile-badge'), { icon: mk.icon }, null);
+  } catch (e) { /* مهم نیست؛ app.js همین کار را انجام می‌دهد */ }
+})();
+</script>
 
 <div id="note-modal" class="modal hidden">
   <div class="modal-box">
@@ -1318,6 +1404,29 @@
     <div class="modal-actions">
       <button id="khatm-new-cancel-btn" class="ghost-btn small-btn">انصراف</button>
       <button id="khatm-new-submit-btn" class="secondary-btn small-btn">ثبت و اعلام به همه</button>
+    </div>
+  </div>
+</div>
+
+<div id="fb-new-modal" class="modal hidden">
+  <div class="modal-box">
+    <h3>پیام به پشتیبان</h3>
+    <label class="khatm-label">نوع پیام</label>
+    <div class="khatm-unit-row" id="fb-cat-row" style="margin-bottom:10px">
+      <button type="button" class="shariq-chip" data-cat="suggestion">پیشنهاد</button>
+      <button type="button" class="shariq-chip" data-cat="criticism">انتقاد</button>
+      <button type="button" class="shariq-chip" data-cat="problem">مشکل فنی</button>
+      <button type="button" class="shariq-chip" data-cat="other">سایر</button>
+    </div>
+    <input type="text" id="fb-new-subject" placeholder="موضوع (اختیاری)" maxlength="100" style="margin-bottom:8px">
+    <textarea id="fb-new-message" rows="5" maxlength="2000" placeholder="پیام خود را بنویسید..."></textarea>
+    <p class="muted-text small fb-count" id="fb-new-count">۰ / ۲۰۰۰</p>
+    <input type="text" id="fb-new-name" placeholder="نام شما (اختیاری)" maxlength="60" style="margin-top:4px">
+    <p class="muted-text small">فقط متن ساده فرستاده می‌شود؛ فایل، تصویر و کد پذیرفته نمی‌شود.</p>
+    <p class="muted-text small hidden" id="fb-new-error"></p>
+    <div class="modal-actions">
+      <button id="fb-new-cancel-btn" class="ghost-btn small-btn">انصراف</button>
+      <button id="fb-new-submit-btn" class="secondary-btn small-btn">ارسال</button>
     </div>
   </div>
 </div>
@@ -1452,7 +1561,7 @@
 /* native-bridge.js و app.js (به‌همین ترتیب) فقط بعد از پایان صفحهٔ شروع (ویدیو/عکس/گیف) بارگذاری می‌شوند.
    اگر صفحهٔ شروعی نباشد یا تمام شده باشد، بی‌درنگ بارگذاری می‌شوند. */
 (function () {
-  var list = ['js/native-bridge.js?v=19', 'js/app.js?v=139'], i = 0;
+  var list = ['js/native-bridge.js?v=19', 'js/app.js?v=142'], i = 0;
   function next() {
     if (i >= list.length) return;
     var el = document.createElement('script'); el.src = list[i++];

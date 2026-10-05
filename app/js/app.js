@@ -227,7 +227,7 @@ function apiFetch(path, options = {}) {
       if (!res.ok) { const he = new Error(data.message || 'خطا در ارتباط با سرور'); he.httpError = true; throw he; }
       if (cacheKey && parsed) {
         apiCacheWrite(cacheKey, data);
-        if (/^\/mokatib\//.test(basePath)) setTimeout(() => { prefetchSiteImages(collectImageUrls(data)); }, 1500);
+        if (/^\/(mokatib\/|shariq\/settings)/.test(basePath)) setTimeout(() => { prefetchSiteImages(collectImageUrls(data)); }, 1500);
       }
       return data;
     })
@@ -244,7 +244,7 @@ function apiFetch(path, options = {}) {
 /* ---------- ذخیرهٔ آفلاینِ اطلاعات عمومی پیشخوان ----------
  * هر بار که اطلاعات با موفقیت از سایت گرفته شود، در حافظهٔ گوشی می‌ماند و اگر بعداً اینترنت نبود
  * (یا سرور خطا داد) همان آخرین نسخه نمایش داده می‌شود. فقط مسیرهای عمومیِ زیر؛ مسیرهای شخصی/ورود نه. */
-const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|hamburger-menu|social-links|theme|shariq\/settings|khatm\/settings|zakat)$/;
+const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|hamburger-menu|social-links|theme|shariq\/settings|khatm\/settings|feedback\/settings|zakat)$/;
 function apiCacheKey(basePath) {
   return API_OFFLINE_CACHE_RE.test(basePath) ? ('arefanejam_api_cache:' + basePath) : '';
 }
@@ -262,6 +262,29 @@ function apiCacheWrite(key, data) {
     if (raw.length > 1500000) return; // خیلی بزرگ: حافظهٔ محدود localStorage پر نشود
     localStorage.setItem(key, raw);
   } catch (e) { /* حافظه پر بود؛ مهم نیست */ }
+}
+
+/* ---------- نمایش فوریِ آخرین نسخهٔ ذخیره‌شده + تازه‌سازی بی‌صدا (Stale-While-Revalidate) ----------
+ * اول همان لحظه آخرین اطلاعاتِ ذخیره‌شدهٔ گوشی نمایش داده می‌شود (بدون انتظار برای اینترنت)،
+ * بعد اطلاعات تازه از سایت گرفته می‌شود و فقط اگر با نسخهٔ نمایش‌داده‌شده فرق داشت، دوباره نمایش داده می‌شود.
+ * اگر هیچ نسخهٔ ذخیره‌شده‌ای نبود (اولین بار)، مثل قبل منتظر پاسخ سایت می‌ماند. */
+function apiSWR(path, apply, options) {
+  const basePath = String(path).split('?')[0];
+  const key = apiCacheKey(basePath);
+  let shown = null;
+  const cached = key ? apiCacheRead(key) : null;
+  if (cached !== null) {
+    try { apply(cached); shown = JSON.stringify(cached); } catch (e) { shown = null; }
+  }
+  return apiFetch(path, options).then((fresh) => {
+    let str = null;
+    try { str = JSON.stringify(fresh); } catch (e) {}
+    if (shown === null || str === null || str !== shown) apply(fresh);
+    return fresh;
+  }).catch((err) => {
+    if (shown === null) throw err; // چیزی برای نمایش نداشتیم: خطا به صدا زننده برسد
+    return cached;                 // نسخهٔ ذخیره‌شده همین حالا نمایش داده شده؛ خطای شبکه مهم نیست
+  });
 }
 
 /* ---------- ذخیرهٔ آفلاین عکس‌های پیشخوان ---------- */
@@ -344,6 +367,8 @@ function switchToTab(tabName, opts) {
   if (tabName === 'khatm') loadKhatmList();
   if (tabName === 'khatm-mine') loadKhatmMine();
   if (tabName === 'khatm-view') loadKhatmView();
+  if (tabName === 'feedback') loadFeedbackMain();
+  if (tabName === 'feedback-view') loadFbView();
   if (tabName !== 'game-ayah') gaStopTimer();
   if (tabName === 'game-ayah') gaOpen();
 }
@@ -1432,39 +1457,53 @@ function applyQuranReportTexts() {
   });
 }
 
-async function loadSettings() {
-  try {
-    state.settings = await apiFetch('/settings');
-    try { localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(state.settings)); } catch (e) {}
-    document.getElementById('topbar-title').textContent = state.settings.brand_name || 'عارفان جام';
-    if (state.settings.logo_url) document.getElementById('topbar-logo').src = state.settings.logo_url;
-    applyQuranReportTexts();
-    renderAnnouncement();
-    checkForNewAnnouncement();
-    maybeShowIntroSplash();
-    updateStickyNotification(null); // نمایش فوری تاریخ امروز، حتی قبل از آماده‌شدن موقعیت مکانی برای اذان بعدی
-    prefetchAzanAudioForOffline();
-    prefetchAnnouncementAudioForOffline();
-    checkQuranInvitePopup();
-    checkQuranInactivityPopup();
-  } catch (err) {
-    console.warn('تنظیمات سایت دریافت نشد.', err);
-    // آفلاین در همان بازِ اول اپ: آخرین تنظیماتِ ذخیره‌شدهٔ گوشی را جایگزین کن
-    // تا محاسبهٔ اوقات شرعی و پخش اذان متوقف نشود.
-    try {
-      const cached = JSON.parse(localStorage.getItem(SETTINGS_CACHE_KEY) || 'null');
-      if (cached) {
-        state.settings = cached;
-        document.getElementById('topbar-title').textContent = cached.brand_name || 'عارفان جام';
-        if (cached.logo_url) document.getElementById('topbar-logo').src = cached.logo_url;
-        applyQuranReportTexts();
-        prefetchAzanAudioForOffline();
-        prefetchAnnouncementAudioForOffline();
-        checkQuranInvitePopup();
-        checkQuranInactivityPopup();
-      }
-    } catch (e2) {}
+function applyCachedSettingsUi(cached) {
+  state.settings = cached;
+  document.getElementById('topbar-title').textContent = cached.brand_name || 'عارفان جام';
+  if (cached.logo_url) document.getElementById('topbar-logo').src = secureUrl(cached.logo_url);
+  applyQuranReportTexts();
+  renderAnnouncement();
+  updateStickyNotification(null);
+  prefetchAzanAudioForOffline();
+  prefetchAnnouncementAudioForOffline();
+}
+function applyFreshSettingsUi() {
+  document.getElementById('topbar-title').textContent = state.settings.brand_name || 'عارفان جام';
+  if (state.settings.logo_url) document.getElementById('topbar-logo').src = secureUrl(state.settings.logo_url);
+  applyQuranReportTexts();
+  renderAnnouncement();
+  checkForNewAnnouncement();
+  maybeShowIntroSplash();
+  updateStickyNotification(null); // نمایش فوری تاریخ امروز، حتی قبل از آماده‌شدن موقعیت مکانی برای اذان بعدی
+  prefetchAzanAudioForOffline();
+  prefetchAnnouncementAudioForOffline();
+  checkQuranInvitePopup();
+  checkQuranInactivityPopup();
+}
+function loadSettings() {
+  // 1) اگر تنظیماتِ دفعهٔ قبل روی گوشی هست، همین الان و بدون انتظار برای اینترنت استفاده می‌شود
+  let cached = null;
+  try { cached = JSON.parse(localStorage.getItem(SETTINGS_CACHE_KEY) || 'null'); } catch (e) {}
+  const hasCache = !!(cached && typeof cached === 'object');
+  let shownStr = null;
+  if (hasCache) {
+    try { shownStr = JSON.stringify(cached); applyCachedSettingsUi(cached); } catch (e) {}
   }
+  // 2) تنظیمات تازه از سایت (در پس‌زمینه اگر نسخهٔ ذخیره‌شده داریم)
+  const fresh = apiFetch('/settings').then((data) => {
+    state.settings = data;
+    try { localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(data)); } catch (e) {}
+    let str = null;
+    try { str = JSON.stringify(data); } catch (e) {}
+    if (!hasCache || str !== shownStr) { applyFreshSettingsUi(); if (hasCache) { try { computePrayerTimes(); } catch (e) {} } }
+    else { try { maybeShowIntroSplash(); checkForNewAnnouncement(); checkQuranInvitePopup(); checkQuranInactivityPopup(); } catch (e) {} }
+  }).catch((err) => {
+    console.warn('تنظیمات سایت دریافت نشد.', err);
+    if (!hasCache) return;
+    try { checkQuranInvitePopup(); checkQuranInactivityPopup(); } catch (e) {}
+  });
+  // با نسخهٔ ذخیره‌شده: بی‌درنگ ادامهٔ راه‌اندازی (اوقات شرعی، موقعیت، ...)؛ بدون آن: منتظر سایت (مثل قبل)
+  return hasCache ? Promise.resolve() : fresh;
 }
 
 /* ---------- کلیپ معرفی (Splash) ---------- */
@@ -7033,15 +7072,16 @@ darkModeToggle.addEventListener('change', (e) => applyDarkMode(e.target.checked)
 topbarDarkBtn.addEventListener('click', () => applyDarkMode(!document.body.classList.contains('dark-mode')));
 
 /* ---------- رنگ‌بندی سفارشی مدیر ---------- */
+function applyThemeColors(theme) {
+  if (!theme) return;
+  const root = document.documentElement.style;
+  if (theme.primary) { root.setProperty('--emerald', theme.primary); root.setProperty('--emerald-light', theme.primary); }
+  if (theme.accent) { root.setProperty('--gold', theme.accent); }
+  if (theme.background) { root.setProperty('--paper', theme.background); }
+  if (theme.text) { root.setProperty('--ink', theme.text); }
+}
 async function loadTheme() {
-  try {
-    const theme = await apiFetch('/theme');
-    const root = document.documentElement.style;
-    if (theme.primary) { root.setProperty('--emerald', theme.primary); root.setProperty('--emerald-light', theme.primary); }
-    if (theme.accent) { root.setProperty('--gold', theme.accent); }
-    if (theme.background) { root.setProperty('--paper', theme.background); }
-    if (theme.text) { root.setProperty('--ink', theme.text); }
-  } catch (e) { /* از رنگ‌های پیش‌فرض استفاده می‌شود */ }
+  try { await apiSWR('/theme', applyThemeColors); } catch (e) { /* از رنگ‌های پیش‌فرض استفاده می‌شود */ }
 }
 
 /* ---------- ردیابی کلیک روی لینک‌ها/ویدیوها ---------- */
@@ -8764,18 +8804,19 @@ async function loadBooks() {
 const shariqState = { categories: [], activeCategory: null, list: [] };
 
 function shariqIconMarkup(s) {
-  if (s.nav_icon_image) return `<img src="${s.nav_icon_image}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
+  if (s.nav_icon_image) return `<img src="${secureUrl(s.nav_icon_image)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
   return s.nav_icon_emoji || '❓';
 }
+function applyShariqSettings(s) {
+  if (!s || typeof s !== 'object') return;
+  document.getElementById('shariq-nav-icon').innerHTML = shariqIconMarkup(s);
+  document.getElementById('shariq-nav-label').textContent = s.nav_label || 'سوالات شرعی';
+  document.getElementById('shariq-tile-badge').innerHTML = shariqIconMarkup(s);
+  document.getElementById('shariq-tile-label').textContent = s.nav_label || 'سوالات شرعی';
+  document.getElementById('shariq-page-title').textContent = s.nav_label || 'سوالات شرعی';
+}
 async function loadShariqSettings() {
-  try {
-    const s = await apiFetch('/shariq/settings');
-    document.getElementById('shariq-nav-icon').innerHTML = shariqIconMarkup(s);
-    document.getElementById('shariq-nav-label').textContent = s.nav_label || 'سوالات شرعی';
-    document.getElementById('shariq-tile-badge').innerHTML = shariqIconMarkup(s);
-    document.getElementById('shariq-tile-label').textContent = s.nav_label || 'سوالات شرعی';
-    document.getElementById('shariq-page-title').textContent = s.nav_label || 'سوالات شرعی';
-  } catch (e) { /* ignore */ }
+  try { await apiSWR('/shariq/settings', applyShariqSettings); } catch (e) { /* ignore */ }
 }
 
 /* ---------- دریافت مطمئنِ اطلاعات «سوالات شرعی» ---------- */
@@ -9635,11 +9676,12 @@ const mokatibState = {
   currentMosqueId: null,
 };
 
+function applyMokatibIcon(d) {
+  const icon = d && d.icon;
+  if (icon) document.getElementById('mokatib-tile-badge').innerHTML = `<img src="${secureUrl(icon)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
+}
 async function loadMokatibIcon() {
-  try {
-    const { icon } = await apiFetch('/mokatib/icon');
-    if (icon) document.getElementById('mokatib-tile-badge').innerHTML = `<img src="${secureUrl(icon)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
-  } catch (e) { /* ignore */ }
+  try { await apiSWR('/mokatib/icon', applyMokatibIcon); } catch (e) { /* ignore */ }
 }
 loadMokatibIcon();
 
@@ -9669,7 +9711,15 @@ async function loadMokatibSlider() {
   const holders = document.querySelectorAll('.mokatib-slider-holder');
   if (!holders.length) return;
   try {
-    const data = await apiFetch('/mokatib/slider');
+    await apiSWR('/mokatib/slider', renderMokatibSlider);
+  } catch (e) {
+    holders.forEach((h) => { h.style.display = 'none'; h.innerHTML = ''; });
+  }
+}
+function renderMokatibSlider(data) {
+  const holders = document.querySelectorAll('.mokatib-slider-holder');
+  if (!holders.length) return;
+  {
     const images = (data && Array.isArray(data.images)) ? data.images : [];
     if (!data || !data.enabled || !images.length) {
       holders.forEach((h) => { h.style.display = 'none'; h.innerHTML = ''; });
@@ -9691,8 +9741,6 @@ async function loadMokatibSlider() {
       holder.innerHTML = `<div class="mokatib-slider" style="height:${heightPx}px"><div class="mokatib-slider-track">${slidesHtml}</div></div>${dotsHtml}`;
       setupMokatibSliderBehavior(holder, images.length);
     });
-  } catch (e) {
-    holders.forEach((h) => { h.style.display = 'none'; h.innerHTML = ''; });
   }
 }
 loadMokatibSlider();
@@ -9917,6 +9965,30 @@ function renderMokatibDetailSlider(urls) {
   restart();
 }
 
+/* قانون «کلمه هرگز تقسیم نشود»: اگر کلمه در یک خط جا نشد، کل کلمه به خط بعد می‌رود.
+   اگر حتی تنها در یک خط هم جا نمی‌شد (کلمهٔ خیلی بلند)، نوشته کمی کوچک می‌شود تا کامل و بی‌بریدگی دیده شود.
+   ۱) اول پیوندِ کلمه‌ها (فاصلهٔ چسبان) برداشته می‌شود تا هر کلمه خودش جابه‌جا شود؛ ۲) بعد در صورت نیاز اندازهٔ نوشته کم می‌شود. */
+function mkFitText(el) {
+  if (!el || !el.isConnected) return;
+  const over = () => el.scrollWidth > el.clientWidth + 1;
+  if (el.clientWidth < 5 || !over()) return;
+  if (/\u00A0/.test(el.textContent)) {
+    el.textContent = el.textContent.replace(/\u00A0/g, ' ');
+    if (!over()) return;
+  }
+  let fs = parseFloat(getComputedStyle(el).fontSize) || 14;
+  const min = Math.max(8, fs * 0.55);
+  let guard = 40;
+  while (over() && fs > min && guard-- > 0) { fs -= 0.5; el.style.fontSize = fs + 'px'; }
+}
+function mkFitAll() {
+  document.querySelectorAll('#mokatib-btn2-buttons .mokatib-btn2-name, #mokatib-btn2-buttons .mokatib-btn2-place, #mokatib-btn2-buttons .mokatib-btn2-imam, #mokatib-btn2-detail-name, #mokatib-btn2-detail-info').forEach(mkFitText);
+}
+function mkFitSoon() {
+  requestAnimationFrame(() => { mkFitAll(); requestAnimationFrame(mkFitAll); });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { mkFitAll(); }).catch(() => {});
+}
+
 /* مرتب‌کردن نوشتار دکمه‌های مساجد: فاصلهٔ اضافه حذف، فاصلهٔ قبل از «(»، و کلمه‌هایی که نباید از هم جدا شوند
    (مثل «رسول الله» یا «مولوی + نام») با فاصلهٔ چسبان به هم بسته می‌شوند تا در شکستن خط وسط کلمه‌ها نیفتند. */
 function mkTidy(t) {
@@ -9961,6 +10033,7 @@ function renderMokatibBtn2View() {
       dInfoEl.textContent = m.imam_name ? 'مسئول: ' + mkTidyLines(m.imam_name) : '';
       dInfoEl.style.whiteSpace = 'pre-line';
       dInfoEl.style.fontSize = Number(m.imam_size) > 0 ? (Number(m.imam_size) + 1.5) + 'px' : '';
+      mkFitSoon();
       const imgEl = document.getElementById('mokatib-btn2-detail-img');
       const wrapEl = document.getElementById('mokatib-btn2-detail-imgwrap');
       if (m.image_url) {
@@ -10023,7 +10096,7 @@ function renderMokatibBtn2View() {
     });
     grid.appendChild(btn);
   });
-
+  mkFitSoon();
 }
 
 function undoMokatibBtn2Step() {
@@ -10099,22 +10172,30 @@ function applyMokatibPublicData(data) {
 
 async function loadMokatibPublicTree() {
   const wrap = document.getElementById('mokatib-public-tree');
-  wrap.innerHTML = '<p class="muted-text small">در حال بارگذاری...</p>';
+  // اول همان لحظه آخرین نسخهٔ ذخیره‌شده روی گوشی (عکس‌ها و نام‌ها)، بعد تازه‌سازی بی‌صدا از سایت
+  let cached = null;
+  try { cached = JSON.parse(localStorage.getItem(MOKATIB_PUBLIC_CACHE_KEY) || 'null'); } catch (e2) {}
+  let shown = null;
+  if (cached) {
+    try {
+      shown = JSON.stringify(cached);
+      applyMokatibPublicData(cached);
+      renderMokatibPublicTreeBody(wrap);
+    } catch (e3) { shown = null; cached = null; }
+  }
+  if (!cached) wrap.innerHTML = '<p class="muted-text small">در حال بارگذاری...</p>';
   try {
     const data = await apiFetch('/mokatib/public-tree');
     try { localStorage.setItem(MOKATIB_PUBLIC_CACHE_KEY, JSON.stringify(data)); } catch (e) {}
-    applyMokatibPublicData(data);
-    renderMokatibPublicTreeBody(wrap);
-  } catch (e) {
-    // آفلاین یا خطای شبکه: از آخرین نسخهٔ ذخیره‌شده در دستگاه استفاده می‌کنیم
-    let cached = null;
-    try { cached = JSON.parse(localStorage.getItem(MOKATIB_PUBLIC_CACHE_KEY) || 'null'); } catch (e2) {}
-    if (cached) {
-      applyMokatibPublicData(cached);
+    let str = null;
+    try { str = JSON.stringify(data); } catch (e) {}
+    if (shown === null || str === null || str !== shown) {
+      applyMokatibPublicData(data);
       renderMokatibPublicTreeBody(wrap);
-    } else {
-      wrap.innerHTML = '<p class="note-empty">در حال حاضر امکان بارگذاری چارت وجود ندارد.</p>';
     }
+  } catch (e) {
+    // آفلاین یا خطای شبکه: اگر نسخهٔ ذخیره‌شده نمایش داده شده باشد همان می‌ماند
+    if (!cached) wrap.innerHTML = '<p class="note-empty">در حال حاضر امکان بارگذاری چارت وجود ندارد.</p>';
   }
 }
 
@@ -11702,5 +11783,285 @@ function gaShowResult() {
   document.getElementById('ga-cat-btn').addEventListener('click', gaOpen);
   document.getElementById('ga-back-btn').addEventListener('click', goBackInApp);
 }
+
+/* ---------- نظر و پشتیبانی: امتیاز به اپ + گفتگو (تیکت) با پشتیبان ----------
+   بیشتر ← «نظر و پشتیبانی». کاربر ۱ تا ۵ ستاره می‌دهد و می‌تواند انتقاد/پیشنهاد/مشکل بفرستد. هر گفتگو باز می‌ماند و
+   وقتی پشتیبان جواب داد، روی کاشی نقطهٔ قرمز می‌افتد و کاربر پاسخ را همان‌جا می‌بیند و می‌تواند ادامه بدهد.
+   امنیت: هر متنی که کاربر یا پشتیبان می‌نویسد فقط با textContent نمایش داده می‌شود (هرگز innerHTML)، پس هیچ کدی اجرا نمی‌شود؛
+   سرور هم تگ‌ها را پاک می‌کند. لینک‌ها کلیک‌پذیر نمی‌شوند. متغیرهای وضعیت عمداً var هستند (switchToTab ممکن است زودتر صدا زده شود). */
+var FB_CATS = { suggestion: 'پیشنهاد', criticism: 'انتقاد', problem: 'مشکل فنی', other: 'سایر' };
+var FB_STATUS = { open: '⏳ در انتظار پاسخ', answered: '✅ پاسخ داده شد', closed: '🔒 بسته شد' };
+var FB_CACHE_MAIN = 'arefanejam_feedback_main';
+var FB_NAME_KEY = 'arefanejam_feedback_name';
+var FB_VIEW_KEY = 'arefanejam_fb_view';
+var fbCategory = 'suggestion';
+var fbViewId = 0;
+var fbBusy = false;
+var fbLastCheck = 0;
+
+function fbEl(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = String(text);   // فقط متن؛ هیچ HTML پردازش نمی‌شود
+  return e;
+}
+function fbById(id) { return document.getElementById(id); }
+function fbJsonGet(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } }
+function fbJsonSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+
+function fbSetDot(on) {
+  const tile = fbById('feedback-more-tile');
+  if (tile) tile.classList.toggle('has-news', !!on);
+}
+
+async function loadFeedbackSettings() {
+  try {
+    const s = await apiFetch('/feedback/settings');
+    const tile = fbById('feedback-more-tile');
+    if (tile) tile.classList.toggle('hidden', s && s.enabled === false);
+    if (s && s.nav_label) {
+      const a = fbById('feedback-tile-label'); if (a) a.textContent = String(s.nav_label);
+      const b = fbById('feedback-page-title'); if (b) b.textContent = String(s.nav_label);
+    }
+    if (s && s.intro) { const c = fbById('feedback-intro'); if (c) c.textContent = String(s.intro); }
+  } catch (e) { /* بدون اینترنت: متن‌های پیش‌فرض */ }
+}
+
+// آیا پشتیبان به گفتگوی من جواب داده؟ (نقطهٔ قرمز روی کاشی)
+async function fbCheckNews() {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+    fbLastCheck = Date.now();
+    const device_id = await ensureDeviceId();
+    const d = await shariqGet('/feedback/mine?device_id=' + encodeURIComponent(device_id));
+    fbSetDot(d && Number(d.unread) > 0);
+  } catch (e) { /* بی‌صدا */ }
+}
+
+function fbRenderStars(v) {
+  v = Math.max(0, Math.min(5, Number(v) || 0));
+  document.querySelectorAll('#fb-stars .fb-star').forEach((b) => {
+    b.classList.toggle('on', Number(b.dataset.v) <= v);
+  });
+  const m = fbById('fb-rate-msg');
+  if (m && !fbBusy) m.textContent = v ? ('امتیاز شما: ' + toPersianDigits(v) + ' از ۵ — برای تغییر، دوباره ستاره بزنید.') : 'برای امتیاز دادن یکی از ستاره‌ها را لمس کنید.';
+}
+
+async function fbRate(v) {
+  const m = fbById('fb-rate-msg');
+  const prev = Number(localStorage.getItem('arefanejam_fb_rating')) || 0;
+  fbRenderStars(v);
+  fbBusy = true;
+  if (m) m.textContent = 'در حال ثبت...';
+  try {
+    const device_id = await ensureDeviceId();
+    await apiFetch('/feedback/rate', { method: 'POST', body: JSON.stringify({ device_id, rating: v, app_version: String(window.NATIVE_APP_VERSION || '') }) });
+    try { localStorage.setItem('arefanejam_fb_rating', String(v)); } catch (e) {}
+    fbBusy = false;
+    fbRenderStars(v);
+    if (m) m.textContent = 'ممنون از امتیاز شما 🌷 (' + toPersianDigits(v) + ' از ۵)';
+  } catch (e) {
+    fbBusy = false;
+    fbRenderStars(prev);
+    if (m) m.textContent = khatmErr(e, 'ثبت امتیاز انجام نشد. اینترنت را بررسی کنید و دوباره تلاش کنید.');
+  }
+}
+
+function fbRenderList(rows) {
+  const el = fbById('fb-list');
+  el.textContent = '';
+  if (!rows.length) {
+    const box = fbEl('div', 'shariq-empty');
+    box.appendChild(fbEl('span', 'shariq-empty-icon', '💬'));
+    box.appendChild(document.createTextNode('هنوز پیامی نفرستاده‌اید.'));
+    el.appendChild(box);
+    return;
+  }
+  rows.forEach((r, i) => {
+    const card = fbEl('div', 'shariq-item khatm-item fb-item');
+    card.style.animationDelay = (Math.min(i, 8) * 0.06) + 's';
+    card.appendChild(fbEl('div', 'khatm-title', r.subject || '—'));
+    if (r.preview) card.appendChild(fbEl('div', 'khatm-note fb-preview', (r.last_sender === 'admin' ? 'پشتیبان: ' : 'شما: ') + r.preview));
+    const meta = fbEl('div', 'khatm-meta');
+    meta.appendChild(fbEl('span', '', '🏷 ' + (FB_CATS[r.category] || 'سایر')));
+    meta.appendChild(fbEl('span', '', '🕒 ' + khatmAgo(r.age)));
+    meta.appendChild(fbEl('span', '', '💬 ' + toPersianDigits(r.count || 0)));
+    card.appendChild(meta);
+    const meta2 = fbEl('div', 'khatm-meta');
+    meta2.appendChild(fbEl('span', 'khatm-badge' + (r.status === 'open' ? ' is-wait' : ''), FB_STATUS[r.status] || FB_STATUS.open));
+    if (r.unread) meta2.appendChild(fbEl('span', 'khatm-badge is-ask', '🔔 پاسخ جدید'));
+    card.appendChild(meta2);
+    const act = fbEl('div', 'khatm-actions');
+    const btn = fbEl('button', 'secondary-btn small-btn', 'مشاهدهٔ گفتگو');
+    btn.type = 'button';
+    btn.addEventListener('click', () => openFbView(r.id));
+    act.appendChild(btn);
+    card.appendChild(act);
+    el.appendChild(card);
+  });
+}
+
+async function loadFeedbackMain() {
+  const el = fbById('fb-list');
+  fbRenderStars(Number(localStorage.getItem('arefanejam_fb_rating')) || 0);
+  const cached = fbJsonGet(FB_CACHE_MAIN);
+  if (cached && Array.isArray(cached.tickets)) fbRenderList(cached.tickets);
+  else el.textContent = 'در حال بارگذاری...';
+  try {
+    const device_id = await ensureDeviceId();
+    const d = await shariqGet('/feedback/mine?device_id=' + encodeURIComponent(device_id));
+    const rows = Array.isArray(d && d.tickets) ? d.tickets : [];
+    fbJsonSet(FB_CACHE_MAIN, { rating: Number(d && d.rating) || 0, tickets: rows });
+    if (d && Number(d.rating) > 0) { try { localStorage.setItem('arefanejam_fb_rating', String(Number(d.rating))); } catch (e) {} }
+    fbRenderStars(Number(d && d.rating) || Number(localStorage.getItem('arefanejam_fb_rating')) || 0);
+    fbSetDot(rows.some((r) => r.unread));
+    fbRenderList(rows);
+  } catch (e) {
+    if (!(cached && Array.isArray(cached.tickets))) {
+      el.textContent = '';
+      const box = fbEl('div', 'shariq-empty');
+      box.appendChild(fbEl('span', 'shariq-empty-icon', '⚠️'));
+      box.appendChild(document.createTextNode('در حال حاضر امکان دریافت گفتگوها نیست. اینترنت را بررسی کنید.'));
+      el.appendChild(box);
+    }
+  }
+}
+
+function openFbView(id) {
+  fbViewId = Number(id) || 0;
+  try { sessionStorage.setItem(FB_VIEW_KEY, String(fbViewId)); } catch (e) {}
+  switchToTab('feedback-view', { push: true });
+}
+
+function fbRenderThread(t) {
+  fbById('fb-view-title').textContent = t.subject || '—';
+  fbById('fb-view-meta').textContent = (FB_CATS[t.category] || 'سایر') + ' — ' + (FB_STATUS[t.status] || '');
+  const box = fbById('fb-thread');
+  box.textContent = '';
+  (t.messages || []).forEach((m) => {
+    const mine = m.from !== 'admin';
+    const b = fbEl('div', 'fb-msg ' + (mine ? 'from-user' : 'from-admin'));
+    b.appendChild(fbEl('div', 'fb-msg-head', (mine ? 'شما' : 'پشتیبان') + ' — ' + khatmAgo(m.age)));
+    b.appendChild(fbEl('div', 'fb-msg-body', m.body || ''));   // textContent + white-space: pre-wrap
+    box.appendChild(b);
+  });
+  const wrap = fbById('fb-reply-wrap');
+  const closedNote = fbById('fb-view-closed');
+  const blocked = !!t.closed || !!t.full;
+  wrap.classList.toggle('hidden', blocked);
+  closedNote.classList.toggle('hidden', !blocked);
+  closedNote.textContent = t.closed ? 'این گفتگو توسط پشتیبان بسته شده است. اگر موضوع تازه‌ای دارید، از صفحهٔ قبل «ارسال انتقاد یا پیشنهاد» را بزنید.' : 'این گفتگو به سقف تعداد پیام رسیده است. یک گفتگوی تازه شروع کنید.';
+  fbById('fb-reply-err').classList.add('hidden');
+  try { window.scrollTo(0, document.body.scrollHeight); } catch (e) {}
+}
+
+async function loadFbView() {
+  const id = fbViewId || Number(sessionStorage.getItem(FB_VIEW_KEY)) || 0;
+  if (!id) { switchToTab('feedback'); return; }
+  fbViewId = id;
+  const cacheKey = 'arefanejam_feedback_t_' + id;
+  const cached = fbJsonGet(cacheKey);
+  if (cached && Array.isArray(cached.messages)) fbRenderThread(cached);
+  else { fbById('fb-view-title').textContent = '...'; fbById('fb-thread').textContent = 'در حال بارگذاری...'; }
+  try {
+    const device_id = await ensureDeviceId();
+    const t = await shariqGet('/feedback/ticket?device_id=' + encodeURIComponent(device_id) + '&id=' + id);
+    fbJsonSet(cacheKey, t);
+    fbRenderThread(t);
+    fbCheckNews();
+  } catch (e) {
+    if (!(cached && Array.isArray(cached.messages))) {
+      fbById('fb-thread').textContent = (e && e.code === 'http_404') ? 'این گفتگو پیدا نشد.' : 'در حال حاضر امکان دریافت گفتگو نیست. اینترنت را بررسی کنید.';
+    }
+  }
+}
+
+(function setupFeedbackUi() {
+  try {
+    const $ = fbById;
+    const hideNew = () => $('fb-new-modal').classList.add('hidden');
+    const closeNew = hideNew;
+    const updateCounter = (taId, cId) => {
+      const ta = $(taId), c = $(cId);
+      if (ta && c) c.textContent = toPersianDigits(ta.value.length) + ' / ' + toPersianDigits(ta.maxLength > 0 ? ta.maxLength : 2000);
+    };
+
+    // ستاره‌ها
+    document.querySelectorAll('#fb-stars .fb-star').forEach((b) => {
+      b.addEventListener('click', () => fbRate(Number(b.dataset.v)));
+    });
+
+    // پنجرهٔ پیام جدید
+    function setCat(cat) {
+      fbCategory = FB_CATS[cat] ? cat : 'other';
+      document.querySelectorAll('#fb-cat-row .shariq-chip').forEach((c) => c.classList.toggle('active', c.dataset.cat === fbCategory));
+    }
+    document.querySelectorAll('#fb-cat-row .shariq-chip').forEach((c) => c.addEventListener('click', () => setCat(c.dataset.cat)));
+    $('fb-new-btn').addEventListener('click', () => {
+      $('fb-new-subject').value = '';
+      $('fb-new-message').value = '';
+      $('fb-new-name').value = localStorage.getItem(FB_NAME_KEY) || '';
+      $('fb-new-error').classList.add('hidden');
+      setCat('suggestion');
+      updateCounter('fb-new-message', 'fb-new-count');
+      $('fb-new-modal').classList.remove('hidden');
+    });
+    $('fb-new-cancel-btn').addEventListener('click', closeNew);
+    $('fb-new-modal').addEventListener('click', (e) => { if (e.target.id === 'fb-new-modal') closeNew(); });
+    $('fb-new-message').addEventListener('input', () => updateCounter('fb-new-message', 'fb-new-count'));
+    $('fb-reply-text').addEventListener('input', () => updateCounter('fb-reply-text', 'fb-reply-count'));
+
+    $('fb-new-submit-btn').addEventListener('click', async () => {
+      const errEl = $('fb-new-error');
+      const message = $('fb-new-message').value.trim();
+      const subject = $('fb-new-subject').value.trim();
+      const name = $('fb-new-name').value.trim();
+      if (message.length < 5) {
+        errEl.textContent = 'لطفاً متن پیام را کامل‌تر بنویسید.';
+        errEl.classList.remove('hidden');
+        return;
+      }
+      const btn = $('fb-new-submit-btn');
+      btn.disabled = true;
+      try {
+        const device_id = await ensureDeviceId();
+        const r = await apiFetch('/feedback/create', { method: 'POST', body: JSON.stringify({ device_id, subject, message, category: fbCategory, name, app_version: String(window.NATIVE_APP_VERSION || '') }) });
+        try { if (name) localStorage.setItem(FB_NAME_KEY, name); } catch (e) {}
+        hideNew();
+        if (r && r.id) openFbView(r.id); else loadFeedbackMain();
+      } catch (e) {
+        errEl.textContent = khatmErr(e, 'ارسال انجام نشد. اینترنت را بررسی کنید و دوباره تلاش کنید.');
+        errEl.classList.remove('hidden');
+      } finally { btn.disabled = false; }
+    });
+
+    // پاسخ در یک گفتگو
+    $('fb-reply-btn').addEventListener('click', async () => {
+      const errEl = $('fb-reply-err');
+      const message = $('fb-reply-text').value.trim();
+      if (message.length < 2) { errEl.textContent = 'متن پیام خالی است.'; errEl.classList.remove('hidden'); return; }
+      const btn = $('fb-reply-btn');
+      btn.disabled = true;
+      try {
+        const device_id = await ensureDeviceId();
+        await apiFetch('/feedback/reply', { method: 'POST', body: JSON.stringify({ device_id, id: fbViewId, message }) });
+        $('fb-reply-text').value = '';
+        updateCounter('fb-reply-text', 'fb-reply-count');
+        errEl.classList.add('hidden');
+        loadFbView();
+      } catch (e) {
+        errEl.textContent = khatmErr(e, 'ارسال انجام نشد. اینترنت را بررسی کنید و دوباره تلاش کنید.');
+        errEl.classList.remove('hidden');
+      } finally { btn.disabled = false; }
+    });
+  } catch (e) { try { console.error('feedback ui', e); } catch (e2) {} }
+})();
+
+// با برگشتن به اپ، اگر مدتی گذشته باشد دوباره می‌پرسد آیا پاسخی آمده
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && Date.now() - fbLastCheck > 60000) fbCheckNews();
+});
+loadFeedbackSettings();
+setTimeout(fbCheckNews, 10000);
 
 window.__arefBooted = true;
