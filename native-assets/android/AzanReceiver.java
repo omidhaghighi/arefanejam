@@ -43,6 +43,8 @@ public class AzanReceiver extends BroadcastReceiver {
     public static final String ACTION_FIRE = "com.arefanejam.quran.AZAN_FIRE";
     public static final String ACTION_TEST = "com.arefanejam.quran.AZAN_TEST";
     public static final String ACTION_STICKY = "com.arefanejam.quran.STICKY_REFRESH";
+    // sent by the system itself every time a network with internet becomes available (see UpdateJobService.registerNetWake)
+    public static final String ACTION_NET = "com.arefanejam.quran.NET_AVAILABLE";
     static final String PREFS = "arefanejam_native_azan";
     static final String FALLBACK_CH = "azan-native-fallback-v1";
     static final int FALLBACK_ID = 777000003;
@@ -52,6 +54,11 @@ public class AzanReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context ctx, Intent intent) {
         String action = intent == null ? null : intent.getAction();
+        if (ACTION_NET.equals(action)) {
+            // internet is back: read the announcements / news / events inbox right now (only this, nothing else)
+            try { UpdateJobService.kickInbox(ctx); } catch (Throwable ignore) { }
+            return;
+        }
         // بعد از روشن‌شدن گوشی یا بروزرسانی اپ، اعلان‌ها پاک شده‌اند: کارت ثابت باید بدون باز شدن اپ دوباره ساخته شود
         final boolean restoreCard = "android.intent.action.BOOT_COMPLETED".equals(action)
                 || "android.intent.action.MY_PACKAGE_REPLACED".equals(action)

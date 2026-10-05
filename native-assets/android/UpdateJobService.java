@@ -53,7 +53,11 @@ public class UpdateJobService extends JobService {
     static final int JOB_KICK = 4802;
     static final int JOB_NEWS = 4803;   // خبرهای امروز: هر بار که اینترنت وصل شود (حداکثر هر ۱۵ دقیقه یک بار)
     static final long NEWS_PERIOD_MS = 15L * 60L * 1000L;
-    static final String NEWS_CH = "arefanejam_news_today";
+    static final int JOB_INBOX = 4804;  // «اینترنت وصل شد»: بلافاصله اعلان‌ها/اخبار/مناسبت‌ها را از سایت بگیر
+    static final long INBOX_MIN_GAP_MS = 45L * 1000L;   // وصل و قطع‌های پشت‌سرهم، سایت را زیر فشار نگذارند
+    static final int INBOX_MAX_SEEN = 300;
+    static final String INBOX_CH = "arefanejam_inbox";
+    static final String INBOX_GROUP = "arefanejam_inbox_group";
     static final String PREFS = "arefanejam_bg_update";
     static final String DEFAULT_API = "https://arefanejam.com/wp-json/arefanejam/v1";
     static final long PERIOD_MS = 6L * 3600L * 1000L;
@@ -218,12 +222,85 @@ public class UpdateJobService extends JobService {
                 js.schedule(builder(JOB_KICK, cn).setPersisted(true).build());
             }
         } catch (Throwable ignore) { }
+        // «به‌محض وصل شدن اینترنت» بیدار شو (حتی اگر اپ بسته باشد)
+        try { registerNetWake(ctx); } catch (Throwable ignore) { }
+    }
+
+    /**
+     * Android 8+: the system itself wakes our receiver every time a network with internet becomes available,
+     * even when the app process is not running (PendingIntent network callback, needs no extra permission
+     * besides ACCESS_NETWORK_STATE). Registering the same PendingIntent again only replaces the old one.
+     * It does not survive a reboot / force-stop, so schedule() (called at app start, boot, app update and
+     * after every azan) puts it back.
+     */
+    static void registerNetWake(Context ctx) {
+        if (Build.VERSION.SDK_INT < 26) return;
+        try {
+            Context app = ctx.getApplicationContext();
+            ConnectivityManager cm = (ConnectivityManager) app.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return;
+            Intent i = new Intent(app, AzanReceiver.class);
+            i.setAction(AzanReceiver.ACTION_NET);
+            int fl = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= 31) fl |= PendingIntent.FLAG_MUTABLE;   // the system adds the network as an extra
+            PendingIntent pi = PendingIntent.getBroadcast(app, JOB_INBOX, i, fl);
+            NetworkRequest rq = new NetworkRequest.Builder()
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build();
+            cm.registerNetworkCallback(rq, pi);
+        } catch (Throwable t) {
+            log(ctx, "net wake register error: " + t);
+        }
+    }
+
+    /**
+     * Called by AzanReceiver when internet became available: starts a one-shot job that reads the inbox now.
+     * The job has NO network constraint on purpose (the network is already up; some networks never pass
+     * Android's "validated" test) - checkInbox() tests the connection itself.
+     */
+    static void kickInbox(Context ctx) {
+        try {
+            Context app = ctx.getApplicationContext();
+            if (System.currentTimeMillis() - prefs(app).getLong("inbox_last", 0) < INBOX_MIN_GAP_MS) return;
+            JobScheduler js = (JobScheduler) app.getSystemService(Context.JOB_SCHEDULER_SERVICE);
+            if (js == null || isPending(js, JOB_INBOX)) return;
+            js.schedule(new JobInfo.Builder(JOB_INBOX, new ComponentName(app, UpdateJobService.class))
+                    .setBackoffCriteria(20000L, JobInfo.BACKOFF_POLICY_LINEAR)
+                    .setOverrideDeadline(0L)   // run now (also makes the job valid on every Android version)
+                    .build());
+        } catch (Throwable t) {
+            log(ctx, "inbox kick error: " + t);
+        }
     }
 
     /* ------------------------------ the job ------------------------------ */
 
     @Override
     public boolean onStartJob(final JobParameters params) {
+        final int jid = params.getJobId();
+        if (jid == JOB_NEWS || jid == JOB_INBOX) {
+            // کار «اعلان‌ها و اخبار»: سبک است و منتظر تمام شدن دانلود بروزرسانی نمی‌ماند
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    Context ctx = getApplicationContext();
+                    boolean retry = false;
+                    try {
+                        checkInbox(ctx);
+                        prefs(ctx).edit().putInt("inbox_fail", 0).apply();
+                    } catch (IOException net) {
+                        // اتصال تازه وصل شده و هنوز آماده نیست / سایت در دسترس نیست: برای کار «اینترنت وصل شد» چند بار با فاصله دوباره امتحان کن
+                        SharedPreferences sp = prefs(ctx);
+                        int fails = sp.getInt("inbox_fail", 0) + 1;
+                        sp.edit().putInt("inbox_fail", fails).apply();
+                        retry = jid == JOB_INBOX && fails < 4;
+                    } catch (Throwable t) {
+                        log(ctx, "inbox error: " + t);
+                    }
+                    try { jobFinished(params, retry); } catch (Throwable ignore) { }
+                }
+            }).start();
+            return true;
+        }
         synchronized (LOCK) {
             if (running) return false;
             running = true;
@@ -235,15 +312,9 @@ public class UpdateJobService extends JobService {
                 boolean retry = false;
                 Context ctx = getApplicationContext();
                 try {
-                    if (params.getJobId() == JOB_NEWS) {
-                        // کار «خبرهای امروز»: فقط خبر را بررسی می‌کند، به دانلود بروزرسانی کاری ندارد
-                        try { checkTodayNews(ctx); } catch (IOException ignoreNet) { /* بدون اینترنت/سایت در دسترس نیست: بی‌صدا رد می‌شود */ } catch (Throwable t) { log(ctx, "news error: " + t); }
-                        retry = false;
-                    } else {
-                        retry = doUpdate(ctx);
-                        // هر بار که کار بروزرسانی هم اجرا می‌شود، خبرها هم یک‌بار نگاه می‌شود (بی‌ضرر؛ تکراری اعلان نمی‌دهد)
-                        try { checkTodayNews(ctx); } catch (IOException ignoreNet) { /* بدون اینترنت/سایت در دسترس نیست: بی‌صدا رد می‌شود */ } catch (Throwable t) { log(ctx, "news error: " + t); }
-                    }
+                    retry = doUpdate(ctx);
+                    // هر بار که کار بروزرسانی هم اجرا می‌شود، اعلان‌ها هم یک‌بار نگاه می‌شود (بی‌ضرر؛ تکراری اعلان نمی‌دهد)
+                    try { checkInbox(ctx); } catch (IOException ignoreNet) { /* بدون اینترنت/سایت در دسترس نیست: بی‌صدا رد می‌شود */ } catch (Throwable t) { log(ctx, "inbox error: " + t); }
                 } catch (Throwable t) {
                     log(ctx, "error: " + t);
                     retry = true;
@@ -299,16 +370,23 @@ public class UpdateJobService extends JobService {
         return again;
     }
 
-    /* ------------------------------ خبرهای امروز ------------------------------ */
+    /* ------------------------------ اعلان‌ها، اخبار و مناسبت‌ها (صندوق ارسال بومی) ------------------------------ */
 
     /**
-     * به محض اینکه اینترنت وصل شود (حتی اگر اپ بسته باشد)، اگر امروز در سایت خبر تازه‌ای منتشر شده باشد
-     * یک اعلان با صدا نشان می‌دهد. هر خبر فقط یک بار اعلام می‌شود؛ فردا فهرست از نو شروع می‌شود.
-     * اگر در پیشخوان «هشدار اخبار امروز» خاموش باشد (enabled=false) هیچ کاری نمی‌کند.
+     * Reads GET /inbox from the website (announcements from the dashboard, new news, calendar events, test message).
+     * Every item has a unique id (uid). The ids already shown are remembered in SharedPreferences, so
+     *  - an item is shown exactly once on this phone,
+     *  - an item published while the phone was offline is shown as soon as the phone is online again
+     *    (the website only lists items younger than its "max age", default 72 h),
+     *  - if the app is on screen the app itself shows the item (in-app popup), so no system notification is made.
+     * The very first run only REMEMBERS old items (older than 2 h) so a fresh install / update does not
+     * flood the phone. If notifications are not allowed nothing is remembered, so everything arrives
+     * after the user allows notifications.
+     * Throws IOException when the website cannot be reached (caller may retry).
      */
     private static final Object NEWS_LOCK = new Object();
 
-    static void checkTodayNews(Context ctx) throws Exception {
+    static void checkInbox(Context ctx) throws Exception {
         synchronized (NEWS_LOCK) {
             if (!online(ctx)) return;
             SharedPreferences sp = prefs(ctx);
@@ -317,64 +395,83 @@ public class UpdateJobService extends JobService {
             if (api == null || !api.startsWith("http")) api = DEFAULT_API;
             while (api.endsWith("/")) api = api.substring(0, api.length() - 1);
 
-            JSONObject info = new JSONObject(httpText(api + "/news-today?t=" + System.currentTimeMillis()));
+            JSONObject info = new JSONObject(httpText(api + "/inbox?t=" + System.currentTimeMillis()));
+            sp.edit().putLong("inbox_last", System.currentTimeMillis()).apply();
             if (!info.optBoolean("enabled", false)) return;
-            String date = info.optString("date", "");
             JSONArray items = info.optJSONArray("items");
-            if (date.length() == 0 || items == null || items.length() == 0) return;
 
-            // فهرست خبرهایی که امروز قبلاً اعلام شده‌اند (با عوض شدن روز پاک می‌شود)
-            String sentDate = sp.getString("news_date", "");
-            String sent = date.equals(sentDate) ? sp.getString("news_sent", "") : "";
-            java.util.HashSet<String> done = new java.util.HashSet<String>();
-            if (sent.length() > 0) for (String x : sent.split(",")) done.add(x);
-
-            java.util.ArrayList<String> titles = new java.util.ArrayList<String>();
-            java.util.ArrayList<String> newIds = new java.util.ArrayList<String>();
-            for (int i = 0; i < items.length(); i++) {
-                JSONObject it = items.optJSONObject(i);
-                if (it == null) continue;
-                String id = String.valueOf(it.optInt("id", 0));
-                if ("0".equals(id) || done.contains(id)) continue;
-                String t = it.optString("title", "").trim();
-                if (t.length() == 0) continue;
-                titles.add(t);
-                newIds.add(id);
+            boolean init = sp.getBoolean("inbox_init", false);
+            java.util.LinkedHashSet<String> seen = loadSeen(sp);
+            if (!init) {
+                // خبرهایی که نسخهٔ قبلیِ «خبرهای امروز» همین امروز اعلام کرده بود دوباره اعلام نشوند
+                String legacy = sp.getString("news_sent", "");
+                if (legacy.length() > 0) for (String x : legacy.split(",")) if (x.length() > 0) seen.add("news:" + x);
             }
-            if (titles.isEmpty()) return;
 
-            if (!showNewsNotification(ctx, titles)) return; // اعلان ممکن نبود (مثلاً اجازهٔ اعلان نیست): بعداً دوباره تلاش می‌شود
+            java.util.ArrayList<JSONObject> fresh = new java.util.ArrayList<JSONObject>();
+            if (items != null) {
+                for (int i = 0; i < items.length(); i++) {
+                    JSONObject it = items.optJSONObject(i);
+                    if (it == null) continue;
+                    String uid = it.optString("uid", "");
+                    if (uid.length() == 0 || seen.contains(uid)) continue;
+                    if (it.optString("title", "").trim().length() == 0) continue;
+                    if (!init && it.optLong("age", 0) >= 2L * 3600L) { seen.add(uid); continue; }   // first run: only remember
+                    fresh.add(it);
+                }
+            }
+            if (!init) sp.edit().putBoolean("inbox_init", true).apply();
+            if (fresh.isEmpty()) { saveSeen(sp, seen); return; }
 
-            StringBuilder sb = new StringBuilder(sent);
-            for (String id : newIds) { if (sb.length() > 0) sb.append(','); sb.append(id); }
-            sp.edit().putString("news_date", date).putString("news_sent", sb.toString()).apply();
-            log(ctx, "news alarm shown: " + titles.size() + " item(s)");
+            // oldest first, so the newest ends up on top of the notification shade
+            java.util.Collections.sort(fresh, new java.util.Comparator<JSONObject>() {
+                @Override public int compare(JSONObject a, JSONObject b) { return Long.compare(b.optLong("age", 0), a.optLong("age", 0)); }
+            });
+
+            if (MainActivity.inForeground) {
+                // the app is open: its own 20-second check shows the popup, a system notification would be a duplicate
+                for (JSONObject it : fresh) seen.add(it.optString("uid"));
+                saveSeen(sp, seen);
+                log(ctx, "inbox: " + fresh.size() + " item(s) - app is on screen, shown inside the app");
+                return;
+            }
+
+            if (!showInboxNotifications(ctx, fresh)) { saveSeen(sp, seen); return; }   // not allowed now: try again next time
+            for (JSONObject it : fresh) seen.add(it.optString("uid"));
+            saveSeen(sp, seen);
+            log(ctx, "inbox: shown " + fresh.size() + " item(s)");
         }
     }
 
-    private static boolean showNewsNotification(Context ctx, java.util.List<String> titles) {
+    private static java.util.LinkedHashSet<String> loadSeen(SharedPreferences sp) {
+        java.util.LinkedHashSet<String> set = new java.util.LinkedHashSet<String>();
+        String raw = sp.getString("inbox_seen", "");
+        if (raw.length() > 0) for (String x : raw.split("\n")) if (x.length() > 0) set.add(x);
+        return set;
+    }
+
+    private static void saveSeen(SharedPreferences sp, java.util.LinkedHashSet<String> seen) {
+        java.util.ArrayList<String> all = new java.util.ArrayList<String>(seen);
+        int from = Math.max(0, all.size() - INBOX_MAX_SEEN);
+        StringBuilder sb = new StringBuilder();
+        for (int i = from; i < all.size(); i++) { if (sb.length() > 0) sb.append('\n'); sb.append(all.get(i)); }
+        sp.edit().putString("inbox_seen", sb.toString()).apply();
+    }
+
+    /** returns false if nothing could be shown (e.g. notifications are not allowed) */
+    private static boolean showInboxNotifications(Context ctx, java.util.List<JSONObject> list) {
         try {
             if (!androidx.core.app.NotificationManagerCompat.from(ctx).areNotificationsEnabled()) {
-                log(ctx, "news: notifications are not allowed - waits");
+                log(ctx, "inbox: notifications are not allowed - waits");
                 return false;
             }
             NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm == null) return false;
-            if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(NEWS_CH) == null) {
-                NotificationChannel ch = new NotificationChannel(NEWS_CH, "اخبار امروز", NotificationManager.IMPORTANCE_DEFAULT);
-                ch.setDescription("خبرهای امروز سایت عارفان جام");
+            if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(INBOX_CH) == null) {
+                NotificationChannel ch = new NotificationChannel(INBOX_CH, "اعلان‌ها و اخبار", NotificationManager.IMPORTANCE_HIGH);
+                ch.setDescription("اعلان‌ها، خبرها و مناسبت‌های عارفان جام");
                 nm.createNotificationChannel(ch);
             }
-            int n = titles.size();
-            String title = n == 1 ? "خبر امروز عارفان جام" : ("امروز " + n + " خبر تازه در سایت منتشر شده");
-            StringBuilder body = new StringBuilder();
-            for (int i = 0; i < Math.min(n, 5); i++) {
-                if (i > 0) body.append("\n");
-                body.append("• ").append(titles.get(i));
-            }
-            if (n > 5) body.append("\n… و ").append(n - 5).append(" خبر دیگر");
-            String firstLine = titles.get(0);
-
             Intent open = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
             PendingIntent pi = null;
             if (open != null) {
@@ -386,22 +483,53 @@ public class UpdateJobService extends JobService {
             int icon = ctx.getResources().getIdentifier("ic_stat_azan", "drawable", ctx.getPackageName());
             if (icon == 0) icon = android.R.drawable.ic_dialog_info;
 
-            androidx.core.app.NotificationCompat.Builder b = new androidx.core.app.NotificationCompat.Builder(ctx, NEWS_CH)
-                    .setSmallIcon(icon)
-                    .setContentTitle(title)
-                    .setContentText(n == 1 ? firstLine : ("• " + firstLine))
-                    .setStyle(new androidx.core.app.NotificationCompat.BigTextStyle().bigText(body.toString()))
-                    .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
-                    .setCategory(androidx.core.app.NotificationCompat.CATEGORY_MESSAGE)
-                    .setDefaults(Notification.DEFAULT_SOUND | Notification.DEFAULT_VIBRATE)
-                    .setColor(0xFF143C36)
-                    .setAutoCancel(true);
-            if (pi != null) b.setContentIntent(pi);
-            // یک اعلان ثابت برای «خبرهای امروز»: اگر خبر تازه‌تری بیاید همین را به‌روز می‌کند، اعلان‌ها روی هم انبار نمی‌شوند
-            nm.notify(4803, b.build());
+            int n = list.size();
+            if (n <= 3) {
+                // few items: one notification each, with its own title and text
+                for (JSONObject it : list) {
+                    String title = it.optString("title", "").trim();
+                    String body = it.optString("body", "").trim();
+                    long ageMs = Math.max(0L, it.optLong("age", 0)) * 1000L;
+                    androidx.core.app.NotificationCompat.Builder b = new androidx.core.app.NotificationCompat.Builder(ctx, INBOX_CH)
+                            .setSmallIcon(icon)
+                            .setContentTitle(title)
+                            .setContentText(body.length() > 0 ? body : title)
+                            .setStyle(new androidx.core.app.NotificationCompat.BigTextStyle().bigText(body.length() > 0 ? body : title))
+                            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                            .setCategory(androidx.core.app.NotificationCompat.CATEGORY_MESSAGE)
+                            .setDefaults(Notification.DEFAULT_SOUND | Notification.DEFAULT_VIBRATE)
+                            .setColor(0xFF143C36)
+                            .setGroup(INBOX_GROUP)
+                            .setWhen(System.currentTimeMillis() - ageMs)
+                            .setShowWhen(true)
+                            .setAutoCancel(true);
+                    if (pi != null) b.setContentIntent(pi);
+                    int id = 20000 + (it.optString("uid", "").hashCode() & 0xFFFFF) % 70000;
+                    nm.notify(id, b.build());
+                }
+            } else {
+                // many items (phone was offline for a while): ONE summary notification listing them
+                androidx.core.app.NotificationCompat.InboxStyle st = new androidx.core.app.NotificationCompat.InboxStyle();
+                int shown = Math.min(n, 6);
+                for (int i = n - 1; i >= n - shown; i--) st.addLine(list.get(i).optString("title", "").trim());   // newest first
+                if (n > shown) st.setSummaryText("و " + (n - shown) + " مورد دیگر");
+                String title = n + " پیام تازه از عارفان جام";
+                androidx.core.app.NotificationCompat.Builder b = new androidx.core.app.NotificationCompat.Builder(ctx, INBOX_CH)
+                        .setSmallIcon(icon)
+                        .setContentTitle(title)
+                        .setContentText(list.get(n - 1).optString("title", "").trim())
+                        .setStyle(st)
+                        .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                        .setCategory(androidx.core.app.NotificationCompat.CATEGORY_MESSAGE)
+                        .setDefaults(Notification.DEFAULT_SOUND | Notification.DEFAULT_VIBRATE)
+                        .setColor(0xFF143C36)
+                        .setAutoCancel(true);
+                if (pi != null) b.setContentIntent(pi);
+                nm.notify(4803, b.build());
+            }
             return true;
         } catch (Throwable t) {
-            log(ctx, "news notification error: " + t);
+            log(ctx, "inbox notification error: " + t);
             return false;
         }
     }
