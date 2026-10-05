@@ -12,6 +12,7 @@ import android.content.IntentFilter;
 import android.content.pm.ServiceInfo;
 import android.content.res.AssetFileDescriptor;
 import android.media.AudioAttributes;
+import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.media.RingtoneManager;
 import android.net.Uri;
@@ -39,7 +40,7 @@ public class AzanService extends Service {
 
     // pressing the phone's power button while the azan plays stops the azan
     // (the button always produces a SCREEN_OFF if the screen was on, or a SCREEN_ON if it was off)
-    private static final long POWER_GUARD_MS = 2500L;   // ignore screen changes right after the azan starts
+    private static final long POWER_GUARD_MS = 20000L;  // ignore screen changes in the first 20s (the notification / sticky card often wakes the screen by itself)
     private BroadcastReceiver screenReceiver;
     private long azanStartedAt;
     private long screenOnAt;
@@ -208,6 +209,7 @@ public class AzanService extends Service {
                     return true;
                 }
             });
+            ensureAlarmVolume();
             mp.prepare();
             mp.start();
             AzanReceiver.logEvent(this, "audio: PLAYING");
@@ -259,6 +261,25 @@ public class AzanService extends Service {
             }
         } catch (Throwable ignore) { }
         return false;
+    }
+
+    /** The azan is played on the ALARM volume. If that volume is 0 the azan is "playing" but silent: raise it to ~60%. */
+    private void ensureAlarmVolume() {
+        try {
+            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            if (am == null) return;
+            int max = am.getStreamMaxVolume(AudioManager.STREAM_ALARM);
+            int cur = am.getStreamVolume(AudioManager.STREAM_ALARM);
+            if (cur <= 0 && max > 0) {
+                int target = Math.max(1, (int) Math.round(max * 0.6));
+                am.setStreamVolume(AudioManager.STREAM_ALARM, target, 0);
+                AzanReceiver.logEvent(this, "alarm volume was 0 -> raised to " + target + "/" + max);
+            } else {
+                AzanReceiver.logEvent(this, "alarm volume " + cur + "/" + max);
+            }
+        } catch (Throwable t) {
+            AzanReceiver.logEvent(this, "alarm volume check failed: " + t);
+        }
     }
 
     private void releasePlayer() {
