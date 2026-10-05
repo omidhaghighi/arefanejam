@@ -4294,3 +4294,18 @@ body.dark-mode .ga-answer { color: var(--ink); }
 /* حدس آیه: بدون زمان، دکمهٔ نمایش پاسخ */
 .ga-show { width: 100%; padding: 14px; font-size: 16px; margin-top: 10px; }
 .ga-approx { margin: 2px 0 0; opacity: .8; }
+
+/* حدس آیه: رشته‌های ثابت + ۵ کلمهٔ اول + راهنمایی */
+.ga-cats.ga-cats-7 { grid-template-columns: repeat(2, 1fr); }
+.ga-cats-7 .ga-cat { padding: 10px 6px; }
+.ga-cats-7 .ga-cat b { font-size: 17px; }
+.ga-cats-7 .ga-cat span { font-size: 12px; }
+.ga-cats-7 .ga-cat:last-child { grid-column: 1 / -1; }
+.ga-first { margin: 10px 0 4px; padding: 12px; border: 1px dashed var(--line); border-radius: 14px; background: var(--paper-alt); }
+.ga-first-label { margin: 0 0 6px; font-weight: 800; font-size: 13px; color: var(--ink); }
+.ga-first-text { font-family: var(--font-quran); font-size: 24px; line-height: 2.2; color: var(--ink); text-align: center; }
+.ga-first-text .ga-new { color: var(--gold); }
+.ga-first-text .ga-num { color: var(--gold); font-size: 18px; }
+.ga-dots-more { opacity: .6; }
+.ga-hint-btn { width: 100%; padding: 11px; font-size: 15px; margin-top: 8px; }
+.ga-hint-btn.hidden { display: none; }
