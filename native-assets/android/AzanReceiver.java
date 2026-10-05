@@ -45,6 +45,8 @@ public class AzanReceiver extends BroadcastReceiver {
     public static final String ACTION_STICKY = "com.arefanejam.quran.STICKY_REFRESH";
     // sent by the system itself every time a network with internet becomes available (see UpdateJobService.registerNetWake)
     public static final String ACTION_NET = "com.arefanejam.quran.NET_AVAILABLE";
+    // fired by the repeating 5-minute alarm (UpdateJobService.armPoll): checks the announcements / news inbox
+    public static final String ACTION_POLL = "com.arefanejam.quran.INBOX_POLL";
     static final String PREFS = "arefanejam_native_azan";
     static final String FALLBACK_CH = "azan-native-fallback-v1";
     static final int FALLBACK_ID = 777000003;
@@ -55,8 +57,21 @@ public class AzanReceiver extends BroadcastReceiver {
     public void onReceive(Context ctx, Intent intent) {
         String action = intent == null ? null : intent.getAction();
         if (ACTION_NET.equals(action)) {
-            // internet is back: read the announcements / news / events inbox right now (only this, nothing else)
-            try { UpdateJobService.kickInbox(ctx); } catch (Throwable ignore) { }
+            // internet is back: read the announcements / news / events inbox right now (only this, nothing else).
+            // Done directly here (not through JobScheduler, which Doze can delay for hours); the job is only the fallback.
+            if (System.currentTimeMillis() - UpdateJobService.prefs(ctx).getLong("inbox_last", 0) < UpdateJobService.INBOX_MIN_GAP_MS) return;
+            BroadcastReceiver.PendingResult prNet = null;
+            try { prNet = goAsync(); } catch (Throwable ignore) { }
+            try { UpdateJobService.runInboxNow(ctx, prNet, false); }
+            catch (Throwable t) { try { if (prNet != null) prNet.finish(); } catch (Throwable ignore) { } try { UpdateJobService.kickInbox(ctx); } catch (Throwable ignore2) { } }
+            return;
+        }
+        if (ACTION_POLL.equals(action)) {
+            // the 5-minute alarm: re-arms itself, then reads the inbox (works with the phone locked and the app closed)
+            BroadcastReceiver.PendingResult prPoll = null;
+            try { prPoll = goAsync(); } catch (Throwable ignore) { }
+            try { UpdateJobService.runInboxNow(ctx, prPoll, true); }
+            catch (Throwable t) { try { if (prPoll != null) prPoll.finish(); } catch (Throwable ignore) { } }
             return;
         }
         // بعد از روشن‌شدن گوشی یا بروزرسانی اپ، اعلان‌ها پاک شده‌اند: کارت ثابت باید بدون باز شدن اپ دوباره ساخته شود

@@ -1,5 +1,6 @@
 package com.arefanejam.quran;
 
+import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -56,6 +57,9 @@ public class UpdateJobService extends JobService {
     static final int JOB_INBOX = 4804;  // «اینترنت وصل شد»: بلافاصله اعلان‌ها/اخبار/مناسبت‌ها را از سایت بگیر
     static final long INBOX_MIN_GAP_MS = 45L * 1000L;   // وصل و قطع‌های پشت‌سرهم، سایت را زیر فشار نگذارند
     static final int INBOX_MAX_SEEN = 300;
+    // «پرسش دوره‌ای با آلارم»: حتی با گوشی قفل/اپ بسته/اینترنت از قبل وصل، هر چند دقیقه صندوق را نگاه می‌کند
+    static final int POLL_REQ = 4805;
+    static final long POLL_MS = 5L * 60L * 1000L;
     static final String INBOX_CH = "arefanejam_inbox";
     static final String INBOX_GROUP = "arefanejam_inbox_group";
     static final String PREFS = "arefanejam_bg_update";
@@ -224,6 +228,71 @@ public class UpdateJobService extends JobService {
         } catch (Throwable ignore) { }
         // «به‌محض وصل شدن اینترنت» بیدار شو (حتی اگر اپ بسته باشد)
         try { registerNetWake(ctx); } catch (Throwable ignore) { }
+        // آلارم تکرارشوندهٔ ۵ دقیقه‌ای برای دریافت اعلان/خبر وقتی گوشی قفل است (JobScheduler در حالت Doze ساعت‌ها دیر اجرا می‌شود)
+        try { armPoll(ctx, false); } catch (Throwable ignore) { }
+    }
+
+    /**
+     * One alarm (AlarmManager.setExactAndAllowWhileIdle) that wakes AzanReceiver every ~5 minutes, even in Doze and with the
+     * app closed. Each time it fires it re-arms itself first and then reads the inbox (see AzanReceiver ACTION_POLL).
+     * Called from schedule() (app start, boot, app update, after every azan); without force it does nothing while a
+     * healthy alarm is already waiting.
+     */
+    static void armPoll(Context ctx, boolean force) {
+        try {
+            Context app = ctx.getApplicationContext();
+            SharedPreferences sp = prefs(app);
+            long now = System.currentTimeMillis();
+            long next = sp.getLong("poll_next", 0);
+            Intent i = new Intent(app, AzanReceiver.class);
+            i.setAction(AzanReceiver.ACTION_POLL);
+            int base = Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0;
+            if (!force && next > now && next - now <= POLL_MS + 30000L
+                    && PendingIntent.getBroadcast(app, POLL_REQ, i, PendingIntent.FLAG_NO_CREATE | base) != null) return;   // already waiting
+            PendingIntent pi = PendingIntent.getBroadcast(app, POLL_REQ, i, PendingIntent.FLAG_UPDATE_CURRENT | base);
+            AlarmManager am = (AlarmManager) app.getSystemService(Context.ALARM_SERVICE);
+            if (am == null) return;
+            long t = now + POLL_MS;
+            try {
+                if (Build.VERSION.SDK_INT >= 31 && !am.canScheduleExactAlarms()) am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t, pi);
+                else if (Build.VERSION.SDK_INT >= 23) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t, pi);
+                else am.set(AlarmManager.RTC_WAKEUP, t, pi);
+            } catch (SecurityException se) {
+                if (Build.VERSION.SDK_INT >= 23) am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t, pi);
+                else am.set(AlarmManager.RTC_WAKEUP, t, pi);
+            }
+            sp.edit().putLong("poll_next", t).apply();
+        } catch (Throwable t) {
+            log(ctx, "poll arm error: " + t);
+        }
+    }
+
+    /**
+     * Runs inside AzanReceiver (with goAsync) when the poll alarm fired or internet became available:
+     * reads the inbox right now on a worker thread, short timeouts so the broadcast never hangs.
+     */
+    static void runInboxNow(final Context ctx, final BroadcastReceiver.PendingResult pr, final boolean poll) {
+        final Context app = ctx.getApplicationContext();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (poll) armPoll(app, true);   // re-arm FIRST, so a failed check never stops the chain
+                    try {
+                        checkInbox(app, 8000, 10000);
+                        SharedPreferences.Editor e = prefs(app).edit();
+                        e.putLong("poll_last", System.currentTimeMillis()).putInt("inbox_fail", 0).apply();
+                    } catch (IOException net) {
+                        // no internet right now / site not reachable: the next poll tries again; the "internet is back" path also falls back to the job
+                        if (!poll) kickInbox(app);
+                    } catch (Throwable t) {
+                        log(app, "inbox error: " + t);
+                    }
+                } finally {
+                    try { if (pr != null) pr.finish(); } catch (Throwable ignore) { }
+                }
+            }
+        }).start();
     }
 
     /**
@@ -386,7 +455,9 @@ public class UpdateJobService extends JobService {
      */
     private static final Object NEWS_LOCK = new Object();
 
-    static void checkInbox(Context ctx) throws Exception {
+    static void checkInbox(Context ctx) throws Exception { checkInbox(ctx, 20000, 30000); }
+
+    static void checkInbox(Context ctx, int connectMs, int readMs) throws Exception {
         synchronized (NEWS_LOCK) {
             if (!online(ctx)) return;
             SharedPreferences sp = prefs(ctx);
@@ -395,7 +466,7 @@ public class UpdateJobService extends JobService {
             if (api == null || !api.startsWith("http")) api = DEFAULT_API;
             while (api.endsWith("/")) api = api.substring(0, api.length() - 1);
 
-            JSONObject info = new JSONObject(httpText(api + "/inbox?t=" + System.currentTimeMillis()));
+            JSONObject info = new JSONObject(httpText(api + "/inbox?t=" + System.currentTimeMillis(), connectMs, readMs));
             sp.edit().putLong("inbox_last", System.currentTimeMillis()).apply();
             if (!info.optBoolean("enabled", false)) return;
             JSONArray items = info.optJSONArray("items");
@@ -634,13 +705,15 @@ public class UpdateJobService extends JobService {
         }
     }
 
-    private static String httpText(String url) throws IOException {
+    private static String httpText(String url) throws IOException { return httpText(url, 20000, 30000); }
+
+    private static String httpText(String url, int connectMs, int readMs) throws IOException {
         HttpURLConnection c = null;
         InputStream in = null;
         try {
             c = (HttpURLConnection) new URL(url).openConnection();
-            c.setConnectTimeout(20000);
-            c.setReadTimeout(30000);
+            c.setConnectTimeout(connectMs);
+            c.setReadTimeout(readMs);
             c.setRequestProperty("User-Agent", "ArefanejamApp");
             c.setRequestProperty("Cache-Control", "no-cache");
             if (c.getResponseCode() != 200) throw new IOException("HTTP " + c.getResponseCode());

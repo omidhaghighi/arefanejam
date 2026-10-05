@@ -348,6 +348,8 @@ public class AppUpdaterPlugin extends Plugin {
         r.put("bgReady", UpdateJobService.readyVersion(ctx));
         r.put("bgJob", UpdateJobService.hasJob(ctx));
         r.put("bgLog", UpdateJobService.prefs(ctx).getString("log", ""));
+        r.put("pollLast", UpdateJobService.prefs(ctx).getLong("poll_last", 0));
+        r.put("pollNext", UpdateJobService.prefs(ctx).getLong("poll_next", 0));
         r.put("online", UpdateJobService.online(ctx));
         call.resolve(r);
     }
