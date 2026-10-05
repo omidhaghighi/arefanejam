@@ -47,12 +47,6 @@ public class AzanReceiver extends BroadcastReceiver {
     public static final String ACTION_NET = "com.arefanejam.quran.NET_AVAILABLE";
     // fired by the repeating 5-minute alarm (UpdateJobService.armPoll): checks the announcements / news inbox
     public static final String ACTION_POLL = "com.arefanejam.quran.INBOX_POLL";
-    // "prayer time has come" reminder, fired PRAYER_REMINDER_MIN minutes after each azan (not Maghrib): works with the app closed, phone locked and offline
-    public static final String ACTION_PRAYER = "com.arefanejam.quran.PRAYER_TIME";
-    static final long PRAYER_REMINDER_MS = 20L * 60L * 1000L;
-    static final long PRAYER_MAX_LATE_MS = 10L * 60L * 1000L;
-    static final String PRAYER_CH = "prayer-time-reminder-v1";
-    static final int PRAYER_NOTIF_ID = 777000005;
     static final String PREFS = "arefanejam_native_azan";
     static final String FALLBACK_CH = "azan-native-fallback-v1";
     static final int FALLBACK_ID = 777000003;
@@ -101,22 +95,6 @@ public class AzanReceiver extends BroadcastReceiver {
                 if (enabled && t > 0 && t != last && now - t <= MAX_LATE_MS) {
                     p.edit().putLong("last_fired", t).apply();
                     startAzan(ctx, label);
-                }
-            } else if (ACTION_PRAYER.equals(action)) {
-                long t = intent.getLongExtra("t", 0);
-                String label = intent.getStringExtra("label");
-                if (label == null) label = "";
-                SharedPreferences p = prefs(ctx);
-                boolean enabled = p.getBoolean("enabled", true);
-                long now = System.currentTimeMillis();
-                long last = p.getLong("last_pt_fired", 0);
-                boolean dup = (t == last);
-                boolean late = now - t > PRAYER_MAX_LATE_MS;
-                logEvent(ctx, "PRAYER-TIME " + label + " enabled=" + enabled + " late=" + ((now - t) / 1000) + "s" + (dup ? " (duplicate, skipped)" : ""));
-                if (enabled && t > 0 && !dup && !late) {
-                    p.edit().putLong("last_pt_fired", t).apply();
-                    // app on screen: the in-app popup already tells the user, no extra notification
-                    if (!MainActivity.inForeground) postPrayerTime(ctx, label);
                 }
             } else if (ACTION_STICKY.equals(action)) {
                 // فقط تازه‌کردن کارت اذان بعدی (پایین انجام می‌شود)
@@ -185,9 +163,6 @@ public class AzanReceiver extends BroadcastReceiver {
             o.put("nextT", bestT);
             o.put("nextLabel", bestLabel);
             o.put("lastFired", last);
-            Object[] ptn = nextPrayerReminder(ctx);
-            o.put("prayerTimeNextT", ptn == null ? 0 : ((Long) ptn[0]).longValue());
-            o.put("prayerTimeNextLabel", ptn == null ? "" : (String) ptn[1]);
             File f = bestAudioFile(ctx);
             o.put("fileKb", f == null ? 0 : (int) (f.length() / 1024));
             o.put("hasUrl", p.getString("url", "").length() > 0);
@@ -254,7 +229,6 @@ public class AzanReceiver extends BroadcastReceiver {
         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
         if (am == null) return;
         try { armSticky(ctx, am); } catch (Throwable ignore) { }
-        try { armPrayerTime(ctx, am); } catch (Throwable ignore) { }
         SharedPreferences p = prefs(ctx);
         boolean enabled = p.getBoolean("enabled", true);
         long now = System.currentTimeMillis();
@@ -330,94 +304,6 @@ public class AzanReceiver extends BroadcastReceiver {
             am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
         } catch (Throwable e) {
             try { am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi); } catch (Throwable ignore) { }
-        }
-    }
-
-    static PendingIntent prayerPending(Context ctx, long t, String label) {
-        Intent i = new Intent(ctx, AzanReceiver.class);
-        i.setAction(ACTION_PRAYER);
-        i.putExtra("t", t);
-        i.putExtra("label", label == null ? "" : label);
-        int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0);
-        return PendingIntent.getBroadcast(ctx, 4733, i, flags);
-    }
-
-    /** Next "prayer time has come" moment (azan + 20 min, never for Maghrib) from the saved 30-day list: {time, label}. */
-    static Object[] nextPrayerReminder(Context ctx) {
-        try {
-            SharedPreferences p = prefs(ctx);
-            JSONArray arr = new JSONArray(p.getString("items", "[]"));
-            long last = p.getLong("last_pt_fired", 0);
-            long now = System.currentTimeMillis();
-            long bestT = 0;
-            String bestLabel = "";
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject o = arr.getJSONObject(i);
-                String k = o.optString("k", "");
-                if ("maghrib".equals(k) || "sunrise".equals(k) || "sunset".equals(k)) continue;
-                long az = o.optLong("t", 0);
-                if (az <= 0) continue;
-                long t = az + PRAYER_REMINDER_MS;
-                if (t == last) continue;
-                if (t < now - PRAYER_MAX_LATE_MS) continue;
-                if (bestT == 0 || t < bestT) { bestT = t; bestLabel = o.optString("l", ""); }
-            }
-            if (bestT == 0) return null;
-            return new Object[] { Long.valueOf(bestT), bestLabel };
-        } catch (Throwable ignore) { return null; }
-    }
-
-    /** Arms ONE alarm for the next "prayer time has come" reminder (independent of the azan sound; replaces the previous one). */
-    static void armPrayerTime(Context ctx, AlarmManager am) {
-        try { am.cancel(prayerPending(ctx, 0, "")); } catch (Throwable ignore) { }
-        if (!prefs(ctx).getBoolean("enabled", true)) return;
-        Object[] nx = nextPrayerReminder(ctx);
-        if (nx == null) return;
-        long at = ((Long) nx[0]).longValue();
-        PendingIntent pi = prayerPending(ctx, at, (String) nx[1]);
-        try {
-            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
-        } catch (Throwable e) {
-            try { am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi); } catch (Throwable ignore) { }
-        }
-    }
-
-    /** Loud heads-up notification (sound + vibration, visible on the lock screen): "it is prayer time". */
-    static void postPrayerTime(Context ctx, String label) {
-        try {
-            NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
-            if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(PRAYER_CH) == null) {
-                NotificationChannel ch = new NotificationChannel(PRAYER_CH, "\u0648\u0642\u062a \u0646\u0645\u0627\u0632", NotificationManager.IMPORTANCE_HIGH);
-                ch.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
-                ch.enableVibration(true);
-                ch.setVibrationPattern(new long[] { 0, 400, 200, 400, 200, 400 });
-                nm.createNotificationChannel(ch);
-            }
-            String pkg = ctx.getPackageName();
-            int small = ctx.getResources().getIdentifier("ic_stat_azan", "drawable", pkg);
-            if (small == 0) small = ctx.getApplicationInfo().icon;
-            Intent launch = ctx.getPackageManager().getLaunchIntentForPackage(pkg);
-            int pf = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0);
-            PendingIntent pi = launch == null ? null : PendingIntent.getActivity(ctx, 4734, launch, pf);
-            String brand = prefs(ctx).getString("brand", "");
-            String title = "\u0648\u0642\u062a \u0646\u0645\u0627\u0632 " + label + " \u0631\u0633\u06cc\u062f\u0647 \u0627\u0633\u062a";
-            String body = "\u0648\u0642\u062a \u0646\u0645\u0627\u0632 " + label + " \u0641\u0631\u0627 \u0631\u0633\u06cc\u062f\u0647 \u0627\u0633\u062a." + (brand.length() > 0 ? "  \u2022  " + brand : "");
-            NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, PRAYER_CH)
-                .setSmallIcon(small)
-                .setContentTitle(title)
-                .setContentText(body)
-                .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setCategory(NotificationCompat.CATEGORY_ALARM)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setDefaults(NotificationCompat.DEFAULT_ALL)
-                .setWhen(System.currentTimeMillis())
-                .setAutoCancel(true);
-            if (pi != null) b.setContentIntent(pi);
-            nm.notify(PRAYER_NOTIF_ID, b.build());
-            logEvent(ctx, "PRAYER-TIME notification shown: " + label);
-        } catch (Throwable t) {
-            logEvent(ctx, "PRAYER-TIME notification failed: " + t);
         }
     }
 
