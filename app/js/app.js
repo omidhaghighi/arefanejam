@@ -39,11 +39,54 @@ const CALC_METHODS = {
   NorthAmerica:          { fajr: 15,   isha: 15 },
 };
 
+/* ===== ساعت ثابت ایران (یکسان‌سازی اوقات در همهٔ گوشی‌ها) =====
+   ایران از ۱۴۰۱ ساعت تابستانی ندارد و همیشه UTC+3:30 است. قبلاً اوقات با «منطقهٔ زمانی خود گوشی» حساب می‌شد؛
+   پس گوشی‌ای که منطقهٔ زمانی‌اش اشتباه بود یا اطلاعات منطقه‌ای قدیمی داشت (و هنوز ساعت تابستانی ایران را اعمال می‌کرد)
+   یک ساعت (یا نیم‌ساعت) متفاوت نشان می‌داد و اذان در لحظهٔ دیگری پخش می‌شد.
+   وقتی موقعیت داخل ایران باشد، همهٔ زمان‌ها با UTC+3:30 ثابت ساخته و نمایش داده می‌شوند. */
+const IRAN_TZ_MIN = 210;
+function isIranCoords(lat, lng) {
+  lat = Number(lat); lng = Number(lng);
+  if (!isFinite(lat) || !isFinite(lng)) return false;
+  if (lat < 25 || lat > 39.9) return false;
+  const east = lat >= 30.8 ? 61.3 : 63.4;
+  if (lng < 44 || lng > east) return false;
+  const cities = window.IRAN_CITIES || [];
+  if (!cities.length) return true;
+  for (let i = 0; i < cities.length; i++) {
+    const dl = cities[i].lat - lat, dg = cities[i].lng - lng;
+    if (dl * dl + dg * dg <= 1.2 * 1.2) return true; // حدود ۱۲۰ کیلومتر از یکی از شهرهای ایران
+  }
+  return false;
+}
+function iranFixedNow() {
+  try { return !!(state && state.coords && isIranCoords(state.coords.lat, state.coords.lng)); } catch (e) { return false; }
+}
+// روز میلادی (سال، ماه، روز) یک لحظه؛ در حالت ثابت به وقت ایران، وگرنه به وقت گوشی
+function prayerDayParts(date, fixed) {
+  if (fixed) { const t = new Date(date.getTime() + IRAN_TZ_MIN * 60000); return [t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate()]; }
+  return [date.getFullYear(), date.getMonth() + 1, date.getDate()];
+}
+// لحظهٔ «ساعت hh:mm» همان روزِ date (به وقت ایران در حالت ثابت، وگرنه به وقت گوشی)
+function prayerClockInstant(date, h, m, fixed) {
+  if (fixed) { const [Y, M, D] = prayerDayParts(date, true); return new Date(Date.UTC(Y, M - 1, D, h, m, 0, 0) - IRAN_TZ_MIN * 60000); }
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate()); d.setHours(h, m, 0, 0); return d;
+}
+// روزِ i‌ام بعد از امروز (برای فهرست ۳۰ روزهٔ اذان)
+function prayerDayAhead(i) {
+  const base = new Date();
+  if (iranFixedNow()) return new Date(base.getTime() + i * 86400000);
+  const d = new Date(base); d.setDate(d.getDate() + i); return d;
+}
+
 function computePrayerTimesLocal(lat, lng, date, methodKey, asrFactor, offsets) {
   offsets = offsets || {};
   const method = CALC_METHODS[methodKey] || CALC_METHODS.MoonsightingCommittee;
-  const timezone = -date.getTimezoneOffset() / 60;
-  const jd = julianDate(date.getFullYear(), date.getMonth() + 1, date.getDate()) - lng / (15 * 24);
+  const fixedTz = isIranCoords(lat, lng);
+  const tzMin = fixedTz ? IRAN_TZ_MIN : -date.getTimezoneOffset();
+  const timezone = tzMin / 60;
+  const [dY, dM, dD] = prayerDayParts(date, fixedTz);
+  const jd = julianDate(dY, dM, dD) - lng / (15 * 24);
   const sp = sunPosition(jd + 0.5);
   const decl = sp.declination;
   const eqt = sp.equation;
@@ -67,6 +110,7 @@ function computePrayerTimesLocal(lat, lng, date, methodKey, asrFactor, offsets) 
 
   function toLocalDate(utcHour, offsetMinutes) {
     const h = fixHour(utcHour + timezone + (offsetMinutes || 0) / 60);
+    if (fixedTz) return new Date(Date.UTC(dY, dM - 1, dD, 0, 0, 0, 0) + (Math.round(h * 60) - tzMin) * 60000);
     const result = new Date(date.getFullYear(), date.getMonth(), date.getDate());
     result.setHours(0, 0, 0, 0);
     result.setMinutes(Math.round(h * 60));
@@ -148,6 +192,17 @@ const HIJRI_MONTHS = ['محرم','صفر','ربیع‌الاول','ربیع‌ا
 const GREGORIAN_MONTHS = ['ژانویه','فوریه','مارس','آوریل','مه','ژوئن','ژوئیه','اوت','سپتامبر','اکتبر','نوامبر','دسامبر'];
 const WEEKDAYS_FA = ['یکشنبه','دوشنبه','سه‌شنبه','چهارشنبه','پنجشنبه','جمعه','شنبه'];
 
+// «الان» به وقت ایران (برای تاریخ‌های نمایش‌داده‌شده): گوشی با منطقهٔ زمانی اشتباه هم تاریخ/روز هفتهٔ درست را نشان می‌دهد.
+// خروجی یک Date است که getHours/getDate محلی‌اش همان ساعت و روز ایران را می‌دهد (فقط برای نمایش، نه برای زمان‌بندی).
+function iranWallNow() {
+  const n = new Date();
+  try {
+    if (typeof iranFixedNow === 'function' && iranFixedNow()) {
+      return new Date(n.getTime() + (IRAN_TZ_MIN + n.getTimezoneOffset()) * 60000);
+    }
+  } catch (e) {}
+  return n;
+}
 function getCalendarStrings(date) {
   const [jy, jm, jd] = gregorianToJalali(date.getFullYear(), date.getMonth() + 1, date.getDate());
   const [hy, hm, hd] = islamicFromJulianDay(julianDayFromGregorian(date.getFullYear(), date.getMonth() + 1, date.getDate()));
@@ -198,6 +253,10 @@ function toPersianDigits(str) {
   return String(str).replace(/[0-9]/g, (d) => fa[d]);
 }
 function formatTime(date) {
+  if (iranFixedNow()) {
+    const t = new Date(date.getTime() + IRAN_TZ_MIN * 60000);
+    return toPersianDigits(String(t.getUTCHours()).padStart(2, '0') + ':' + String(t.getUTCMinutes()).padStart(2, '0'));
+  }
   return toPersianDigits(date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }));
 }
 // آدرس عکس‌ها را https می‌کند (اپ روی https اجرا می‌شود و عکس http توسط وب‌ویو بلاک می‌شود)
@@ -216,8 +275,17 @@ function apiFetch(path, options = {}) {
     path += (path.indexOf('?') === -1 ? '?' : '&') + '_t=' + Date.now();
   }
   const cacheKey = isGet ? apiCacheKey(basePath) : '';
+  // مهلت ۲۰ ثانیه برای درخواست‌های خواندنی: اینترنتِ «وصل ولی بی‌داده/خیلی کند» دیگر اپ را بی‌پایان منتظر نگه نمی‌دارد؛
+  // بعد از مهلت، همان آخرین نسخهٔ ذخیره‌شدهٔ گوشی (اگر باشد) نمایش داده می‌شود.
+  let toTimer = null;
+  if (isGet && !options.signal && typeof AbortController !== 'undefined') {
+    const ac = new AbortController();
+    toTimer = setTimeout(() => { try { ac.abort(); } catch (e) {} }, 20000);
+    options = Object.assign({}, options, { signal: ac.signal });
+  }
   return fetch(state.apiUrl.replace(/\/$/, '') + path, Object.assign({}, options, { headers }))
     .then(async (res) => {
+      if (toTimer) { clearTimeout(toTimer); toTimer = null; }
       let parsed = true;
       const data = await res.json().catch(() => { parsed = false; return {}; });
       if (res.status >= 500 && cacheKey) {
@@ -232,6 +300,7 @@ function apiFetch(path, options = {}) {
       return data;
     })
     .catch((err) => {
+      if (toTimer) { clearTimeout(toTimer); toTimer = null; }
       // بدون اینترنت / قطع ارتباط: آخرین نسخهٔ ذخیره‌شدهٔ همین اطلاعات از حافظهٔ گوشی (خطای ۴xx سرور مستثناست)
       if (cacheKey && !(err && err.httpError)) {
         const old = apiCacheRead(cacheKey);
@@ -1066,7 +1135,8 @@ function renderMonthGrid() {
   const firstDate = new Date(gy1, gm1 - 1, gd1);
   const leadIndex = (firstDate.getDay() + 1) % 7; // هفته فارسی از شنبه شروع می‌شود
   const monthLen = jalaliMonthLength(calendarViewYear, calendarViewMonth);
-  const todayJalali = gregorianToJalali(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate());
+  const __iw = iranWallNow();
+  const todayJalali = gregorianToJalali(__iw.getFullYear(), __iw.getMonth() + 1, __iw.getDate());
 
   for (let i = 0; i < leadIndex; i++) {
     const empty = document.createElement('div');
@@ -1895,6 +1965,7 @@ function resolveCoordinates(skipLiveGPS) {
     // اگر کاربر شهر را دستی انتخاب کرده، همان اولویت دارد
     if (state.manualCity) {
       state.coords = { lat: state.manualCity.lat, lng: state.manualCity.lng };
+      state.activeCityName = state.manualCity.name; // قبلاً بعد از بستن/باز کردن اپ نام شهر خالی می‌ماند و جدول دقیق شهر اعمال نمی‌شد
       setLocationLabel('شهر انتخابی: ' + state.manualCity.name);
       refreshQiblaCompassIfReady();
       resolve(state.coords);
@@ -1920,7 +1991,7 @@ function resolveCoordinates(skipLiveGPS) {
     const cached = loadCachedCoords();
     if (cached) {
       state.coords = { lat: cached.lat, lng: cached.lng };
-      if (!state.activeCityName) { const nc = findNearestCity(cached.lat, cached.lng); if (nc) state.activeCityName = nc.name; }
+      { const nc = findNearestCity(cached.lat, cached.lng); state.activeCityName = nc ? nc.name : (state.activeCityName || null); } // همیشه از روی همین مختصات؛ نه نام شهرِ مانده از تنظیمات پیش‌فرض
       setLocationLabel(cached.label ? cached.label : 'بر اساس آخرین موقعیت ذخیره‌شده');
       refreshQiblaCompassIfReady();
       // موقعیت‌های GPS قدیمیِ کم‌دقت: فقط یک بار، بی‌صدا و در پس‌زمینه با دقت بالا اصلاح می‌شوند
@@ -2551,7 +2622,7 @@ function buildAzanShareText() {
   const s = state.settings || {};
   const brand = s.brand_name || 'عارفان جام';
   const cityName = (state.activeCityName || '').trim();
-  const cal = getCalendarStrings(new Date());
+  const cal = getCalendarStrings(iranWallNow());
   const NON_PRAYER_KEYS = ['sunrise', 'sunset'];
 
   const lines = [];
@@ -2596,7 +2667,7 @@ function buildAzanShareCanvas() {
   const s = state.settings || {};
   const brand = s.brand_name || 'عارفان جام';
   const cityName = (state.activeCityName || '').trim();
-  const cal = getCalendarStrings(new Date());
+  const cal = getCalendarStrings(iranWallNow());
   const NON_PRAYER_KEYS = ['sunrise', 'sunset'];
   const rows = lastPrayerList.length ? lastPrayerList : [];
 
@@ -2755,7 +2826,7 @@ function drawStar(ctx, cx, cy, r, color, alpha) {
 async function shareAzanTimesAsImage() {
   const s = state.settings || {};
   const title = (s.brand_name || 'عارفان جام') + ' — اوقات شرعی';
-  const cal = getCalendarStrings(new Date());
+  const cal = getCalendarStrings(iranWallNow());
   const caption = title + '\n' + cal.jalali;
 
   try {
@@ -2833,6 +2904,22 @@ function hiddenPrayerKeys(date, forceRamadan) {
     return set;
   } catch (e) { return new Set(); }
 }
+/* نام شهری که اوقات بر اساس آن انتخاب می‌شود (جدول دقیق + استثناها).
+   قبلاً فقط به «نام شهرِ ثبت‌شده» وابسته بود؛ پس گوشی‌ای که GPS‌اش نزدیک‌ترین شهر را چیز دیگری حساب می‌کرد
+   یا شهرش دستی انتخاب شده بود، اوقات نجومی (چند دقیقه متفاوت) می‌گرفت. حالا هر گوشیِ داخل محدودهٔ تربت‌جام
+   (تا ۳۵ کیلومتر از مرکز شهر) همان جدول تربت‌جام را می‌گیرد. */
+const TORBAT_JAM_CENTER = { lat: 35.24306, lng: 60.625 };
+function effectiveCityName() {
+  const named = (state.activeCityName || '').trim();
+  try {
+    if (state.coords) {
+      const dLat = (state.coords.lat - TORBAT_JAM_CENTER.lat) * 111;
+      const dLng = (state.coords.lng - TORBAT_JAM_CENTER.lng) * 111 * Math.cos(TORBAT_JAM_CENTER.lat * Math.PI / 180);
+      if (Math.sqrt(dLat * dLat + dLng * dLng) <= 35) return 'تربت جام';
+    }
+  } catch (e) {}
+  return named;
+}
 // includeHidden=true: فهرست کامل (فقط برای صحنهٔ آسمان تب اذان که به فجر/طلوع/غروب نیاز دارد)
 function buildPrayerListForDate(date, includeHidden) {
   const s = state.settings || {};
@@ -2843,21 +2930,22 @@ function buildPrayerListForDate(date, includeHidden) {
   };
   const times = computePrayerTimesLocal(state.coords.lat, state.coords.lng, date, s.calc_method, asrFactor, offsets);
 
-  const [ejy, ejm, ejd] = gregorianToJalali(date.getFullYear(), date.getMonth() + 1, date.getDate());
+  const fixedTz = isIranCoords(state.coords.lat, state.coords.lng);
+  const [egy, egm, egd] = prayerDayParts(date, fixedTz);
+  const [ejy, ejm, ejd] = gregorianToJalali(egy, egm, egd);
+  const cityForTimes = effectiveCityName();
 
   // برای شهر تربت‌جام، به‌جای محاسبهٔ نجومی، از جدول دقیق اوقات شرعی (طبق تقویم رسمی تربت‌جام) استفاده می‌شود.
   // این جدول همراه خود اپ ذخیره شده، پس کاملاً آفلاین کار می‌کند و نیازی به اینترنت ندارد.
   // اگر تاریخ روز جاری در جدول نباشد (مثلاً بعد از پایان سال ۱۴۰۵)، به‌صورت خودکار به محاسبهٔ نجومی برمی‌گردد.
-  if ((state.activeCityName || '').trim() === 'تربت جام') {
+  if (normCityName(cityForTimes) === normCityName('تربت جام')) {
     const tjKey = String(ejm).padStart(2, '0') + '-' + String(ejd).padStart(2, '0');
     const tjRow = TORBAT_JAM_EXACT_TIMES[tjKey];
     if (tjRow) {
       const [tjFajr, tjSunrise, tjDhuhr, tjAsr, tjMaghrib, tjIsha] = tjRow;
       const toExactDate = (hhmm) => {
         const [h, m] = hhmm.split(':').map(Number);
-        const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-        d.setHours(h, m, 0, 0);
-        return d;
+        return prayerClockInstant(date, h, m, fixedTz); // ساعت جدول = وقت ایران؛ مستقل از منطقهٔ زمانی گوشی
       };
       times.fajr = toExactDate(tjFajr);
       times.sunrise = toExactDate(tjSunrise);
@@ -2872,7 +2960,7 @@ function buildPrayerListForDate(date, includeHidden) {
     }
   }
 
-  const exception = findAzanException(ejm, ejd, state.activeCityName);
+  const exception = findAzanException(ejm, ejd, cityForTimes);
   if (exception) {
     times.fajr = applyTimeOverride(times.fajr, exception.fajr);
     times.dhuhr = applyTimeOverride(times.dhuhr, exception.dhuhr);
@@ -2906,7 +2994,15 @@ function computePrayerTimes() {
   let currentKey = list[0].key;
   list.forEach((p) => { if (now >= p.time) currentKey = p.key; });
   const NON_PRAYER_KEYS = ['sunrise', 'sunset'];
-  const upcoming = list.find((p) => p.time > now && !NON_PRAYER_KEYS.includes(p.key)) || list.find((p) => !NON_PRAYER_KEYS.includes(p.key));
+  let upcoming = list.find((p) => p.time > now && !NON_PRAYER_KEYS.includes(p.key));
+  if (!upcoming) {
+    // بعد از اذان عشاء: «اذان بعدی» فجر «فردا» است (قبلاً فجر امروزِ گذشته نشان داده می‌شد و شمارش معکوس خالی می‌ماند)
+    try {
+      const tomorrowList = buildPrayerListForDate(prayerDayAhead(1));
+      upcoming = tomorrowList.find((p) => p.time > now && !NON_PRAYER_KEYS.includes(p.key));
+    } catch (e) {}
+    if (!upcoming) upcoming = list.find((p) => !NON_PRAYER_KEYS.includes(p.key));
+  }
 
   lastPrayerList = list;
   lastPrayerCurrentKey = currentKey;
@@ -2951,7 +3047,7 @@ function syncScheduleToServiceWorker(list) {
   const allLists = [list];
   try {
     for (let i = 1; i <= 30; i++) {
-      const d = new Date(); d.setDate(d.getDate() + i);
+      const d = prayerDayAhead(i);
       allLists.push(buildPrayerListForDate(d));
     }
   } catch (e) { /* اگر محاسبه برای روزهای بعد شکست خورد، فقط امروز فرستاده می‌شود */ }
@@ -3048,7 +3144,7 @@ function updateStickyNotification(upcoming) {
   }
   if (upcoming) lastStickyUpcoming = upcoming;
 
-  const cal = getCalendarStrings(new Date());
+  const cal = getCalendarStrings(iranWallNow());
   const brand = s.brand_name || 'عارفان جام';
   const custom = String(s.sticky_custom_text || '').trim(); // متنی که مدیر در پیشخوان سایت نوشته
   const lines = [cal.jalali];
@@ -7101,14 +7197,24 @@ async function loadAzanExceptions() {
   }
   if (!Array.isArray(azanExceptions)) azanExceptions = [];
 }
+// نام شهر را یکدست می‌کند (نیم‌فاصله/فاصله، ی و ک عربی، اعراب، ارقام) تا «تربت‌جام» و «تربت جام» یکی حساب شوند
+function normCityName(n) {
+  return String(n == null ? '' : n)
+    .replace(/[\u200c\u200d\u200f\u200e\s]+/g, '')
+    .replace(/[\u064a\u0649]/g, '\u06cc').replace(/\u0643/g, '\u06a9')
+    .replace(/[\u064b-\u065f\u0670]/g, '')
+    .toLowerCase();
+}
 function findAzanException(jm, jd, cityName) {
-  const specific = azanExceptions.find((e) => Number(e.jalali_month) === jm && Number(e.jalali_day) === jd && e.city_name && cityName && e.city_name === cityName);
+  const nc = normCityName(cityName);
+  const specific = azanExceptions.find((e) => Number(e.jalali_month) === jm && Number(e.jalali_day) === jd && e.city_name && nc && normCityName(e.city_name) === nc);
   if (specific) return specific;
   return azanExceptions.find((e) => Number(e.jalali_month) === jm && Number(e.jalali_day) === jd && !e.city_name);
 }
 function applyTimeOverride(date, hhmm) {
   if (!hhmm) return date;
   const [h, m] = hhmm.split(':').map(Number);
+  if (iranFixedNow()) return prayerClockInstant(date, h, m, true);
   const d = new Date(date);
   d.setHours(h, m, 0, 0);
   return d;
