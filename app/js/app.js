@@ -6931,6 +6931,12 @@ function ramadanFaDate(d) {
   const names = ['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
   return toPersianDigits(jd) + ' ' + names[jm - 1] + ' ' + toPersianDigits(jy);
 }
+/* تاریخ کوتاه شمسی برای ستون «تاریخ» جدول رمضان (مثلاً «۱۲ اسفند») */
+function ramadanFaShort(d) {
+  const [, jm, jd] = gregorianToJalali(d.getFullYear(), d.getMonth() + 1, d.getDate());
+  const names = ['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
+  return toPersianDigits(jd) + ' ' + names[jm - 1];
+}
 function renderRamadanCountdown(r) {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -7619,11 +7625,14 @@ function renderRamadanContent(r) {
     for (let day = 1; day <= totalRamadanDays; day++) {
       const t = days[day] || {};
       const isToday = hm === 9 && day === hd;
-      const wd = WEEKDAYS_FA[new Date(rmStart.getFullYear(), rmStart.getMonth(), rmStart.getDate() + day - 1).getDay()];
+      const dayDate = new Date(rmStart.getFullYear(), rmStart.getMonth(), rmStart.getDate() + day - 1);
+      const wd = WEEKDAYS_FA[dayDate.getDay()];
+      const dt = ramadanFaShort(dayDate);
       rowsHtml += `
         <tr class="${isToday ? 'is-today' : ''}">
           <td>${isToday ? '<span class="ramadan-day-badge"></span>' : ''}${toPersianDigits(day)}</td>
           <td class="ramadan-wd-col">${wd}</td>
+          <td class="ramadan-dt-col">${dt}</td>
           ${rmShown.map((c) => `<td>${toPersianDigits(t[c[0]] || '—')}</td>`).join('')}
         </tr>`;
     }
@@ -7646,7 +7655,7 @@ function renderRamadanContent(r) {
       <h4>${dayLabel}</h4>
       <div class="ramadan-schedule-wrap">
         <table class="ramadan-schedule-table">
-          <thead><tr><th>روز</th><th class="ramadan-wd-col">هفته</th>${rmShown.map((c) => `<th>${c[1]}</th>`).join('')}</tr></thead>
+          <thead><tr><th>روز</th><th class="ramadan-wd-col">هفته</th><th class="ramadan-dt-col">تاریخ</th>${rmShown.map((c) => `<th>${c[1]}</th>`).join('')}</tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>
       </div>`;

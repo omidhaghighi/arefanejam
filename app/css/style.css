@@ -895,10 +895,13 @@ body.dark-mode #quran-reader-content.mushaf-page .ayah-block.is-playing .ayah-ar
 .ramadan-schedule-table th:not(:first-child), .ramadan-schedule-table td:not(:first-child) {
   border-inline-start: 1px solid rgba(128,128,128,0.22);
 }
-.ramadan-schedule-table th:first-child, .ramadan-schedule-table td:first-child { width: 10%; }
+.ramadan-schedule-table th:first-child, .ramadan-schedule-table td:first-child { width: 8%; }
 /* ستون جدا برای نام روز هفته (شنبه، یکشنبه، ...) */
-.ramadan-schedule-table th.ramadan-wd-col, .ramadan-schedule-table td.ramadan-wd-col { width: 19%; padding-inline: 2px; font-size: calc(var(--ramadan-font-size, 14px) - 2px); font-weight: 600; }
+.ramadan-schedule-table th.ramadan-wd-col, .ramadan-schedule-table td.ramadan-wd-col { width: 15%; padding-inline: 2px; font-size: calc(var(--ramadan-font-size, 14px) - 2px); font-weight: 600; }
 .ramadan-schedule-table tr.is-today td.ramadan-wd-col { color: var(--gold-light, #D9BD87); }
+/* ستون تاریخ شمسی هر روز رمضان (از «تاریخ شروع ماه رمضان» پیشخوان، پشت‌سرهم) */
+.ramadan-schedule-table th.ramadan-dt-col, .ramadan-schedule-table td.ramadan-dt-col { width: 19%; padding-inline: 2px; font-size: calc(var(--ramadan-font-size, 14px) - 2px); font-weight: 600; }
+.ramadan-schedule-table tr.is-today td.ramadan-dt-col { color: var(--gold-light, #D9BD87); }
 .ramadan-schedule-table thead th {
   font-weight: 700; font-size: calc(var(--ramadan-font-size, 14px) - 1.5px); opacity: 0.9; position: sticky; top: 0; letter-spacing: 0.2px;
   background: var(--ramadan-header-bg, inherit);
