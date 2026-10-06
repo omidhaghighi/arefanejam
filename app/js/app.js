@@ -280,7 +280,8 @@ function apiFetch(path, options = {}) {
   let toTimer = null;
   if (isGet && !options.signal && typeof AbortController !== 'undefined') {
     const ac = new AbortController();
-    toTimer = setTimeout(() => { try { ac.abort(); } catch (e) {} }, 20000);
+    const hasCachedCopy = !!(cacheKey && apiCacheRead(cacheKey) !== null);
+    toTimer = setTimeout(() => { try { ac.abort(); } catch (e) {} }, hasCachedCopy ? 6000 : 20000);
     options = Object.assign({}, options, { signal: ac.signal });
   }
   return fetch(state.apiUrl.replace(/\/$/, '') + path, Object.assign({}, options, { headers }))
@@ -942,16 +943,29 @@ window.appConfirm = appConfirm;
 
 /* ---------- تأیید خروج از برنامه ---------- */
 let exitGuardPushed = false;
+// خروج واقعی از برنامه (اندروید): اول افزونهٔ App کاپاسیتور؛ در نبودش راه‌های جایگزین
+function exitAppNow() {
+  try {
+    const P = window.Capacitor && window.Capacitor.Plugins;
+    if (P && P.App && typeof P.App.exitApp === 'function') { P.App.exitApp(); return; }
+  } catch (e) {}
+  try { if (navigator.app && typeof navigator.app.exitApp === 'function') { navigator.app.exitApp(); return; } } catch (e) {}
+  try { history.go(-Math.max(1, history.length - 1)); } catch (e) {}
+  try { window.close(); } catch (e) {}
+}
 function maybeConfirmExit() {
   const cfg = state.exitConfirm || {};
-  if (cfg.enabled === '0') return; // مدیر این قابلیت را خاموش کرده؛ اجازه بده خروج طبیعی انجام شود
+  if (cfg.enabled === '0') { exitAppNow(); return; } // مدیر پرسش خروج را خاموش کرده: مستقیم خارج می‌شود
+  const mdl = document.getElementById('exit-confirm-modal');
+  // اگر پرسش خروج باز است و کاربر دوباره برگشت زد، یعنی واقعاً می‌خواهد خارج شود
+  if (mdl && !mdl.classList.contains('hidden')) { mdl.classList.add('hidden'); exitAppNow(); return; }
   try { history.pushState({ arefanejamHome: true }, '', location.pathname + location.search); } catch (e) {}
   document.getElementById('exit-confirm-message').textContent = cfg.text || 'آیا قصد خروج از برنامه را دارید؟';
   document.getElementById('exit-confirm-modal').classList.remove('hidden');
 }
 document.getElementById('exit-confirm-yes').addEventListener('click', () => {
   document.getElementById('exit-confirm-modal').classList.add('hidden');
-  try { history.go(-2); } catch (e) {}
+  exitAppNow();
 });
 document.getElementById('exit-confirm-no').addEventListener('click', () => {
   document.getElementById('exit-confirm-modal').classList.add('hidden');
@@ -1550,6 +1564,33 @@ function applyFreshSettingsUi() {
   checkQuranInvitePopup();
   checkQuranInactivityPopup();
 }
+/* ---------- کاشی‌های «بیشتر» (سرگرمی / عبادت): آیکون و نوشته از پیشخوان ---------- */
+function applyMoreTiles(st) {
+  try {
+    if (!st || typeof st !== 'object') return;
+    const setBadge = (id, url, emoji) => {
+      const b = document.getElementById(id); if (!b) return;
+      if (url) {
+        const key = 'u:' + url;
+        if (b.dataset.k === key) return;
+        b.dataset.k = key; b.textContent = '';
+        const im = document.createElement('img'); im.alt = ''; im.className = 'tile-img-icon'; im.src = secureUrl(url);
+        b.appendChild(im);
+        try { prefetchSiteImages([secureUrl(url)]); } catch (e) {}
+      } else if (emoji) { b.dataset.k = 'e:' + emoji; b.textContent = emoji; }
+    };
+    setBadge('fun-tile-badge', st.fun_tile_icon_url, st.fun_tile_icon_emoji);
+    setBadge('ibadah-tile-badge', st.ibadah_tile_icon_url, st.ibadah_tile_icon_emoji);
+    if (st.fun_tile_label) {
+      const l = document.getElementById('fun-tile-label'); if (l) l.textContent = st.fun_tile_label;
+      const t = document.querySelector('#tab-fun .section-block h3'); if (t) t.textContent = st.fun_tile_label;
+    }
+    if (st.ibadah_tile_label) {
+      const l = document.getElementById('ibadah-tile-label'); if (l) l.textContent = st.ibadah_tile_label;
+      if (typeof MENU_GROUPS !== 'undefined' && MENU_GROUPS.ibadah) MENU_GROUPS.ibadah.title = st.ibadah_tile_label;
+    }
+  } catch (e) {}
+}
 function loadSettings() {
   // 1) اگر تنظیماتِ دفعهٔ قبل روی گوشی هست، همین الان و بدون انتظار برای اینترنت استفاده می‌شود
   let cached = null;
@@ -1557,11 +1598,12 @@ function loadSettings() {
   const hasCache = !!(cached && typeof cached === 'object');
   let shownStr = null;
   if (hasCache) {
-    try { shownStr = JSON.stringify(cached); applyCachedSettingsUi(cached); } catch (e) {}
+    try { shownStr = JSON.stringify(cached); applyCachedSettingsUi(cached); applyMoreTiles(cached); } catch (e) {}
   }
   // 2) تنظیمات تازه از سایت (در پس‌زمینه اگر نسخهٔ ذخیره‌شده داریم)
   const fresh = apiFetch('/settings').then((data) => {
     state.settings = data;
+    applyMoreTiles(data);
     try { localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(data)); } catch (e) {}
     let str = null;
     try { str = JSON.stringify(data); } catch (e) {}
@@ -1587,8 +1629,8 @@ window.addEventListener('online', () => {
   updateOfflineBanner();
   // وقتی اینترنت دوباره وصل شد، برای جلوگیری از هنگ کردن، صفحه با یک تأخیر کوتاه و امن دوباره لود می‌شود
   // در حالت پس‌زمینه رفرش نمی‌کنیم؛ رفرش صدای نگه‌دارندهٔ اپ را قطع می‌کند
-  if (localStorage.getItem('arefanejam_bg_mode') === '1') return;
-  setTimeout(() => location.reload(), 1200);
+  // (بارگذاری مجدد کل برنامه با هر بار وصل شدن اینترنت حذف شد؛ باعث کندی و پریدن صفحه می‌شد)
+  try { if (typeof sendHeartbeat === 'function') sendHeartbeat(); } catch (e) {}
 });
 updateOfflineBanner();
 
@@ -4534,6 +4576,49 @@ function qbGreatCircle(lat1, lng1, lat2, lng2, n) {
   return pts;
 }
 
+/* ---------- مسیر زمینی تا مکه (جاده) + مسیر هوایی ---------- */
+let qbLand = null, qbLandBusy = '';
+function qbLandKey(c) { return c.lat.toFixed(2) + ',' + c.lng.toFixed(2); }
+function qbHttpJson(url, ms) {
+  return new Promise((resolve) => {
+    let done = false;
+    const fin = (v) => { if (!done) { done = true; resolve(v); } };
+    setTimeout(() => fin(null), ms || 12000);
+    try {
+      fetch(url).then((r) => r.ok ? r.json() : null).then(fin).catch(() => {
+        try {
+          const H = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp;
+          if (H && H.get) H.get({ url: url }).then((r) => fin(r && r.data ? (typeof r.data === 'string' ? JSON.parse(r.data) : r.data) : null)).catch(() => fin(null));
+          else fin(null);
+        } catch (e) { fin(null); }
+      });
+    } catch (e) { fin(null); }
+  });
+}
+// مسیر جاده‌ای از موقعیت کاربر تا کعبه؛ اگر جاده‌ای نبود (مثلاً آن‌سوی اقیانوس) pts خالی و km صفر است
+async function qbFetchLand(c) {
+  const key = qbLandKey(c);
+  try {
+    const cached = JSON.parse(localStorage.getItem('arefanejam_qb_land:' + key) || 'null');
+    if (cached && Array.isArray(cached.pts)) { qbLand = Object.assign({ key: key }, cached); return qbLand; }
+  } catch (e) {}
+  if (qbLandBusy === key || navigator.onLine === false) return null;
+  qbLandBusy = key;
+  const url = 'https://router.project-osrm.org/route/v1/driving/' + c.lng.toFixed(5) + ',' + c.lat.toFixed(5) + ';' + KAABA.lng + ',' + KAABA.lat + '?overview=simplified&geometries=geojson';
+  const j = await qbHttpJson(url, 14000);
+  qbLandBusy = '';
+  let res;
+  if (j && j.code === 'Ok' && j.routes && j.routes[0] && j.routes[0].geometry) {
+    const co = j.routes[0].geometry.coordinates || [];
+    res = { pts: co.map((q) => ({ lat: q[1], lng: q[0] })), km: (j.routes[0].distance || 0) / 1000 };
+  } else if (j && (j.code === 'NoRoute' || j.code === 'NoSegment')) {
+    res = { pts: [], km: 0 };       // جاده‌ای وجود ندارد
+  } else return null;               // خطای شبکه؛ بعداً دوباره تلاش می‌شود
+  try { localStorage.setItem('arefanejam_qb_land:' + key, JSON.stringify(res)); } catch (e) {}
+  qbLand = Object.assign({ key: key }, res);
+  return qbLand;
+}
+function qbFmtKm(km) { return toPersianDigits(String(Math.round(km)).replace(/\B(?=(\d{3})+(?!\d))/g, '٬')) + ' کیلومتر'; }
 function qbMapUpdate() {
   const card = qbEl('qb-map-card');
   if (!card) return;
@@ -4543,13 +4628,29 @@ function qbMapUpdate() {
   const box = qbEl('qb-map'), tilesEl = qbEl('qb-map-tiles'), svg = qbEl('qb-map-svg');
   const W = box.clientWidth, H = box.clientHeight;
   if (!W || !H) return;                         // تب قبله هنوز نمایان نیست
-  const key = c.lat.toFixed(4) + ',' + c.lng.toFixed(4) + ',' + W + 'x' + H + ',' + (state.manualCity ? 1 : 0);
+  const landK = qbLandKey(c);
+  const land = (qbLand && qbLand.key === landK) ? qbLand : null;
+  const key = c.lat.toFixed(4) + ',' + c.lng.toFixed(4) + ',' + W + 'x' + H + ',' + (state.manualCity ? 1 : 0) + ',' + (land ? land.pts.length : 'x');
   if (key === qbMapKey) return;
   qbMapKey = key;
+  if (!land) {
+    qbFetchLand(c).then((r) => { if (r && qbLand && qbLand.key === qbLandKey(c)) { qbMapKey = ''; try { qbMapUpdate(); } catch (e) {} } });
+  }
 
   const dist = qbDistanceKm(c.lat, c.lng, KAABA.lat, KAABA.lng);
   const distEl = qbEl('qb-map-dist');
-  if (distEl) distEl.textContent = dist < 1 ? 'شما در کنار کعبه‌اید' : toPersianDigits(String(Math.round(dist)).replace(/\B(?=(\d{3})+(?!\d))/g, '٬')) + ' کیلومتر';
+  if (distEl) distEl.textContent = dist < 1 ? 'شما در کنار کعبه‌اید' : qbFmtKm(dist) + ' (هوایی)';
+  const legEl = qbEl('qb-map-legend');
+  if (legEl) {
+    if (dist < 1) legEl.innerHTML = '';
+    else {
+      let lh = '<span class="qb-leg"><i class="qb-leg-air"></i>✈️ مسیر هوایی (مستقیم): <b>' + qbFmtKm(dist) + '</b></span>';
+      if (land && land.pts.length) lh += '<span class="qb-leg"><i class="qb-leg-land"></i>🚗 مسیر زمینی (جاده): <b>' + qbFmtKm(land.km) + '</b></span>';
+      else if (land) lh += '<span class="qb-leg qb-leg-none">🚗 مسیر زمینی: جاده‌ای تا مکه وجود ندارد (مثلاً جدا از خشکی)</span>';
+      else lh += '<span class="qb-leg qb-leg-none">🚗 مسیر زمینی: با اینترنت محاسبه می‌شود…</span>';
+      legEl.innerHTML = lh;
+    }
+  }
 
   // کعبه را هم‌طولِ نزدیک‌ترین نسخهٔ نقشه نسبت به کاربر می‌گیریم (برای کاربران خیلی دور)
   let kLng = KAABA.lng;
@@ -4560,7 +4661,8 @@ function qbMapUpdate() {
   // بزرگ‌ترین زوم که کل مسیر داخل قاب جا شود
   const pad = 46;
   let minLat = 90, maxLat = -90, minLng = 1e9, maxLng = -1e9;
-  path.forEach((p) => { minLat = Math.min(minLat, p.lat); maxLat = Math.max(maxLat, p.lat); minLng = Math.min(minLng, p.lng); maxLng = Math.max(maxLng, p.lng); });
+  const boundPts = (land && land.pts.length) ? path.concat(land.pts.filter((q) => Math.abs(q.lng - c.lng) < 200)) : path;
+  boundPts.forEach((p) => { minLat = Math.min(minLat, p.lat); maxLat = Math.max(maxLat, p.lat); minLng = Math.min(minLng, p.lng); maxLng = Math.max(maxLng, p.lng); });
   let zf = 1;
   for (let z = 14; z >= 1; z -= 0.25) {
     const a = qbMercator(maxLat, minLng, z), b = qbMercator(minLat, maxLng, z);
@@ -4619,6 +4721,12 @@ function qbMapUpdate() {
     out += '<polyline points="' + pts.join(' ') + '" fill="none" stroke="#071C18" stroke-opacity=".55" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>';
     out += '<polyline points="' + pts.join(' ') + '" fill="none" stroke="#F6E4B4" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>';
     out += '<polyline class="qb-map-flow" points="' + pts.join(' ') + '" fill="none" stroke="#B08D4E" stroke-width="3.2" stroke-dasharray="7 19" stroke-linecap="round" stroke-linejoin="round"/>';
+  }
+  // مسیر زمینی (جاده): آبی خط‌چین، زیر خط هوایی
+  if (land && land.pts.length > 1 && dist >= 1) {
+    const lp = land.pts.map((q) => { const w = proj(q.lat, q.lng); return w.x.toFixed(1) + ',' + w.y.toFixed(1); }).join(' ');
+    out += '<polyline points="' + lp + '" fill="none" stroke="#071C18" stroke-opacity=".55" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>';
+    out += '<polyline points="' + lp + '" fill="none" stroke="#4FC3F7" stroke-width="3.2" stroke-dasharray="2 7" stroke-linecap="round" stroke-linejoin="round"/>';
   }
   // نشانگر کاربر
   out += '<circle class="qb-map-user-pulse" cx="' + A.x.toFixed(1) + '" cy="' + A.y.toFixed(1) + '" r="7" fill="#2E9BFF" fill-opacity=".55"/>';
@@ -6206,8 +6314,7 @@ async function silentEnsureSurahAudio(globalAyah) {
     // اول آیه‌های بعد از آیهٔ لمس‌شده (تا پخش پیوسته از حافظه ادامه پیدا کند)، بعد آیه‌های قبل، و آیهٔ لمس‌شده آخر
     for (let x = g + 1; x < info.from + info.count; x++) if (!have.has(x)) todo.push(x);
     for (let x = info.from; x < g; x++) if (!have.has(x)) todo.push(x);
-    if (!have.has(g)) todo.push(g);
-    if (!todo.length) return;
+    if (!todo.length) return; // خودِ آیهٔ لمس‌شده را playAudioWithFallback همان لحظه دانلود می‌کند
     const ctl = { num: info.num, reciter: reciter, cancelled: false };
     silentDl = ctl;
     const res = await runSurahDownload(ctl, reciter, todo, 2, null);
@@ -6511,6 +6618,21 @@ function buildAudioUrl(reciter, bitrate, globalAyahNumber, cacheBust) {
    صورت شکست همهٔ آن‌ها، قاری پیش‌فرض (علافاسی) به‌عنوان جایگزین امتحان می‌شود تا کاربر با
    یک قاریِ خاص کاملاً بدون صدا نماند. `session` جلوی اجرای نتیجهٔ یک تلاشِ قدیمی را بعد از
    عوض‌شدن صفحه (مثلاً رفتن به فهرست جزءها) می‌گیرد. */
+const ayahDlInflight = {};
+// یک آیه را (با قاری مشخص) در حافظهٔ صوت ذخیره می‌کند؛ درخواست تکراری همان لحظه یکی می‌شود. true = ذخیره شد
+function ensureAyahCached(reciter, g, maxMs) {
+  const k = reciter + '|' + g;
+  if (!ayahDlInflight[k]) {
+    ayahDlInflight[k] = (async () => {
+      try {
+        const cache = await caches.open(QURAN_AUDIO_CACHE_NAME);
+        return await downloadAyahToCache(cache, reciter, g);
+      } catch (e) { return false; }
+      finally { setTimeout(() => { delete ayahDlInflight[k]; }, 500); }
+    })();
+  }
+  return Promise.race([ayahDlInflight[k], new Promise((r) => setTimeout(() => r(false), maxMs || 12000))]);
+}
 function playAudioWithFallback(globalAyahNumber, session, onStart, onFail) {
   const reciterCandidates = currentReciter === 'ar.alafasy' ? ['ar.alafasy'] : [currentReciter, 'ar.alafasy'];
   const attempts = [];
@@ -6528,9 +6650,15 @@ function playAudioWithFallback(globalAyahNumber, session, onStart, onFail) {
       onStart(a.reciter !== currentReciter);
     }).catch(() => { tryNext(); });
   }
-  // اول: اگر صوت این آیه با قاری انتخاب‌شده روی گوشی ذخیره شده باشد، از همان (بدون اینترنت) پخش می‌شود
-  findCachedAyahAudio(currentReciter, globalAyahNumber).then((blob) => {
+  // اول: اگر صوت این آیه با قاری انتخاب‌شده روی گوشی ذخیره شده باشد، از همان (بدون اینترنت) پخش می‌شود.
+  // اگر ذخیره نبود و اینترنت وصل است، همین آیه فوراً دانلود و ذخیره می‌شود و بعد پخش می‌شود (بدون انتظار برای کاربر)
+  findCachedAyahAudio(currentReciter, globalAyahNumber).then(async (blob) => {
     if (session !== playbackSession) return;
+    if (!blob && navigator.onLine !== false && window.caches) {
+      try { await ensureAyahCached(currentReciter, globalAyahNumber, 12000); } catch (e) {}
+      if (session !== playbackSession) return;
+      try { blob = await findCachedAyahAudio(currentReciter, globalAyahNumber); } catch (e) { blob = null; }
+    }
     if (!blob) { tryNext(); return; }
     setRecitationSrcFromBlob(blob);
     recitationAudio.play().then(() => {
@@ -7138,22 +7266,94 @@ async function loadZakatExtra() {
 
 /* ---------- آیات سجده (فقه حنفی) ---------- */
 const SAJDAH_AYAHS_HANAFI = [
-  { surah: 'اعراف', ayah: 206 }, { surah: 'رعد', ayah: 15 }, { surah: 'نحل', ayah: 50 },
-  { surah: 'اسراء', ayah: 109 }, { surah: 'مریم', ayah: 58 }, { surah: 'حج', ayah: 18 },
-  { surah: 'فرقان', ayah: 60 }, { surah: 'نمل', ayah: 26 }, { surah: 'سجده', ayah: 15 },
-  { surah: 'ص', ayah: 24 }, { surah: 'فصلت', ayah: 38 }, { surah: 'نجم', ayah: 62 },
-  { surah: 'انشقاق', ayah: 21 }, { surah: 'علق', ayah: 19 },
+  { surah: 'اعراف', ayah: 206, num: 7 }, { surah: 'رعد', ayah: 15, num: 13 }, { surah: 'نحل', ayah: 50, num: 16 },
+  { surah: 'اسراء', ayah: 109, num: 17 }, { surah: 'مریم', ayah: 58, num: 19 }, { surah: 'حج', ayah: 18, num: 22 },
+  { surah: 'فرقان', ayah: 60, num: 25 }, { surah: 'نمل', ayah: 26, num: 27 }, { surah: 'سجده', ayah: 15, num: 32 },
+  { surah: 'ص', ayah: 24, num: 38 }, { surah: 'فصلت', ayah: 38, num: 41 }, { surah: 'نجم', ayah: 62, num: 53 },
+  { surah: 'انشقاق', ayah: 21, num: 84 }, { surah: 'علق', ayah: 19, num: 96 },
 ];
+/* ---------- آیات سجده: کارت‌های زیبا، متن و ترجمهٔ آفلاین، «سجده کردم» و پیشرفت ---------- */
+const SAJDAH_DONE_KEY = 'arefanejam_sajdah_done';
+function sajdahDoneGet() { try { return JSON.parse(localStorage.getItem(SAJDAH_DONE_KEY) || '{}') || {}; } catch (e) { return {}; } }
+function sajdahDoneSet(o) { try { localStorage.setItem(SAJDAH_DONE_KEY, JSON.stringify(o)); } catch (e) {} }
+function sajdahUpdateProgress() {
+  const done = sajdahDoneGet();
+  const n = SAJDAH_AYAHS_HANAFI.filter((s) => done[s.num + ':' + s.ayah]).length;
+  const total = SAJDAH_AYAHS_HANAFI.length;
+  const fill = document.getElementById('sj-prog-fill'), txt = document.getElementById('sj-prog-text'), hero = document.getElementById('sj-hero');
+  if (fill) fill.style.width = Math.round(n / total * 100) + '%';
+  if (txt) txt.textContent = n >= total ? 'ماشاءالله! همهٔ ۱۴ سجده را به‌جا آوردید 🌟' : toPersianDigits(n) + ' از ' + toPersianDigits(total) + ' سجده به‌جا آورده شده';
+  if (hero) hero.classList.toggle('is-complete', n >= total);
+}
+async function sajdahLoadText(card, s) {
+  const arEl = card.querySelector('.sj-ar'), trEl = card.querySelector('.sj-tr');
+  if (arEl.dataset.loaded) return;
+  try {
+    const ar = await getOfflineQuranText();
+    const sr = ar && ar.find((x) => x.number === s.num);
+    const a = sr && sr.ayahs.find((x) => x.numberInSurah === s.ayah);
+    arEl.textContent = a ? a.text : 'برای دیدن متن آیه، متن قرآن باید در برنامه باشد.';
+    try {
+      const tr = await getOfflineTranslation();
+      const tsr = tr && tr.find((x) => x.number === s.num);
+      const t = tsr && tsr.ayahs.find((x) => x.numberInSurah === s.ayah);
+      if (t) trEl.textContent = t.text;
+    } catch (e) {}
+    arEl.dataset.loaded = '1';
+  } catch (e) { arEl.textContent = ''; }
+}
 function renderSajdahList() {
   const el = document.getElementById('sajdah-list-content');
-  if (el.children.length) return;
-  el.innerHTML = '';
-  SAJDAH_AYAHS_HANAFI.forEach((s, i) => {
-    const row = document.createElement('div');
-    row.className = 'city-row';
-    row.textContent = toPersianDigits(i + 1) + '. سوره ' + s.surah + ' — آیه ' + toPersianDigits(s.ayah);
-    el.appendChild(row);
-  });
+  if (!el) return;
+  if (!el.children.length) {
+    SAJDAH_AYAHS_HANAFI.forEach((s, i) => {
+      const key = s.num + ':' + s.ayah;
+      const card = document.createElement('div');
+      card.className = 'sj-card';
+      card.style.setProperty('--i', i);
+      card.innerHTML =
+        '<div class="sj-card-top">' +
+          '<div class="sj-medal"><span>' + toPersianDigits(i + 1) + '</span></div>' +
+          '<div class="sj-card-title"><b>سورهٔ ' + s.surah + '</b><small>آیهٔ ' + toPersianDigits(s.ayah) + ' · سورهٔ شمارهٔ ' + toPersianDigits(s.num) + '</small></div>' +
+          '<div class="sj-chev" aria-hidden="true">﹀</div>' +
+        '</div>' +
+        '<div class="sj-card-body">' +
+          '<p class="sj-ar"></p><p class="sj-tr"></p>' +
+          '<div class="sj-actions">' +
+            '<button type="button" class="sj-btn sj-btn-done"></button>' +
+            '<button type="button" class="sj-btn sj-btn-read">📖 خواندن سوره</button>' +
+          '</div>' +
+        '</div>';
+      const doneBtn = card.querySelector('.sj-btn-done');
+      const paint = () => {
+        const on = !!sajdahDoneGet()[key];
+        card.classList.toggle('is-done', on);
+        doneBtn.textContent = on ? '✅ سجده کردم (لمس = برداشتن)' : '🤲 سجده کردم';
+      };
+      paint();
+      card.querySelector('.sj-card-top').addEventListener('click', () => {
+        const open = !card.classList.contains('is-open');
+        card.classList.toggle('is-open', open);
+        if (open) sajdahLoadText(card, s);
+      });
+      doneBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const d = sajdahDoneGet();
+        if (d[key]) delete d[key]; else { d[key] = 1; try { if (navigator.vibrate) navigator.vibrate(25); } catch (er) {} }
+        sajdahDoneSet(d); paint(); sajdahUpdateProgress();
+      });
+      card.querySelector('.sj-btn-read').addEventListener('click', (e) => {
+        e.stopPropagation();
+        (async () => {
+          let nm = 'سورهٔ ' + s.surah;
+          try { nm = await getSurahNameByNumber(s.num); } catch (er) {}
+          try { openSurahReader(s.num, nm); } catch (er) {}
+        })();
+      });
+      el.appendChild(card);
+    });
+  }
+  sajdahUpdateProgress();
 }
 
 /* توجه: بارگذاری فهرست سوره‌ها اکنون داخل onQuranListOpened() انجام می‌شود که از
@@ -7240,10 +7440,10 @@ const MENU_GROUPS = {
     { icon: '✅', label: 'چک‌لیست نماز', goto: 'prayer-checklist' },
     { icon: '📈', label: 'آمار هفتگی نماز', goto: 'prayer-stats' },
     { icon: '🤲', label: 'محاسبه اعمال روزانه', goto: 'daily-deeds' },
+    { icon: '📿', label: 'تسبیح دیجیتال', goto: 'tasbih' },
     { icon: '📖', label: 'گزارش قرآن', goto: 'quran-report' },
   ]},
   ibadah: { title: 'عبادت', items: [
-    { icon: '📿', label: 'تسبیح دیجیتال', goto: 'tasbih' },
     { icon: '💰', label: 'محاسبه‌گر زکات', goto: 'zakat-calc' },
   ]},
   personal: { title: 'شخصی و اطلاعات', items: [
@@ -10538,7 +10738,7 @@ async function sendHeartbeat() {
   syncDeviceIdToServiceWorker(device_id);
 }
 sendHeartbeat();
-setInterval(sendHeartbeat, 20000);
+setInterval(() => { if (!document.hidden) sendHeartbeat(); }, 60000);
 
 /* ---------- درخواست اولیهٔ موقعیت مکانی (اولین باز کردن اپ) ----------
    اگر مجوز موقعیت مکانی هنوز مشخص نشده، به‌جای درخواست خاموش (که ممکن است بدون توضیح
@@ -12137,7 +12337,7 @@ async function loadFbView() {
         return;
       }
       const btn = $('fb-new-submit-btn');
-      btn.disabled = true;
+      btn.disabled = true; btn.textContent = 'در حال ارسال…';
       try {
         const device_id = await ensureDeviceId();
         const r = await apiFetch('/feedback/create', { method: 'POST', body: JSON.stringify({ device_id, subject, message, category: fbCategory, name, app_version: String(window.NATIVE_APP_VERSION || '') }) });
@@ -12147,7 +12347,8 @@ async function loadFbView() {
       } catch (e) {
         errEl.textContent = khatmErr(e, 'ارسال انجام نشد. اینترنت را بررسی کنید و دوباره تلاش کنید.');
         errEl.classList.remove('hidden');
-      } finally { btn.disabled = false; }
+        try { errEl.scrollIntoView({ block: 'center' }); } catch (e2) {}
+      } finally { btn.disabled = false; btn.textContent = 'ارسال'; }
     });
 
     // پاسخ در یک گفتگو

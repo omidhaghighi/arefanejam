@@ -40,7 +40,10 @@ public class AzanService extends Service {
 
     // pressing the phone's power button while the azan plays stops the azan
     // (the button always produces a SCREEN_OFF if the screen was on, or a SCREEN_ON if it was off)
-    private static final long POWER_GUARD_MS = 20000L;  // ignore screen changes in the first 20s (the notification / sticky card often wakes the screen by itself)
+    private static final long POWER_GUARD_MS = 6000L;   // ignore screen changes in the first 6s (the azan notification / sticky card (+3s) often wakes the screen by itself)
+    private static final long POWER_STOP_DELAY_MS = 3000L; // after a real power-button press the azan stops 3 seconds later
+    private final android.os.Handler stopHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private boolean stopPending = false;
     private BroadcastReceiver screenReceiver;
     private long azanStartedAt;
     private long screenOnAt;
@@ -114,8 +117,7 @@ public class AzanService extends Service {
                     if (Intent.ACTION_SCREEN_ON.equals(a)) {
                         screenOnAt = now;
                         if (now - azanStartedAt < POWER_GUARD_MS) return;
-                        AzanReceiver.logEvent(AzanService.this, "power button/screen on -> azan stopped");
-                        stopSelf();
+                        scheduleDelayedStop("power button/screen on");
                     } else if (Intent.ACTION_SCREEN_OFF.equals(a)) {
                         if (now - azanStartedAt < POWER_GUARD_MS) return;
                         long timeout = 30000L;
@@ -126,8 +128,7 @@ public class AzanService extends Service {
                             AzanReceiver.logEvent(AzanService.this, "screen off by timeout -> azan keeps playing");
                             return;
                         }
-                        AzanReceiver.logEvent(AzanService.this, "power button/screen off -> azan stopped");
-                        stopSelf();
+                        scheduleDelayedStop("power button/screen off");
                     }
                 }
             };
@@ -143,6 +144,19 @@ public class AzanService extends Service {
             screenReceiver = null;
             AzanReceiver.logEvent(this, "power button stop: could not register (" + t + ")");
         }
+    }
+
+    private void scheduleDelayedStop(String why) {
+        if (stopPending) return;
+        stopPending = true;
+        AzanReceiver.logEvent(this, why + " -> azan will stop in 3s");
+        stopHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                AzanReceiver.logEvent(AzanService.this, "azan stopped (3s after power button)");
+                stopSelf();
+            }
+        }, POWER_STOP_DELAY_MS);
     }
 
     private Notification buildNotification(String label) {
@@ -293,6 +307,8 @@ public class AzanService extends Service {
 
     @Override
     public void onDestroy() {
+        try { stopHandler.removeCallbacksAndMessages(null); } catch (Throwable ignore) { }
+        stopPending = false;
         try {
             if (screenReceiver != null) unregisterReceiver(screenReceiver);
         } catch (Throwable ignore) { }

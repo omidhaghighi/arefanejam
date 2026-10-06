@@ -7,8 +7,9 @@
 <title>عارفان جام</title>
 <link rel="icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=100">
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
+<link rel="stylesheet" href="css/style.css?v=101">
 </head>
 <body>
 
@@ -377,6 +378,7 @@
           <svg class="qb-map-svg" id="qb-map-svg" aria-hidden="true"></svg>
           <div class="qb-map-attr">© OpenStreetMap</div>
         </div>
+        <div class="qb-map-legend" id="qb-map-legend"></div>
         <div class="qb-map-note hidden" id="qb-map-note">برای دیدن نقشهٔ زمینه اینترنت لازم است؛ خط قبله بدون اینترنت هم نشان داده می‌شود.</div>
       </div>
 
@@ -415,8 +417,8 @@
           <span class="menu-tile-label">محاسبه اعمال</span>
         </button>
         <button class="menu-tile tile-checklist" data-group="ibadah">
-          <span class="menu-tile-badge">🕌</span>
-          <span class="menu-tile-label">عبادت</span>
+          <span class="menu-tile-badge" id="ibadah-tile-badge">🕌</span>
+          <span class="menu-tile-label" id="ibadah-tile-label">عبادت</span>
         </button>
         <button class="menu-tile tile-ramadan" data-goto="ramadan-countdown">
           <span class="menu-tile-badge">🌙</span>
@@ -455,8 +457,8 @@
           <span class="menu-tile-label" id="feedback-tile-label">نظر و پشتیبانی</span>
         </button>
         <button class="menu-tile tile-fun" id="fun-more-tile" data-goto="fun">
-          <span class="menu-tile-badge">🎮</span>
-          <span class="menu-tile-label">سرگرمی</span>
+          <span class="menu-tile-badge" id="fun-tile-badge">🎮</span>
+          <span class="menu-tile-label" id="fun-tile-label">سرگرمی</span>
         </button>
         <button class="menu-tile tile-update hidden" id="app-update-tile">
           <span class="menu-tile-badge">🔄</span>
@@ -1108,12 +1110,20 @@
     </section>
 
     <!-- آیات سجده -->
-    <section id="tab-sajdah-list" class="tab-panel">
-      <div class="section-block">
-        <h3>آیات سجده (طبق فقه حنفی)</h3>
-        <p class="muted-text small">فهرست ۱۴ موضع سجدهٔ تلاوت که در فقه حنفی رایج است. برای احتیاط در احکام دقیق با عالم دینی مشورت کنید.</p>
+    <section id="tab-sajdah-list" class="tab-panel sj-page">
+      <div class="sj-hero" id="sj-hero">
+        <div class="sj-stars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <svg class="sj-moon" viewBox="0 0 120 120" aria-hidden="true"><defs><radialGradient id="sjG" cx="40%" cy="35%"><stop offset="0" stop-color="#FFF3C9"/><stop offset="1" stop-color="#D9A93F"/></radialGradient></defs><circle cx="60" cy="60" r="38" fill="url(#sjG)"/><circle cx="76" cy="52" r="34" fill="#0B3440"/></svg>
+        <h3>آیات سجده</h3>
+        <p class="sj-sub">۱۴ جایگاه سجدهٔ تلاوت (فقه حنفی). آیه را باز کنید، بخوانید، و پس از سجده «سجده کردم» را بزنید.</p>
+        <div class="sj-prog"><div class="sj-prog-fill" id="sj-prog-fill"></div></div>
+        <p class="sj-prog-text" id="sj-prog-text"></p>
       </div>
-      <div id="sajdah-list-content" class="city-list"></div>
+      <div class="sj-guide">
+        <b>🤲 شیوهٔ سجدهٔ تلاوت</b>
+        <p>با نیت و رو به قبله، «اللّٰهُ أَكْبَر» گفته به سجده بروید، سه بار «سُبْحَانَ رَبِّيَ الْأَعْلَى» بگویید، و با «اللّٰهُ أَكْبَر» برخیزید. برای احتیاط در احکام دقیق با عالم دینی مشورت کنید.</p>
+      </div>
+      <div id="sajdah-list-content" class="sj-list"></div>
     </section>
 
     <!-- سوالات شرعی -->
@@ -1561,7 +1571,7 @@
 /* native-bridge.js و app.js (به‌همین ترتیب) فقط بعد از پایان صفحهٔ شروع (ویدیو/عکس/گیف) بارگذاری می‌شوند.
    اگر صفحهٔ شروعی نباشد یا تمام شده باشد، بی‌درنگ بارگذاری می‌شوند. */
 (function () {
-  var list = ['js/native-bridge.js?v=19', 'js/app.js?v=148'], i = 0;
+  var list = ['js/native-bridge.js?v=20', 'js/app.js?v=149'], i = 0;
   function next() {
     if (i >= list.length) return;
     var el = document.createElement('script'); el.src = list[i++];
