@@ -630,12 +630,14 @@
         mode: 'success', icon: 'check',
         title: 'آمادهٔ نصب است',
         from: CURRENT, to: info.version,
-        message: 'در صفحهٔ نصب اندروید روی «نصب» بزنید. بعد از پایان، «باز کردن» را انتخاب کنید تا نسخهٔ جدید اجرا شود.',
+        message: 'در صفحهٔ نصب اندروید روی «نصب» بزنید. بعد از پایان، «باز کردن» را انتخاب کنید تا نسخهٔ جدید اجرا شود.\n\nاگر اندروید نوشت «برنامه نصب نشد چون بسته با بسته موجود تداخل دارد»، یعنی امضای اپ نصب‌شده با نسخهٔ جدید فرق دارد؛ راه‌حلش در همین پنجره بعد از برگشت به اپ نوشته می‌شود.',
         buttons: [
           { label: 'نصب دوباره', keepOpen: true, onClick: function () { doInstall(info); } },
           { label: 'بستن', primary: true }
         ]
       });
+      conflictInfo = info;
+      conflictAt = Date.now();
     }).catch(function (e) {
       log(e);
       showError(info, 'باز کردن نصب‌کننده انجام نشد. دوباره تلاش کنید.');
@@ -645,6 +647,29 @@
   // بعد از برگشتن از صفحهٔ تنظیمات، اگر منتظر اجازه بودیم، نصب را خودکار ادامه می‌دهیم
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible' && waitingPermission && window.__updInfo) doInstall(window.__updInfo, window.__updAuto);
+  });
+
+  // بعد از نصب دستی: اگر اپ دوباره روی همان نسخهٔ قدیمی باز شد، احتمالاً اندروید به‌خاطر «تداخل امضا» نصب را رد کرده
+  var conflictInfo = null, conflictAt = 0;
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState !== 'visible' || !conflictInfo || waitingPermission || busyUpdating) return;
+    if (Date.now() - conflictAt < 4000) return;
+    var info = conflictInfo; conflictInfo = null;
+    if (!isNewer(info.version, CURRENT)) return;
+    render({
+      mode: 'info', icon: 'warn',
+      title: 'نصب نسخهٔ جدید انجام نشد؟',
+      from: CURRENT, to: info.version,
+      message: 'اگر اندروید نوشت «بسته با بستهٔ موجود تداخل دارد»، علتش تعویض کلید امضای امنیتی اپ است و فقط «یک بار» لازم است اپ را پاک و دوباره نصب کنید:\n' +
+               '۱) روی آیکون «عارفان جام» نگه دارید ← «حذف / Uninstall».\n' +
+               '۲) APK جدید را با دکمهٔ «دانلود APK جدید» بگیرید و نصب کنید.\n' +
+               'بعد از آن، بروزرسانی‌ها مثل قبل خودکار و بدون مشکل می‌آیند.\n' +
+               'توجه: با حذف اپ، اطلاعات ذخیره‌شدهٔ روی گوشی (مثل یادداشت‌ها، سابقهٔ اعمال و تنظیمات شخصی) پاک می‌شود.',
+      buttons: [
+        { label: 'دانلود APK جدید', primary: true, onClick: function () { try { browserFallback(info.apk_url); } catch (e) {} } },
+        { label: 'بستن' }
+      ]
+    });
   });
 
   function check(manual) {
