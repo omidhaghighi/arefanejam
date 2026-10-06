@@ -727,6 +727,55 @@
     return true;
   }
 
+  /* ===== یادآوری «بروزرسانی خودکار را فعال کنید» (هر ۳ روز یک بار) =====
+     فقط وقتی «اجازهٔ نصب از این منبع» داده نشده باشد (همان خط «نصب بی‌صدا: ⚠️ اجازهٔ نصب از این منبع داده نشده» صفحهٔ بیشتر).
+     «تأیید» ← صفحهٔ تنظیمات گوشی (نصب برنامه‌های ناشناس برای همین اپ) باز می‌شود؛ «رد» ← ۳ روز بعد دوباره. */
+  var PERM_KEY = 'arefanejam_perm_remind_ts';
+  var PERM_MS = 3 * 24 * 3600 * 1000;
+  var permBusy = false;
+
+  function permReminder() {
+    try {
+      if (permBusy || ui || busyUpdating || autoBusy || waitingPermission) return;
+      var P = AU();
+      if (!P || typeof P.status !== 'function') return;
+      var last = Number(lsGet(PERM_KEY) || 0);
+      if (last && Date.now() - last < PERM_MS) return;
+      permBusy = true;
+      P.status().then(function (s) {
+        permBusy = false;
+        if (!s || s.canInstall !== false) return;          // اجازه داده شده (یا اندروید قدیمی): چیزی نشان داده نمی‌شود
+        if (ui || busyUpdating || autoBusy || waitingPermission) return;
+        lsSet(PERM_KEY, String(Date.now()));               // چه تأیید چه رد، ۳ روز بعد دوباره
+        render({
+          mode: 'info', icon: 'warn',
+          title: 'بروزرسانی خودکار را فعال کنید',
+          message: 'بروزرسانی خودکار را فعال کنید تا از تمام قابلیت‌های نرم‌افزار بهره‌مند شوید.\n\n' +
+                   'با زدن «تأیید»، صفحهٔ تنظیمات گوشی باز می‌شود؛ گزینهٔ «اجازهٔ نصب از این منبع» را روشن کنید و به اپ برگردید.',
+          buttons: [
+            { label: 'تأیید', primary: true, onClick: function () {
+                var Q = AU();
+                if (Q && typeof Q.openInstallSettings === 'function') {
+                  try { Q.openInstallSettings().catch(function (e) { log(e); }); } catch (e) { log(e); }
+                } else {
+                  // APK قدیمی (بدون این بخش): راهنمای دستی
+                  setTimeout(function () {
+                    render({
+                      mode: 'info', icon: 'warn',
+                      title: 'فعال‌سازی دستی',
+                      message: 'تنظیمات گوشی ← برنامه‌ها ← «عارفان جام» ← «نصب برنامه‌های ناشناس» (Install unknown apps) را روشن کنید.',
+                      buttons: [{ label: 'باشه', primary: true }]
+                    });
+                  }, 50);
+                }
+              } },
+            { label: 'رد', onClick: function () { } }
+          ]
+        });
+      }).catch(function () { permBusy = false; });
+    } catch (e) { permBusy = false; log(e); }
+  }
+
   /* ===== دکمهٔ «بروزرسانی» نوار بالا (🔄 بالا سمت چپ) =====
      با هر بار زدن: اول نسخهٔ جدید APK از سایت پرسیده می‌شود؛ اگر بود پنجرهٔ «نسخهٔ جدید آماده است» می‌آید.
      اگر APK جدید نبود، «بروزرسانی ظاهر اپ از سایت» بررسی و همان لحظه اعمال می‌شود. اگر هیچ‌کدام نبود: «برنامه به‌روز است». */
@@ -1051,11 +1100,17 @@
     // بررسی خودکار چند ثانیه بعد از باز شدن اپ (اگر آنلاین باشد)
     setTimeout(function () { if (!done && navigator.onLine !== false) check(false); }, 5000);
     setTimeout(function () { if (navigator.onLine !== false) webCheck(); }, 9000);
+    // یادآوری فعال‌سازی «اجازهٔ نصب» (هر ۳ روز)؛ کمی بعد از بررسی بروزرسانی تا پنجره‌ها روی هم نیایند
+    setTimeout(permReminder, 14000);
+    setInterval(permReminder, 3600 * 1000);
     setInterval(function () { if (navigator.onLine !== false) webCheck(); }, RECHECK_MS);
     // اگر اپ مدت زیادی باز بماند یا از پس‌زمینه برگردد، دوباره از سایت می‌پرسد (بروزرسانی خودکار)
     setInterval(function () { if (navigator.onLine !== false) check(false); }, RECHECK_MS);
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'visible' && navigator.onLine !== false && Date.now() - lastCheckTs > 3600 * 1000) check(false);
+    });
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') setTimeout(permReminder, 3000);
     });
   }
 

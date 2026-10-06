@@ -1637,6 +1637,43 @@ public class AppUpdaterPlugin extends Plugin {
         }
     }
 
+    /** Opens the phone's "Install unknown apps" page for this app (so the user can allow silent auto-update). Needs no downloaded APK. */
+    @PluginMethod
+    public void openInstallSettings(PluginCall call) {
+        try {
+            Context ctx = getContext();
+            JSObject r = new JSObject();
+            boolean can = true;
+            if (Build.VERSION.SDK_INT >= 26) can = ctx.getPackageManager().canRequestPackageInstalls();
+            r.put("canInstall", can);
+            if (can) {
+                r.put("opened", false);
+                call.resolve(r);
+                return;
+            }
+            boolean opened = false;
+            try {
+                Intent s = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:" + ctx.getPackageName()));
+                s.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                ctx.startActivity(s);
+                opened = true;
+            } catch (Throwable t) {
+                try {
+                    Intent s2 = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.parse("package:" + ctx.getPackageName()));
+                    s2.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    ctx.startActivity(s2);
+                    opened = true;
+                } catch (Throwable ignore) { }
+            }
+            r.put("opened", opened);
+            call.resolve(r);
+        } catch (Throwable t) {
+            call.reject("installSettings: " + t);
+        }
+    }
+
     /* ====== Native azan (works offline / locked phone / app closed): see AzanReceiver + AzanService ====== */
     @PluginMethod
     public void scheduleAzan(PluginCall call) {
