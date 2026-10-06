@@ -12496,7 +12496,7 @@ function actApplyTile(d) {
   try {
     const tile = document.getElementById('activities-more-tile');
     if (!tile) return;
-    const has = !!(d && d.enabled && Array.isArray(d.items) && d.items.length);
+    const has = !!(d && d.enabled); // کاشی به‌محض روشن بودن بخش دیده می‌شود، حتی اگر هنوز آیکونی ساخته نشده باشد
     tile.classList.toggle('hidden', !has);
     if (!has) return;
     const b = document.getElementById('activities-tile-badge');
