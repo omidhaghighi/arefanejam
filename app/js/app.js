@@ -297,6 +297,7 @@ function apiFetch(path, options = {}) {
       if (cacheKey && parsed) {
         apiCacheWrite(cacheKey, data);
         if (/^\/(mokatib\/|shariq\/settings)/.test(basePath)) setTimeout(() => { prefetchSiteImages(collectImageUrls(data)); }, 1500);
+        else if (basePath === '/activities') setTimeout(() => { prefetchSiteImages(actCollectImages(data)); }, 1500);
       }
       return data;
     })
@@ -314,7 +315,7 @@ function apiFetch(path, options = {}) {
 /* ---------- ذخیرهٔ آفلاینِ اطلاعات عمومی پیشخوان ----------
  * هر بار که اطلاعات با موفقیت از سایت گرفته شود، در حافظهٔ گوشی می‌ماند و اگر بعداً اینترنت نبود
  * (یا سرور خطا داد) همان آخرین نسخه نمایش داده می‌شود. فقط مسیرهای عمومیِ زیر؛ مسیرهای شخصی/ورود نه. */
-const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|hamburger-menu|social-links|theme|shariq\/settings|khatm\/settings|feedback\/settings|zakat)$/;
+const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|hamburger-menu|social-links|theme|shariq\/settings|khatm\/settings|feedback\/settings|zakat|activities)$/;
 function apiCacheKey(basePath) {
   return API_OFFLINE_CACHE_RE.test(basePath) ? ('arefanejam_api_cache:' + basePath) : '';
 }
@@ -439,6 +440,7 @@ function switchToTab(tabName, opts) {
   if (tabName === 'khatm-view') loadKhatmView();
   if (tabName === 'feedback') loadFeedbackMain();
   if (tabName === 'feedback-view') loadFbView();
+  if (tabName === 'activities') actOnTabOpen(); else actLeaveTab();
   if (tabName !== 'game-ayah') gaStopTimer();
   if (tabName === 'game-ayah') gaOpen();
 }
@@ -469,9 +471,92 @@ window.addEventListener('popstate', (e) => {
     return;
   }
   if (target > 0) return; // ورودی تاریخچه‌ای قدیمی از یک پنجره؛ نادیده گرفته می‌شود
+  if (hwBackActive) return; // در اپ، برگشت را فقط شنوندهٔ دکمهٔ برگشت گوشی (پایین‌تر) انجام می‌دهد
   if (currentTab !== 'home') { goBackInApp(); return; }
   maybeConfirmExit();
 });
+
+/* ---------- دکمهٔ برگشت گوشی (و حرکت لبهٔ صفحه): یک مسیر واحد و قابل‌اعتماد ----------
+   قبلاً برگشت فقط به تاریخچهٔ مرورگر (popstate) وابسته بود؛ ولی جابه‌جایی با نوار پایینی، منوی همبرگری و بعضی
+   پنجره‌ها ورودی تاریخچه نمی‌ساختند و اندروید گاهی کل اپ را می‌بست. حالا در اپ، رویداد backButton کاپاسیتور
+   مستقیم به handleHardwareBack می‌رسد و هر بار دقیقاً «یک مرحله» برمی‌گردد، به این ترتیب:
+   ۱) پرسش خروج ← خروج  ۲) پنجره‌های ثبت‌شده در تاریخچه (pushOverlay)  ۳) پنجره‌های معمولی (بدون تاریخچه)
+   ۴) منوی مصحف  ۵) نمایش تمام‌صفحهٔ گالری  ۶) مرحلهٔ داخل صفحه (بازی، دستهٔ سوالات شرعی)  ۷) تب قبلی ← خانه
+   ۸) در خانه: پرسش خروج. بدون اینترنت هم دقیقاً همین‌طور کار می‌کند. */
+let hwBackActive = false;
+const HW_MODAL_CLOSERS = {
+  'note-modal': 'note-cancel-btn',
+  'shariq-ask-modal': 'shariq-ask-cancel-btn',
+  'khatm-new-modal': 'khatm-new-cancel-btn',
+  'fb-new-modal': 'fb-new-cancel-btn',
+  'quran-invite-modal': 'quran-invite-btn2',
+  'quran-surah-progress-modal': 'quran-surah-progress-close',
+  'azan-share-choice-modal': 'azan-share-cancel-btn',
+  'charity-food-thanks-modal': 'charity-food-thanks-ok',
+  'onboarding-location-modal': 'onboarding-location-later-btn',
+  'city-modal': 'city-cancel-btn',
+  'deeds-popup': 'deeds-popup-later',
+  'alarm-modal': 'alarm-ok-btn'
+};
+function hwBackCloseModal() {
+  const open = document.querySelectorAll('.modal:not(.hidden), .deeds-popup:not(.hidden), .alarm-overlay:not(.hidden)');
+  if (!open.length) return false;
+  const el = open[open.length - 1];
+  if (el.id === 'exit-confirm-modal') return false;
+  const btnId = HW_MODAL_CLOSERS[el.id];
+  const btn = btnId ? document.getElementById(btnId) : null;
+  if (btn) { try { btn.click(); } catch (e) {} }
+  if (!el.classList.contains('hidden')) el.classList.add('hidden'); // دکمه‌ای نبود یا بسته نشد: همین پنجره بسته شود
+  return true;
+}
+function handleHardwareBack() {
+  try {
+    const ex = document.getElementById('exit-confirm-modal');
+    if (ex && !ex.classList.contains('hidden')) { ex.classList.add('hidden'); exitAppNow(); return; }
+    if (overlayStack.length) {
+      const before = overlayStack.length;
+      try { history.go(-1); } catch (e) {}
+      setTimeout(() => {
+        if (overlayStack.length >= before) { // رویداد تاریخچه نیامد؛ مرحله را مستقیم ببند
+          const o = overlayStack.pop();
+          try { o.undo(); } catch (err) {}
+        }
+      }, 400);
+      return;
+    }
+    if (hwBackCloseModal()) return;
+    if (typeof qpMenuIsOpen === 'function' && qpMenuIsOpen()) { qpMenuClose(); return; }
+    const lb = document.getElementById('gallery-lightbox');
+    if (lb && !lb.classList.contains('hidden')) { closeGalleryLightbox(); return; }
+    if (currentTab === 'game-ayah' && typeof gaGame !== 'undefined' && gaGame) { gaOpen(); return; }
+    if (currentTab === 'shariq' && shariqState && shariqState.activeCategory != null) {
+      document.querySelectorAll('#shariq-cats-row .shariq-chip').forEach((c) => c.classList.remove('active'));
+      shariqState.activeCategory = null;
+      loadShariqList(null);
+      return;
+    }
+    if (currentTab !== 'home') { goBackInApp(); return; }
+    maybeConfirmExit(true);
+  } catch (err) {
+    try { if (currentTab !== 'home') goBackInApp(); else maybeConfirmExit(true); } catch (e2) {}
+  }
+}
+(function registerHardwareBack() {
+  if (window.__arefHwBackReg) return;
+  function tryReg() {
+    try {
+      const P = window.Capacitor && window.Capacitor.Plugins;
+      if (!(P && P.App && typeof P.App.addListener === 'function')) return false;
+      window.__arefHwBackReg = true;
+      const r = P.App.addListener('backButton', function () { handleHardwareBack(); });
+      if (r && typeof r.then === 'function') {
+        r.then(() => { hwBackActive = true; }).catch(() => { window.__arefHwBackReg = false; });
+      } else { hwBackActive = true; }
+      return true;
+    } catch (e) { window.__arefHwBackReg = false; return false; }
+  }
+  if (!tryReg()) { setTimeout(tryReg, 1200); setTimeout(tryReg, 4000); setTimeout(tryReg, 10000); }
+})();
 
 /* ---------- مراحل پنجره‌ای (پاپ‌آپ‌ها) در تاریخچه ----------
    هر پنجره یا هر مرحلهٔ داخل پنجره (مثلاً ورود به یک زیرمجموعه در چارت) یک ورودی تاریخچه می‌سازد
@@ -953,13 +1038,13 @@ function exitAppNow() {
   try { history.go(-Math.max(1, history.length - 1)); } catch (e) {}
   try { window.close(); } catch (e) {}
 }
-function maybeConfirmExit() {
+function maybeConfirmExit(viaNativeBack) {
   const cfg = state.exitConfirm || {};
   if (cfg.enabled === '0') { exitAppNow(); return; } // مدیر پرسش خروج را خاموش کرده: مستقیم خارج می‌شود
   const mdl = document.getElementById('exit-confirm-modal');
   // اگر پرسش خروج باز است و کاربر دوباره برگشت زد، یعنی واقعاً می‌خواهد خارج شود
   if (mdl && !mdl.classList.contains('hidden')) { mdl.classList.add('hidden'); exitAppNow(); return; }
-  try { history.pushState({ arefanejamHome: true }, '', location.pathname + location.search); } catch (e) {}
+  if (!viaNativeBack && !hwBackActive) { try { history.pushState({ arefanejamHome: true }, '', location.pathname + location.search); } catch (e) {} }
   document.getElementById('exit-confirm-message').textContent = cfg.text || 'آیا قصد خروج از برنامه را دارید؟';
   document.getElementById('exit-confirm-modal').classList.remove('hidden');
 }
@@ -12379,5 +12464,170 @@ document.addEventListener('visibilitychange', () => {
 });
 loadFeedbackSettings();
 setTimeout(fbCheckNews, 10000);
+
+/* ---------- فعالیت‌های حوزه: آیکون‌های درختی که مدیر در پیشخوان تعریف می‌کند ----------
+   پیشخوان ← عارفان جام ← «فعالیت‌های حوزه». داده از GET /activities می‌آید (آفلاین هم ذخیره می‌شود).
+   هر آیکون: عکس + نوشته (+ ایموجی جایگزین)؛ داخلش می‌تواند «بلوک محتوا» (متن/عکس/ویدیو/صوت/لینک؛ همان zkRenderBlock زکات)
+   و/یا «آیکون‌های زیرمجموعه» داشته باشد که دقیقاً با ظاهر کاشی‌های «بیشتر» (menu-tile) نشان داده می‌شوند. عمق تا ۶ مرحله.
+   ناوبری: actPath فهرست شناسهٔ آیکون‌های بازشده است؛ هر ورود به یک آیکون یک مرحلهٔ تاریخچه (pushOverlay('act')) می‌سازد
+   تا دکمهٔ برگشت گوشی در هر بار فقط یک مرحله به عقب برگردد.
+   ⚠ متغیرهای وضعیت عمداً با var تعریف شده‌اند: switchToTab ممکن است قبل از رسیدن اجرا به این خط‌ها صدا زده شود (با let خطای TDZ می‌دهد). */
+var actData = null;
+var actPath = [];
+
+function actCollectImages(d) {
+  const out = [];
+  const push = (u) => { if (typeof u === 'string' && /^https?:\/\//i.test(u) && out.indexOf(u) < 0) out.push(u); };
+  try {
+    push(d && d.tile_icon_url);
+    const queue = (d && Array.isArray(d.items)) ? d.items.slice() : [];
+    const all = [];
+    while (queue.length && all.length < 400) { const n = queue.shift(); all.push(n); (n.children || []).forEach((c) => queue.push(c)); }
+    all.forEach((n) => push(n.icon_url));   // اول همهٔ آیکون‌ها (کوچک و مهم)
+    all.forEach((n) => (n.blocks || []).forEach((b) => { if (b.type === 'image') push(b.url); }));
+  } catch (e) {}
+  return out;
+}
+function actBadgeHtml(n) {
+  if (n && n.icon_url) return `<img class="act-badge-img" src="${zkAttr(secureUrl(n.icon_url))}" alt="" loading="lazy">`;
+  return zkAttr((n && n.icon_emoji) || '📌');
+}
+function actApplyTile(d) {
+  try {
+    const tile = document.getElementById('activities-more-tile');
+    if (!tile) return;
+    const has = !!(d && d.enabled && Array.isArray(d.items) && d.items.length);
+    tile.classList.toggle('hidden', !has);
+    if (!has) return;
+    const b = document.getElementById('activities-tile-badge');
+    const l = document.getElementById('activities-tile-label');
+    if (l) l.textContent = d.title || 'فعالیت‌های حوزه';
+    if (b) {
+      const key = (d.tile_icon_url ? 'u:' + d.tile_icon_url : 'e:' + (d.tile_icon_emoji || ''));
+      if (b.dataset.k !== key) {
+        b.dataset.k = key;
+        if (d.tile_icon_url) b.innerHTML = `<img class="act-badge-img" src="${zkAttr(secureUrl(d.tile_icon_url))}" alt="">`;
+        else b.textContent = d.tile_icon_emoji || '🏛️';
+      }
+    }
+  } catch (e) {}
+}
+function actFindNode(list, id) {
+  for (let i = 0; i < (list || []).length; i++) if (String(list[i].id) === String(id)) return list[i];
+  return null;
+}
+// مسیر باز را با داده‌ٔ فعلی می‌سنجد (اگر مدیر آیکونی را حذف کرده بود، مسیر کوتاه می‌شود) و زنجیرهٔ آیکون‌ها را برمی‌گرداند
+function actChain() {
+  let list = (actData && actData.items) || [];
+  const chain = [], valid = [];
+  for (let i = 0; i < actPath.length; i++) {
+    const n = actFindNode(list, actPath[i]);
+    if (!n) break;
+    chain.push(n); valid.push(actPath[i]);
+    list = n.children || [];
+  }
+  actPath = valid;
+  return chain;
+}
+function actScrollTop() { try { const c = document.getElementById('content'); if (c) c.scrollTop = 0; } catch (e) {} }
+function actRender() {
+  const grid = document.getElementById('act-grid');
+  if (!grid) return;
+  const blocksEl = document.getElementById('act-blocks');
+  const titleEl = document.getElementById('act-title');
+  const crumbsEl = document.getElementById('act-crumbs');
+  const backBtn = document.getElementById('act-back-btn');
+  const introEl = document.getElementById('act-intro');
+  const emptyEl = document.getElementById('act-empty');
+
+  const chain = actChain();
+  const node = chain.length ? chain[chain.length - 1] : null;
+  const list = node ? (node.children || []) : ((actData && actData.items) || []);
+  const secTitle = (actData && actData.title) || 'فعالیت‌های حوزه';
+
+  titleEl.textContent = node ? (node.title || '') : secTitle;
+  const crumbs = chain.length ? [secTitle].concat(chain.slice(0, -1).map((n) => n.title || '')) : [];
+  crumbsEl.textContent = crumbs.join(' › ');
+  crumbsEl.classList.toggle('hidden', !crumbs.length);
+  backBtn.classList.toggle('hidden', !chain.length);
+  if (node && node.intro) { introEl.textContent = node.intro; introEl.classList.remove('hidden'); }
+  else { introEl.textContent = ''; introEl.classList.add('hidden'); }
+
+  grid.innerHTML = list.map((n) =>
+    `<button type="button" class="menu-tile act-tile" data-act-id="${zkAttr(n.id)}"><span class="menu-tile-badge">${actBadgeHtml(n)}</span><span class="menu-tile-label">${zkAttr(n.title || '')}</span></button>`
+  ).join('');
+  grid.classList.toggle('hidden', !list.length);
+
+  const blocks = node ? (node.blocks || []) : [];
+  blocksEl.innerHTML = blocks.map(zkRenderBlock).join('');
+
+  let msg = '';
+  if (!list.length && !blocks.length) {
+    if (node) msg = 'هنوز محتوایی در این بخش گذاشته نشده است.';
+    else if (!actData) msg = navigator.onLine === false ? 'برای دیدن این بخش، یک‌بار باید به اینترنت وصل شوید؛ بعد از آن آفلاین هم دیده می‌شود.' : 'در حال بارگذاری…';
+    else msg = 'فعلاً موردی ثبت نشده است.';
+  }
+  emptyEl.textContent = msg;
+  emptyEl.classList.toggle('hidden', !msg);
+  actScrollTop();
+}
+function actPopOne() {
+  if (!actPath.length) return;
+  actPath.pop();
+  if (currentTab === 'activities') actRender();
+}
+function actEnter(id) {
+  actPath.push(String(id));
+  pushOverlay('act', actPopOne);
+  actRender();
+}
+function actOnTabOpen() {
+  try {
+    actRender();
+    actLoad();
+  } catch (e) { try { console.error('activities', e); } catch (e2) {} }
+}
+// با رفتن به تب دیگر، مسیر باز و مراحل تاریخچهٔ آن پاک می‌شود تا دکمهٔ برگشت یک مرحلهٔ بی‌اثر نداشته باشد
+function actLeaveTab() {
+  if (!actPath || !actPath.length) return;
+  actPath = [];
+  overlayGo('act', 0, function () {});
+}
+function actLoad() {
+  return apiSWR('/activities', (d) => {
+    actData = (d && typeof d === 'object') ? d : null;
+    actApplyTile(actData);
+    if (currentTab === 'activities') actRender();
+  }).catch(() => { if (currentTab === 'activities') actRender(); });
+}
+(function setupActivitiesEvents() {
+  try {
+    const grid = document.getElementById('act-grid');
+    const blocks = document.getElementById('act-blocks');
+    const back = document.getElementById('act-back-btn');
+    if (!grid || !blocks || !back) return;
+    grid.addEventListener('click', (e) => {
+      const t = e.target.closest('[data-act-id]');
+      if (t) actEnter(t.getAttribute('data-act-id'));
+    });
+    back.addEventListener('click', () => overlayGo('act', 1, actPopOne));
+    blocks.addEventListener('click', (e) => {
+      const img = e.target.closest('[data-zk-zoom]');
+      if (img) { openRmzZoom(img.getAttribute('data-zk-zoom'), img.getAttribute('data-zk-name') || ''); return; }
+      const lk = e.target.closest('[data-zk-link]');
+      if (lk) {
+        trackClick('activities_' + (lk.getAttribute('data-zk-kind') || 'link'));
+        window.open(lk.getAttribute('data-zk-link'), '_blank');
+      }
+    });
+    blocks.addEventListener('play', (e) => {
+      if (e.target && (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO')) {
+        blocks.querySelectorAll('video,audio').forEach((m) => { if (m !== e.target) m.pause(); });
+      }
+    }, true);
+  } catch (e) { try { console.error('activities ui', e); } catch (e2) {} }
+})();
+actLoad();
+
 
 window.__arefBooted = true;

@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
-<link rel="stylesheet" href="css/style.css?v=101">
+<link rel="stylesheet" href="css/style.css?v=102">
 </head>
 <body>
 
@@ -459,6 +459,10 @@
         <button class="menu-tile tile-fun" id="fun-more-tile" data-goto="fun">
           <span class="menu-tile-badge" id="fun-tile-badge">🎮</span>
           <span class="menu-tile-label" id="fun-tile-label">سرگرمی</span>
+        </button>
+        <button class="menu-tile tile-activities hidden" id="activities-more-tile" data-goto="activities">
+          <span class="menu-tile-badge" id="activities-tile-badge">🏛️</span>
+          <span class="menu-tile-label" id="activities-tile-label">فعالیت‌های حوزه</span>
         </button>
         <button class="menu-tile tile-update hidden" id="app-update-tile">
           <span class="menu-tile-badge">🔄</span>
@@ -1149,6 +1153,19 @@
       <div id="shariq-mine-content" class="shariq-list"></div>
     </section>
 
+    <!-- فعالیت‌های حوزه: آیکون‌های درختی که مدیر در پیشخوان تعریف می‌کند -->
+    <section id="tab-activities" class="tab-panel">
+      <div class="section-block act-head-block">
+        <p class="muted-text small act-crumbs hidden" id="act-crumbs"></p>
+        <h3 id="act-title">فعالیت‌های حوزه</h3>
+        <button type="button" class="ghost-btn small-btn act-back hidden" id="act-back-btn">‹ بازگشت</button>
+        <p class="muted-text act-intro hidden" id="act-intro"></p>
+      </div>
+      <div class="menu-grid act-grid hidden" id="act-grid"></div>
+      <div class="act-blocks" id="act-blocks"></div>
+      <p class="muted-text small act-empty hidden" id="act-empty"></p>
+    </section>
+
     <!-- سرگرمی -->
     <section id="tab-fun" class="tab-panel">
       <div class="section-block">
@@ -1571,7 +1588,7 @@
 /* native-bridge.js و app.js (به‌همین ترتیب) فقط بعد از پایان صفحهٔ شروع (ویدیو/عکس/گیف) بارگذاری می‌شوند.
    اگر صفحهٔ شروعی نباشد یا تمام شده باشد، بی‌درنگ بارگذاری می‌شوند. */
 (function () {
-  var list = ['js/native-bridge.js?v=20', 'js/app.js?v=149'], i = 0;
+  var list = ['js/native-bridge.js?v=20', 'js/app.js?v=151'], i = 0;
   function next() {
     if (i >= list.length) return;
     var el = document.createElement('script'); el.src = list[i++];

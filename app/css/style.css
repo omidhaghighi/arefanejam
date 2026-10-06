@@ -4436,3 +4436,39 @@ body.dark-mode .fb-msg-head { color: var(--gold-light); }
 body.dark-mode .sj-guide, body.dark-mode .sj-card { background: #14282C; border-color: #2B4A4E; }
 body.dark-mode .sj-card-title b, body.dark-mode .sj-guide b { color: var(--gold-light, #E9CF90); }
 @media (prefers-reduced-motion: reduce) { .sj-moon, .sj-stars i, .sj-card { animation: none !important; } }
+
+/* ================= فعالیت‌های حوزه (آیکون‌های درختی از پیشخوان) ================= */
+.tile-activities { --tile-c: #D98E3E; --tile-cd: #A3601C; }
+.tile-activities .menu-tile-badge, .act-tile .menu-tile-badge { overflow: hidden; }
+.menu-tile-badge .act-badge-img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: inherit; }
+.act-tile .menu-tile-label { text-align: center; line-height: 1.7; max-width: 100%; padding: 0 4px; overflow-wrap: break-word; }
+#tab-activities .act-head-block { position: relative; }
+#tab-activities .act-crumbs { margin: 0 0 6px; line-height: 1.9; }
+#tab-activities .act-back { margin: 2px 0 8px; }
+#tab-activities .act-intro { margin: 8px 0 0; font-size: 14px; line-height: 2; white-space: pre-line; }
+#tab-activities .act-grid { margin-bottom: 16px; }
+#tab-activities .act-blocks { margin: 0 16px 16px; }
+#tab-activities .act-empty { text-align: center; margin: 24px 16px; line-height: 2; }
+#tab-activities .zk-blk { display: block; width: 100%; margin: 0 0 12px; background: var(--card-bg); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--raised-sm); overflow: hidden; text-align: right; font-family: var(--font-ui); color: var(--ink); }
+#tab-activities .zk-blk-title { margin: 0 0 6px; font-size: 14.5px; font-weight: 800; color: var(--emerald); }
+#tab-activities .zk-blk-text { padding: 14px 16px; }
+#tab-activities .zk-blk-text p { margin: 0; font-size: 14px; line-height: 2.05; white-space: pre-line; }
+#tab-activities .zk-blk-image { margin-left: 0; margin-right: 0; }
+#tab-activities .zk-blk-image img { display: block; width: 100%; height: auto; cursor: zoom-in; }
+#tab-activities .zk-blk-image figcaption { padding: 10px 14px; font-size: 12.5px; color: #7C7568; line-height: 1.8; }
+#tab-activities .zk-blk-video { padding: 12px; }
+#tab-activities .zk-blk-video video { display: block; width: 100%; border-radius: 12px; background: #000; }
+#tab-activities .zk-blk-audio { padding: 12px 14px; }
+#tab-activities .zk-blk-audio-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 14px; }
+#tab-activities .zk-blk-audio audio { display: block; width: 100%; }
+#tab-activities .zk-blk-ic { flex: 0 0 auto; width: 42px; height: 42px; display: inline-flex; align-items: center; justify-content: center; font-size: 18px; border-radius: 50%; color: #fff; background: linear-gradient(135deg, var(--turq, #2BA398), var(--emerald-light, #155466)); box-shadow: var(--raised-sm); }
+#tab-activities .zk-blk-audio-head .zk-blk-ic { width: 34px; height: 34px; font-size: 15px; }
+#tab-activities .zk-blk-vidlink .zk-blk-ic { background: linear-gradient(135deg, #F0245E, #C2104A); padding-right: 3px; }
+#tab-activities .zk-blk-link { display: flex; align-items: center; gap: 12px; padding: 12px 14px; cursor: pointer; transition: transform .12s; }
+#tab-activities .zk-blk-link:active { transform: scale(.98); }
+#tab-activities .zk-blk-lt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+#tab-activities .zk-blk-lt b { font-size: 14px; font-weight: 800; line-height: 1.7; }
+#tab-activities .zk-blk-lt small { font-size: 11px; color: #7C7568; direction: ltr; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#tab-activities .zk-blk-go { flex: 0 0 auto; font-size: 24px; color: var(--gold); }
+body.dark-mode #tab-activities .zk-blk-lt small,
+body.dark-mode #tab-activities .zk-blk-image figcaption { color: #9FB1AC; }
