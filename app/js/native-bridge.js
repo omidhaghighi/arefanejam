@@ -734,47 +734,72 @@
   var PERM_MS = 3 * 24 * 3600 * 1000;
   var permBusy = false;
 
-  function permReminder() {
+  // پنجرهٔ یادآوری (هم برای یادآوری خودکار هر ۳ روز، هم برای ۵ ضربه روی خط وضعیت)
+  function showPermDialog() {
+    render({
+      mode: 'info', icon: 'warn',
+      title: 'بروزرسانی خودکار را فعال کنید',
+      message: 'بروزرسانی خودکار را فعال کنید تا از تمام قابلیت‌های نرم‌افزار بهره‌مند شوید.\n\n' +
+               'با زدن «تأیید»، صفحهٔ تنظیمات گوشی باز می‌شود؛ گزینهٔ «اجازهٔ نصب از این منبع» را روشن کنید و به اپ برگردید.',
+      buttons: [
+        { label: 'تأیید', primary: true, onClick: function () {
+            var Q = AU();
+            if (Q && typeof Q.openInstallSettings === 'function') {
+              try { Q.openInstallSettings().catch(function (e) { log(e); }); } catch (e) { log(e); }
+            } else {
+              // APK قدیمی (بدون این بخش): راهنمای دستی
+              setTimeout(function () {
+                render({
+                  mode: 'info', icon: 'warn',
+                  title: 'فعال‌سازی دستی',
+                  message: 'تنظیمات گوشی ← برنامه‌ها ← «عارفان جام» ← «نصب برنامه‌های ناشناس» (Install unknown apps) را روشن کنید.',
+                  buttons: [{ label: 'باشه', primary: true }]
+                });
+              }, 50);
+            }
+          } },
+        { label: 'رد', onClick: function () { } }
+      ]
+    });
+  }
+
+  function permReminder(force) {
     try {
       if (permBusy || ui || busyUpdating || autoBusy || waitingPermission) return;
       var P = AU();
       if (!P || typeof P.status !== 'function') return;
-      var last = Number(lsGet(PERM_KEY) || 0);
-      if (last && Date.now() - last < PERM_MS) return;
+      if (!force) {
+        var last = Number(lsGet(PERM_KEY) || 0);
+        if (last && Date.now() - last < PERM_MS) return;
+      }
       permBusy = true;
       P.status().then(function (s) {
         permBusy = false;
-        if (!s || s.canInstall !== false) return;          // اجازه داده شده (یا اندروید قدیمی): چیزی نشان داده نمی‌شود
+        if (!s) return;
+        if (s.canInstall !== false) {                      // اجازه داده شده (یا اندروید قدیمی)
+          if (force) toast('✅ اجازهٔ نصب از این منبع از قبل فعال است.', 3500);
+          return;
+        }
         if (ui || busyUpdating || autoBusy || waitingPermission) return;
         lsSet(PERM_KEY, String(Date.now()));               // چه تأیید چه رد، ۳ روز بعد دوباره
-        render({
-          mode: 'info', icon: 'warn',
-          title: 'بروزرسانی خودکار را فعال کنید',
-          message: 'بروزرسانی خودکار را فعال کنید تا از تمام قابلیت‌های نرم‌افزار بهره‌مند شوید.\n\n' +
-                   'با زدن «تأیید»، صفحهٔ تنظیمات گوشی باز می‌شود؛ گزینهٔ «اجازهٔ نصب از این منبع» را روشن کنید و به اپ برگردید.',
-          buttons: [
-            { label: 'تأیید', primary: true, onClick: function () {
-                var Q = AU();
-                if (Q && typeof Q.openInstallSettings === 'function') {
-                  try { Q.openInstallSettings().catch(function (e) { log(e); }); } catch (e) { log(e); }
-                } else {
-                  // APK قدیمی (بدون این بخش): راهنمای دستی
-                  setTimeout(function () {
-                    render({
-                      mode: 'info', icon: 'warn',
-                      title: 'فعال‌سازی دستی',
-                      message: 'تنظیمات گوشی ← برنامه‌ها ← «عارفان جام» ← «نصب برنامه‌های ناشناس» (Install unknown apps) را روشن کنید.',
-                      buttons: [{ label: 'باشه', primary: true }]
-                    });
-                  }, 50);
-                }
-              } },
-            { label: 'رد', onClick: function () { } }
-          ]
-        });
+        showPermDialog();
       }).catch(function () { permBusy = false; });
     } catch (e) { permBusy = false; log(e); }
   }
+
+  // ۵ ضربهٔ پشت‌سرهم (در ۴ ثانیه) روی خط وضعیت «نسخهٔ برنامه … نصب بی‌صدا: ⚠️» صفحهٔ «بیشتر»: همان لحظه همین پنجره می‌آید
+  var permTaps = 0, permTapTs = 0;
+  document.addEventListener('click', function (ev) {
+    try {
+      var t = ev.target;
+      if (!t || !t.closest || !t.closest('#app-version-line')) return;
+      var now = Date.now();
+      if (now - permTapTs > 4000) permTaps = 0;
+      permTapTs = now;
+      permTaps++;
+      if (permTaps >= 5) { permTaps = 0; permReminder(true); }
+    } catch (e) { log(e); }
+  });
 
   /* ===== دکمهٔ «بروزرسانی» نوار بالا (🔄 بالا سمت چپ) =====
      با هر بار زدن: اول نسخهٔ جدید APK از سایت پرسیده می‌شود؛ اگر بود پنجرهٔ «نسخهٔ جدید آماده است» می‌آید.
