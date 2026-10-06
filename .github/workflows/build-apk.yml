@@ -17,7 +17,7 @@ jobs:
       - name: Check project files (clear error if something was not uploaded to GitHub)
         run: |
           MISSING=0
-          for f in native-assets/debug.keystore native-assets/fetch-azan-voices.js \
+          for f in native-assets/fetch-azan-voices.js \
                    native-assets/android/MainActivity.java native-assets/android/AppUpdaterPlugin.java \
                    native-assets/android/UpdateFileProvider.java native-assets/android/update_file_paths.xml \
                    native-assets/android/sticky_card.xml native-assets/android/AzanReceiver.java \
@@ -148,32 +148,39 @@ jobs:
           sed -i -E "s/versionName \"[^\"]*\"/versionName \"$APP_VERSION\"/" "$G"
           grep -n -E "versionCode|versionName" "$G"
 
-      - name: Use fixed signing key (so updates install over the old app)
+      - name: Use fixed signing key (from GitHub Secrets, NOT stored in the repository)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         run: |
-          # کلید ثابت را هم در مسیر پیش‌فرض می‌گذاریم و هم مستقیماً در gradle مشخص می‌کنیم؛
-          # تا هر بیلد حتماً با همین کلید امضا شود (وگرنه اندروید بروزرسانی را «تداخل با بستهٔ موجود» رد می‌کند)
-          test -f native-assets/debug.keystore || { echo "ERROR: native-assets/debug.keystore not found"; exit 1; }
-          mkdir -p ~/.android
-          cp native-assets/debug.keystore ~/.android/debug.keystore
+          # کلید امضا دیگر داخل مخزن نیست؛ از Secrets گیت‌هاب (KEYSTORE_BASE64 و KEYSTORE_PASSWORD) خوانده می‌شود.
+          # هر بیلد باید با همین کلید امضا شود (وگرنه اندروید بروزرسانی را «تداخل با بستهٔ موجود» رد می‌کند).
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "ERROR: GitHub Secrets KEYSTORE_BASE64 / KEYSTORE_PASSWORD are not set (Settings > Secrets and variables > Actions)"; exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/arefanejam-release.keystore"
+          test -s "$RUNNER_TEMP/arefanejam-release.keystore" || { echo "ERROR: KEYSTORE_BASE64 is empty or invalid"; exit 1; }
           python3 - <<'PY'
-          import re
+          import os, re
           p = 'android/app/build.gradle'
           s = open(p, encoding='utf-8').read()
+          ks = os.path.join(os.environ['RUNNER_TEMP'], 'arefanejam-release.keystore')
+          pw = os.environ['KEYSTORE_PASSWORD']
           block = """android {
               signingConfigs {
                   debug {
-                      storeFile rootProject.file('../native-assets/debug.keystore')
-                      storePassword 'android'
-                      keyAlias 'androiddebugkey'
-                      keyPassword 'android'
+                      storeFile file('%s')
+                      storePassword '%s'
+                      keyAlias 'arefanejam'
+                      keyPassword '%s'
                   }
               }
-          """
+          """ % (ks, pw, pw)
           assert re.search(r'^android \{\n', s, re.M), 'android block not found in build.gradle'
           s = re.sub(r'^android \{\n', lambda m: block, s, count=1, flags=re.M)
           open(p, 'w', encoding='utf-8').write(s)
           PY
-          sed -n 1,20p android/app/build.gradle
+          echo "signing config added (key file is outside the repository)"
 
       - name: Build debug APK
         working-directory: android
@@ -190,7 +197,7 @@ jobs:
           if [ -z "$APKSIGNER" ]; then echo "apksigner not found - skipping check"; exit 0; fi
           OUT=$("$APKSIGNER" verify --print-certs arefanejam.apk)
           echo "$OUT"
-          echo "$OUT" | grep -q "SHA-256 digest: a3a5a47d8a0f880658ba60fee9fad7bba74acb87bd2430e29c860f093a4bb84a" || { echo "ERROR: APK is NOT signed with the fixed key"; exit 1; }
+          echo "$OUT" | grep -q "SHA-256 digest: 1cbd5aa9164e55be62bb0f5ef62d8fe261eb961578ed602dfd10f269772ffbd8" || { echo "ERROR: APK is NOT signed with the fixed key"; exit 1; }
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
