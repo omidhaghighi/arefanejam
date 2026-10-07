@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
-<link rel="stylesheet" href="css/style.css?v=106">
+<link rel="stylesheet" href="css/style.css?v=107">
 </head>
 <body>
 
@@ -483,7 +483,7 @@
         </button>
         <button class="menu-tile tile-ads" id="ads-more-tile" data-goto="ads">
           <span class="menu-tile-badge">📢</span>
-          <span class="menu-tile-label">تبلیغات</span>
+          <span class="menu-tile-label" id="ads-tile-label">تبلیغات</span>
         </button>
         <button class="menu-tile tile-fun" id="fun-more-tile" data-goto="fun">
           <span class="menu-tile-badge" id="fun-tile-badge">🎮</span>
@@ -1198,6 +1198,8 @@
          ⚠ متن‌ها و شماره‌های زیر نمونه است؛ فقط همین بخش را ویرایش کنید.
          برای شمارهٔ جدید: هم عدد داخل href="tel:..." و هم عدد نمایشی را عوض کنید. -->
     <section id="tab-ads" class="tab-panel">
+      <!-- محتوای زیر نسخهٔ پیش‌فرضِ قبل از اولین دریافت از سایت است؛ بعد از دریافت، از «پیشخوان ← 📢 تبلیغات» ساخته می‌شود (#ads-dyn). -->
+      <div id="ads-static">
       <div class="ad-hero">
         <div class="ad-hero-glow"></div>
         <div class="ad-hero-icon">📢</div>
@@ -1268,6 +1270,8 @@
           <span>📞</span><b>همین حالا تماس بگیرید</b>
         </a>
       </div>
+      </div>
+      <div id="ads-dyn" class="hidden"></div>
     </section>
 
     <!-- سرگرمی -->
@@ -1691,7 +1695,7 @@
 /* native-bridge.js و app.js (به‌همین ترتیب) فقط بعد از پایان صفحهٔ شروع (ویدیو/عکس/گیف) بارگذاری می‌شوند.
    اگر صفحهٔ شروعی نباشد یا تمام شده باشد، بی‌درنگ بارگذاری می‌شوند. */
 (function () {
-  var list = ['js/native-bridge.js?v=23', 'js/app.js?v=157'], i = 0;
+  var list = ['js/native-bridge.js?v=23', 'js/app.js?v=158'], i = 0;
   function next() {
     if (i >= list.length) return;
     var el = document.createElement('script'); el.src = list[i++];

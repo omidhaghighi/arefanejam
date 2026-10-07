@@ -4578,3 +4578,24 @@ body.dark-mode #tab-ads .ad-plan-name { color: #F0E6CC; }
 @media (prefers-reduced-motion: reduce) {
   #tab-ads .ad-hero-glow, #tab-ads .ad-cta { animation: none; }
 }
+
+/* ---------- تبلیغات: کارت‌های عکس‌دار (از پیشخوان) ---------- */
+#tab-ads .ad-cards { display: flex; flex-direction: column; gap: 14px; margin-top: 10px; }
+#tab-ads .ad-card {
+  overflow: hidden; border-radius: 20px; background: var(--paper, #fff);
+  border: 1px solid var(--line); box-shadow: var(--raised-md);
+}
+#tab-ads .ad-card-img { position: relative; width: 100%; aspect-ratio: 16 / 9; background: var(--paper-alt, #eee); cursor: zoom-in; }
+#tab-ads .ad-card-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+#tab-ads .ad-card-body { padding: 12px 14px 14px; }
+#tab-ads .ad-card-title { font-size: 16px; font-weight: 800; color: var(--emerald); margin-bottom: 4px; }
+#tab-ads .ad-card-text { font-size: 13px; line-height: 2; }
+#tab-ads .ad-card-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+#tab-ads .ad-card-btn {
+  flex: 1 1 130px; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 12px;
+  border-radius: 14px; text-decoration: none; font-size: 14px; font-weight: 700; color: #fff;
+  border-bottom: 4px solid #166A4D; background: linear-gradient(180deg, #3CC191, #2FA67C 55%, #1F8663);
+}
+#tab-ads .ad-card-link { border-bottom-color: #A8700F; background: linear-gradient(180deg, #F0BE5A, #E0A12E 55%, #C98A17); }
+#tab-ads .ad-card-btn:active { transform: translateY(2px); border-bottom-width: 2px; }
+body.dark-mode #tab-ads .ad-card-title { color: #F0E6CC; }

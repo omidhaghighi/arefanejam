@@ -298,6 +298,7 @@ function apiFetch(path, options = {}) {
         apiCacheWrite(cacheKey, data);
         if (/^\/(mokatib\/|shariq\/settings)/.test(basePath)) setTimeout(() => { prefetchSiteImages(collectImageUrls(data)); }, 1500);
         else if (basePath === '/activities') setTimeout(() => { prefetchSiteImages(actCollectImages(data)); }, 1500);
+        else if (basePath === '/ads-page') setTimeout(() => { prefetchSiteImages(collectImageUrls(data)); }, 1500);
       }
       return data;
     })
@@ -315,7 +316,7 @@ function apiFetch(path, options = {}) {
 /* ---------- ذخیرهٔ آفلاینِ اطلاعات عمومی پیشخوان ----------
  * هر بار که اطلاعات با موفقیت از سایت گرفته شود، در حافظهٔ گوشی می‌ماند و اگر بعداً اینترنت نبود
  * (یا سرور خطا داد) همان آخرین نسخه نمایش داده می‌شود. فقط مسیرهای عمومیِ زیر؛ مسیرهای شخصی/ورود نه. */
-const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|hamburger-menu|social-links|theme|shariq\/settings|khatm\/settings|feedback\/settings|zakat|activities)$/;
+const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|hamburger-menu|social-links|theme|shariq\/settings|khatm\/settings|feedback\/settings|zakat|activities|ads-page)$/;
 function apiCacheKey(basePath) {
   return API_OFFLINE_CACHE_RE.test(basePath) ? ('arefanejam_api_cache:' + basePath) : '';
 }
@@ -441,6 +442,7 @@ function switchToTab(tabName, opts) {
   if (tabName === 'feedback') loadFeedbackMain();
   if (tabName === 'feedback-view') loadFbView();
   if (tabName === 'activities') actOnTabOpen(); else actLeaveTab();
+  if (tabName === 'ads') adsOnTabOpen();
   if (tabName !== 'game-ayah') gaStopTimer();
   if (tabName === 'game-ayah') gaOpen();
 }
@@ -12802,6 +12804,107 @@ function actLoad() {
   } catch (e) { try { console.error('activities ui', e); } catch (e2) {} }
 })();
 actLoad();
+
+/* ---------- تبلیغات (بیشتر ← 📢 تبلیغات): محتوا را مدیر در پیشخوان می‌نویسد ----------
+   پیشخوان ← عارفان جام ← «📢 تبلیغات». داده از GET /ads-page می‌آید (آفلاین هم ذخیره می‌شود).
+   تا اولین دریافت، همان متن ثابت داخل index.html (#ads-static) دیده می‌شود؛ بعد از دریافت، #ads-dyn ساخته و جایگزین می‌شود.
+   کاشی «تبلیغات» در «بیشتر» با کلید «نمایش بخش» پیشخوان پنهان/نمایان می‌شود.
+   ⚠ متغیرها عمداً با var هستند (switchToTab ممکن است قبل از رسیدن اجرا به این خط‌ها صدا زده شود). */
+var adsData = null;
+function adsTel(n) { return 'tel:' + String(n || '').replace(/[^0-9+*#]/g, ''); }
+function adsRender(d) {
+  try {
+    const tile = document.getElementById('ads-more-tile');
+    const tl = document.getElementById('ads-tile-label');
+    if (tile) tile.classList.toggle('hidden', !!d && d.enabled === false);
+    if (tl && d && d.tile_title) tl.textContent = d.tile_title;
+    const dyn = document.getElementById('ads-dyn');
+    const st = document.getElementById('ads-static');
+    if (!dyn || !st || !d || typeof d !== 'object') return;
+    const a = zkAttr;
+    let h = '';
+    if (d.hero_title || d.hero_text || d.hero_icon) {
+      h += '<div class="ad-hero"><div class="ad-hero-glow"></div>' +
+        (d.hero_icon ? '<div class="ad-hero-icon">' + a(d.hero_icon) + '</div>' : '') +
+        (d.hero_title ? '<h2 class="ad-hero-title">' + a(d.hero_title) + '</h2>' : '') +
+        (d.hero_text ? '<p class="ad-hero-text">' + a(d.hero_text).replace(/\n/g, '<br>') + '</p>' : '') + '</div>';
+    }
+    const ads = Array.isArray(d.ads) ? d.ads : [];
+    if (ads.length) {
+      h += '<div class="section-block">' + (d.ads_title ? '<h3>' + a(d.ads_title) + '</h3>' : '') + '<div class="ad-cards">';
+      ads.forEach((x) => {
+        const link = /^https?:\/\//i.test(x.link || '') ? x.link : '';
+        h += '<div class="ad-card">' +
+          (x.image ? '<div class="ad-card-img" data-ad-zoom="' + a(secureUrl(x.image)) + '" data-ad-name="' + a(x.title || '') + '"><img src="' + a(secureUrl(x.image)) + '" alt="' + a(x.title || '') + '" loading="lazy"></div>' : '') +
+          '<div class="ad-card-body">' +
+          (x.title ? '<div class="ad-card-title">' + a(x.title) + '</div>' : '') +
+          (x.text ? '<div class="ad-card-text">' + a(x.text).replace(/\n/g, '<br>') + '</div>' : '') +
+          ((x.phone || link) ? '<div class="ad-card-btns">' +
+            (x.phone ? '<a class="ad-card-btn ad-card-call" data-ad-track="call" href="' + a(adsTel(x.phone)) + '">📞 <span dir="ltr">' + a(x.phone) + '</span></a>' : '') +
+            (link ? '<a class="ad-card-btn ad-card-link" data-ad-track="link" data-ad-link="' + a(link) + '" href="' + a(link) + '">🔗 ' + a(x.link_label || 'مشاهده') + '</a>' : '') +
+            '</div>' : '') +
+          '</div></div>';
+      });
+      h += '</div></div>';
+    }
+    const phones = Array.isArray(d.phones) ? d.phones : [];
+    if (phones.length) {
+      h += '<div class="section-block">' + (d.phones_title ? '<h3>' + a(d.phones_title) + '</h3>' : '') +
+        (d.phones_hint ? '<p class="muted-text small">' + a(d.phones_hint) + '</p>' : '') + '<div class="ad-phones">';
+      phones.forEach((p) => {
+        h += '<a class="ad-phone" data-ad-track="phone" href="' + a(adsTel(p.number)) + '"><span class="ad-phone-ic">' + a(p.icon || '📞') + '</span>' +
+          '<span class="ad-phone-tx">' + (p.label ? '<small>' + a(p.label) + '</small>' : '') + '<b dir="ltr">' + a(p.number) + '</b></span><span class="ad-phone-go">‹</span></a>';
+      });
+      h += '</div></div>';
+    }
+    const plans = Array.isArray(d.plans) ? d.plans : [];
+    if (plans.length) {
+      h += '<div class="section-block">' + (d.plans_title ? '<h3>' + a(d.plans_title) + '</h3>' : '') + '<div class="ad-plans">';
+      plans.forEach((p) => {
+        const col = /^(bronze|silver|gold)$/.test(p.color) ? p.color : 'gold';
+        const feats = String(p.features || '').split(/\r?\n/).map((t) => t.trim()).filter(Boolean);
+        h += '<div class="ad-plan ad-plan-' + col + (p.best ? ' ad-plan-best' : '') + '">' +
+          (p.best ? '<div class="ad-plan-ribbon">' + a(p.ribbon || 'پیشنهاد ویژه') + '</div>' : '') +
+          (p.badge ? '<div class="ad-plan-badge">' + a(p.badge) + '</div>' : '') +
+          '<div class="ad-plan-name">' + a(p.name) + '</div>' +
+          (p.price ? '<div class="ad-plan-price"><b>' + a(p.price) + '</b>' + (p.unit ? ' <small>' + a(p.unit) + '</small>' : '') + '</div>' : '') +
+          (feats.length ? '<ul class="ad-plan-list">' + feats.map((t) => '<li>' + a(t) + '</li>').join('') + '</ul>' : '') + '</div>';
+      });
+      h += '</div>' + (d.note ? '<p class="muted-text small ad-note">' + a(d.note) + '</p>' : '') + '</div>';
+    } else if (d.note) {
+      h += '<div class="section-block"><p class="muted-text small ad-note">' + a(d.note) + '</p></div>';
+    }
+    if (d.cta_enabled && d.cta_number) {
+      h += '<div class="section-block"><a class="ad-cta" data-ad-track="cta" href="' + a(adsTel(d.cta_number)) + '"><span>📞</span><b>' + a(d.cta_text || 'همین حالا تماس بگیرید') + '</b></a></div>';
+    }
+    dyn.innerHTML = h;
+    dyn.classList.remove('hidden');
+    st.classList.add('hidden');
+  } catch (e) { try { console.error('ads', e); } catch (e2) {} }
+}
+function adsLoad() {
+  return apiSWR('/ads-page', (d) => {
+    adsData = (d && typeof d === 'object') ? d : null;
+    adsRender(adsData);
+  }).catch(() => {});
+}
+function adsOnTabOpen() { adsLoad(); }
+(function setupAdsEvents() {
+  try {
+    const dyn = document.getElementById('ads-dyn');
+    if (!dyn) return;
+    dyn.addEventListener('click', (e) => {
+      const z = e.target.closest('[data-ad-zoom]');
+      if (z) { e.preventDefault(); openRmzZoom(z.getAttribute('data-ad-zoom'), z.getAttribute('data-ad-name') || ''); return; }
+      const t = e.target.closest('[data-ad-track]');
+      if (!t) return;
+      try { trackClick('ads_' + t.getAttribute('data-ad-track')); } catch (e2) {}
+      const lk = t.getAttribute('data-ad-link');
+      if (lk) { e.preventDefault(); window.open(lk, '_blank'); }
+    });
+  } catch (e) { try { console.error('ads ui', e); } catch (e2) {} }
+})();
+adsLoad();
 
 
 window.__arefBooted = true;
