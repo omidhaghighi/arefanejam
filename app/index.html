@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
-<link rel="stylesheet" href="css/style.css?v=104">
+<link rel="stylesheet" href="css/style.css?v=105">
 </head>
 <body>
 
@@ -936,10 +936,44 @@
       <!-- مصحف صفحه‌ای: هر بار یک صفحه (۶۰۴ صفحه)، با کشیدن انگشت ورق می‌خورد -->
       <div id="qp-view" class="qp-view">
         <div class="rc-bar"></div>
-        <div class="qp-topbar">
-          <span id="qp-juz" class="qp-juz">—</span>
-          <span id="qp-page-num" class="qp-pagenum">—</span>
-          <span id="qp-surah" class="qp-surah">—</span>
+        <!-- نوار بالای مصحف: جزء | شمارهٔ صفحه | سوره | ابزارها (نشان‌کردن و اشتراک‌گذاریِ آیهٔ انتخاب‌شده + دکمهٔ 📖 منو) -->
+        <div class="qp-head">
+          <div class="qp-topbar">
+            <span id="qp-juz" class="qp-juz">—</span>
+            <span id="qp-page-num" class="qp-pagenum">—</span>
+            <span id="qp-surah" class="qp-surah">—</span>
+            <div class="qp-tools">
+              <div id="qp-actions" class="qp-actions hidden">
+                <button type="button" id="qp-act-bookmark" class="qp-act" title="نشان‌کردن">🔖</button>
+                <button type="button" id="qp-act-share" class="qp-act" title="اشتراک‌گذاری">📤</button>
+              </div>
+              <button type="button" id="qp-menu-toggle" class="qp-menu-toggle" aria-expanded="false" aria-label="منوی مصحف" title="منو">📖</button>
+            </div>
+          </div>
+        <div id="qp-menu" class="qp-menu hidden">
+          <div class="qp-menu-row">
+            <button type="button" class="qp-menu-item" data-act="search"><span class="qp-menu-ico">🔍</span><span>جست‌وجو</span></button>
+            <button type="button" class="qp-menu-item" id="qp-mi-save" data-act="mark-save"><span class="qp-menu-ico">🔖</span><span>ذخیرهٔ نشانه</span></button>
+            <button type="button" class="qp-menu-item" data-act="mark-go"><span class="qp-menu-ico">📌</span><span>رفتن به نشانه</span></button>
+            <button type="button" class="qp-menu-item" id="qp-mi-theme" data-act="theme"><span class="qp-menu-ico">🌙</span><span>حالت شب</span></button>
+          </div>
+          <div class="qp-menu-row">
+            <button type="button" class="qp-menu-item" data-act="index"><span class="qp-menu-ico">☰</span><span>فهرست سوره‌ها</span></button>
+            <button type="button" class="qp-menu-item" data-act="juz"><span class="qp-menu-ico">🧩</span><span>جزءها</span></button>
+            <button type="button" class="qp-menu-item" data-act="pages"><span class="qp-menu-ico">📄</span><span>صفحه‌ها</span></button>
+            <button type="button" class="qp-menu-item" data-act="bookmarks"><span class="qp-menu-ico">⭐</span><span>نشان‌شده‌ها</span></button>
+          </div>
+          <div class="qp-menu-row">
+            <button type="button" class="qp-menu-item" data-act="share"><span class="qp-menu-ico">📤</span><span>اشتراک‌گذاری</span></button>
+            <button type="button" class="qp-menu-item" data-act="play"><span class="qp-menu-ico">🔊</span><span>پخش صفحه</span></button>
+            <button type="button" class="qp-menu-item" data-act="more"><span class="qp-menu-ico">⋯</span><span>بیشتر</span></button>
+          </div>
+          <div id="qp-menu-goto" class="qp-menu-goto hidden">
+            <input type="text" id="qp-goto-input" inputmode="numeric" autocomplete="off" placeholder="شمارهٔ صفحه (۱ تا ۶۰۴)">
+            <button type="button" id="qp-goto-btn" class="qp-menu-go">برو</button>
+          </div>
+          <p id="qp-menu-msg" class="qp-menu-msg hidden"></p>
+        </div>
         </div>
         <div id="qp-swipe" class="qp-swipe">
           <div id="qp-page" class="qp-page"></div>
@@ -953,42 +987,7 @@
           <span class="muted-text small">اندازه فونت عربی</span>
           <input type="range" id="qp-font-slider" min="16" max="32" value="22">
         </div>
-        <p class="muted-text small qp-hint">برای رفتن به صفحهٔ بعد، صفحه را با انگشت به سمت راست بکشید و برای صفحهٔ قبل به سمت چپ. روی هر آیه بزنید تا پخش، نشان‌کردن و اشتراک‌گذاری همان آیه را ببینید. برای باز شدن منوی مصحف، دکمهٔ 📖 پایین صفحه را بزنید.</p>
-        <!-- داک پایین: نوار گزینه‌های آیه + دکمهٔ منو + منوی مصحف -->
-        <div class="qp-dock">
-          <div id="qp-actions" class="qp-actions hidden">
-          <span id="qp-act-label" class="qp-act-label"></span>
-          <button type="button" id="qp-act-play" class="qp-act" title="پخش / توقف">🔊</button>
-          <button type="button" id="qp-act-bookmark" class="qp-act" title="نشان‌کردن">🔖</button>
-          <button type="button" id="qp-act-share" class="qp-act" title="اشتراک‌گذاری">📤</button>
-          <button type="button" id="qp-act-close" class="qp-act" title="بستن">✕</button>
-        </div>
-          <button type="button" id="qp-menu-toggle" class="qp-menu-toggle" aria-expanded="false" aria-label="منوی مصحف" title="منو">📖</button>
-          <div id="qp-menu" class="qp-menu hidden">
-            <div class="qp-menu-row">
-              <button type="button" class="qp-menu-item" data-act="search"><span class="qp-menu-ico">🔍</span><span>جست‌وجو</span></button>
-              <button type="button" class="qp-menu-item" id="qp-mi-save" data-act="mark-save"><span class="qp-menu-ico">🔖</span><span>ذخیرهٔ نشانه</span></button>
-              <button type="button" class="qp-menu-item" data-act="mark-go"><span class="qp-menu-ico">📌</span><span>رفتن به نشانه</span></button>
-              <button type="button" class="qp-menu-item" id="qp-mi-theme" data-act="theme"><span class="qp-menu-ico">🌙</span><span>حالت شب</span></button>
-            </div>
-            <div class="qp-menu-row">
-              <button type="button" class="qp-menu-item" data-act="index"><span class="qp-menu-ico">☰</span><span>فهرست سوره‌ها</span></button>
-              <button type="button" class="qp-menu-item" data-act="juz"><span class="qp-menu-ico">🧩</span><span>جزءها</span></button>
-              <button type="button" class="qp-menu-item" data-act="pages"><span class="qp-menu-ico">📄</span><span>صفحه‌ها</span></button>
-              <button type="button" class="qp-menu-item" data-act="bookmarks"><span class="qp-menu-ico">⭐</span><span>نشان‌شده‌ها</span></button>
-            </div>
-            <div class="qp-menu-row">
-              <button type="button" class="qp-menu-item" data-act="share"><span class="qp-menu-ico">📤</span><span>اشتراک‌گذاری</span></button>
-              <button type="button" class="qp-menu-item" data-act="play"><span class="qp-menu-ico">🔊</span><span>پخش صفحه</span></button>
-              <button type="button" class="qp-menu-item" data-act="more"><span class="qp-menu-ico">⋯</span><span>بیشتر</span></button>
-            </div>
-            <div id="qp-menu-goto" class="qp-menu-goto hidden">
-              <input type="text" id="qp-goto-input" inputmode="numeric" autocomplete="off" placeholder="شمارهٔ صفحه (۱ تا ۶۰۴)">
-              <button type="button" id="qp-goto-btn" class="qp-menu-go">برو</button>
-            </div>
-            <p id="qp-menu-msg" class="qp-menu-msg hidden"></p>
-          </div>
-        </div>
+        <p class="muted-text small qp-hint">برای رفتن به صفحهٔ بعد، صفحه را با انگشت به سمت راست بکشید و برای صفحهٔ قبل به سمت چپ. روی هر آیه بزنید تا همان آیه و آیه‌های بعدی به ترتیب دانلود و خوانده شوند و دکمه‌های نشان‌کردن و اشتراک‌گذاری در نوار بالا ظاهر شوند؛ دوباره زدن روی همان آیه، خواندن را متوقف می‌کند. برای باز شدن منوی مصحف، دکمهٔ 📖 بالای صفحه را بزنید.</p>
       </div>
     </section>
 
@@ -1612,7 +1611,7 @@
 /* native-bridge.js و app.js (به‌همین ترتیب) فقط بعد از پایان صفحهٔ شروع (ویدیو/عکس/گیف) بارگذاری می‌شوند.
    اگر صفحهٔ شروعی نباشد یا تمام شده باشد، بی‌درنگ بارگذاری می‌شوند. */
 (function () {
-  var list = ['js/native-bridge.js?v=23', 'js/app.js?v=154'], i = 0;
+  var list = ['js/native-bridge.js?v=23', 'js/app.js?v=156'], i = 0;
   function next() {
     if (i >= list.length) return;
     var el = document.createElement('script'); el.src = list[i++];

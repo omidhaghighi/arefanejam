@@ -11307,7 +11307,7 @@ function qpShowPage(page, o) {
     mark.className = 'qp-end';
     mark.textContent = toPersianDigits(ayah.numberInSurah);
     span.appendChild(mark);
-    span.addEventListener('click', () => qpSelectAyah(i));
+    span.addEventListener('click', () => qpTapAyah(i));
     para.appendChild(span);
     para.appendChild(document.createTextNode(' '));
     blocks.push(span);
@@ -11352,7 +11352,10 @@ function qpShowPage(page, o) {
       }, 50);
     }
   }
-  if (o.autoPlay) startSequentialPlayback(playbackQueue, playbackBlocks, startIdx, ayahs[startIdx].surahName);
+  if (o.autoPlay) {
+    silentEnsureSurahAudio(ayahs[startIdx].number); // پیش‌دانلود آیه‌های بعدیِ این سوره (مثلاً بعد از رفتنِ خودکار به صفحهٔ بعد)
+    startSequentialPlayback(playbackQueue, playbackBlocks, startIdx, ayahs[startIdx].surahName);
+  }
 }
 
 function qpGo(delta) {
@@ -11375,6 +11378,26 @@ function qpClearSelection() {
   const bar = document.getElementById('qp-actions');
   if (bar) bar.classList.add('hidden');
 }
+// لمس آیه در مصحف صفحه‌ای: آیه انتخاب می‌شود و همان لحظه صدایش (با دانلود خودکار) پخش می‌شود؛
+// بعد آیه‌های بعدی به ترتیب (و با رسیدن به آخر صفحه، صفحهٔ بعد) دانلود و خوانده می‌شوند.
+// دوباره لمس‌کردنِ همان آیه = توقف پخش و رها شدن انتخاب.
+function qpStopPlayback() {
+  playbackSession++; // دانلود/پخشِ نیمه‌کاره‌ٔ قبلی بعداً خودش شروع نشود
+  try { recitationAudio.pause(); } catch (e) {}
+  isSequentialPlaying = false;
+  const pb = document.getElementById('surah-play-btn');
+  if (pb) pb.textContent = '🔊 پخش کل سوره';
+  document.querySelectorAll('.ayah-block.is-playing').forEach((b) => b.classList.remove('is-playing'));
+}
+function qpTapAyah(i) {
+  const a = qpAyahs[i];
+  if (!a) return;
+  if (qpSelectedIdx === i) { qpSelectAyah(i); qpStopPlayback(); return; }
+  qpSelectAyah(i);
+  playbackSession++; // درخواست‌های نیمه‌کاره‌ٔ آیهٔ قبلی لغو شوند
+  silentEnsureSurahAudio(a.number); // آیه‌های بعدیِ همین سوره را بی‌صدا در پس‌زمینه دانلود می‌کند
+  startSequentialPlayback(playbackQueue, playbackBlocks, i, a.surahName);
+}
 function qpSelectAyah(i, showBar) {
   const ayah = qpAyahs[i];
   if (!ayah) return;
@@ -11384,23 +11407,10 @@ function qpSelectAyah(i, showBar) {
   playbackBlocks.forEach((b, k) => b.classList.toggle('qp-selected', k === i));
   const bar = document.getElementById('qp-actions');
   if (showBar === false) { bar.classList.add('hidden'); return; }
-  document.getElementById('qp-act-label').textContent = ayah.surahName + ' — آیه ' + toPersianDigits(ayah.numberInSurah);
   document.getElementById('qp-act-bookmark').classList.toggle('is-bookmarked', isBookmarked(ayah.number));
   bar.classList.remove('hidden');
 }
 
-document.getElementById('qp-act-play').addEventListener('click', () => {
-  const i = qpSelectedIdx;
-  if (i < 0 || !qpAyahs[i]) return;
-  if (isSequentialPlaying && playbackQueue[playQueueIndex] === qpAyahs[i]) {
-    recitationAudio.pause();
-    isSequentialPlaying = false;
-    document.querySelectorAll('.ayah-block.is-playing').forEach((b) => b.classList.remove('is-playing'));
-    return;
-  }
-  silentEnsureSurahAudio(qpAyahs[i].number);
-  startSequentialPlayback(playbackQueue, playbackBlocks, i, qpAyahs[i].surahName);
-});
 document.getElementById('qp-act-bookmark').addEventListener('click', (e) => {
   const a = qpAyahs[qpSelectedIdx];
   if (!a) return;
@@ -11414,7 +11424,6 @@ document.getElementById('qp-act-share').addEventListener('click', () => {
   if (!a) return;
   shareAyah(qpAyahText(a), a.surahName + ' — آیه ' + toPersianDigits(a.numberInSurah));
 });
-document.getElementById('qp-act-close').addEventListener('click', qpClearSelection);
 
 /* ---------- ورق‌زدن: کشیدنِ انگشت، دکمه‌ها و کلیدهای جهت‌دار ---------- */
 // مصحف راست‌به‌چپ است: صفحهٔ بعد سمت چپ قرار دارد؛ پس کشیدنِ انگشت به «راست» = صفحهٔ بعد، و به «چپ» = صفحهٔ قبل.

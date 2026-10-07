@@ -2684,14 +2684,16 @@ body:not(.dark-mode) .social-card::before { background: linear-gradient(180deg, 
 .qp-view { padding: 0 0 12px; }
 
 /* نوار بالا: جزء (راست) | شمارهٔ صفحه (وسط) | سوره (چپ) */
+.qp-head { position: sticky; top: 0; z-index: 7; }
 .qp-topbar {
-  position: sticky; top: 0; z-index: 6;
+  position: relative;
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 9px 16px;
   background: linear-gradient(135deg, var(--night-1, #0A2B36), var(--night-2, #12414F));
   color: #FFF6DC;
 }
-.qp-juz, .qp-surah { flex: 1; font-family: var(--font-quran); font-size: 15px; }
+.qp-juz, .qp-surah { flex: 1; min-width: 0; font-family: var(--font-quran); font-size: 15px; }
+.qp-surah { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qp-juz { text-align: start; }
 .qp-surah { text-align: end; }
 .qp-pagenum { font-size: 19px; font-weight: 700; min-width: 2.4em; text-align: center; }
@@ -2760,18 +2762,14 @@ body.dark-mode .qp-end { border-color: #8FD3C1; color: #8FD3C1; }
 .qp-font-row { padding: 10px 16px 0; margin-bottom: 0; }
 .qp-hint { padding: 0 16px; margin: 8px 0 0; line-height: 1.9; }
 
-/* نوار گزینه‌های آیهٔ انتخاب‌شده (پخش / نشان / اشتراک) */
-.qp-actions {
-  position: sticky; bottom: 8px; z-index: 6;
-  display: flex; align-items: center; gap: 8px;
-  margin: 10px 12px 0; padding: 8px 10px; border-radius: 14px;
-  background: var(--night-1, #0A2B36); color: #FFF6DC;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, .3);
-}
-.qp-act-label { flex: 1; font-size: 13px; }
+/* ابزارهای نوار بالا: نشان‌کردن و اشتراک‌گذاریِ آیهٔ انتخاب‌شده + دکمهٔ 📖 (بدون پوشاندن متن) */
+.qp-tools { flex: none; display: flex; align-items: center; gap: 8px; }
+.qp-actions { display: flex; align-items: center; gap: 6px; }
+/* وقتی آیه‌ای انتخاب نشده، جا را نگه می‌دارد (نوار بالا نمی‌پرد) ولی دیده نمی‌شود */
+.qp-actions.hidden { display: flex !important; visibility: hidden; pointer-events: none; }
 .qp-act {
-  border: 0; border-radius: 10px; padding: 7px 11px; font-size: 15px; cursor: pointer;
-  background: rgba(255, 255, 255, .13); color: #FFF6DC;
+  width: 34px; height: 34px; padding: 0; border: 0; border-radius: 10px; font-size: 16px; line-height: 1; cursor: pointer;
+  background: rgba(255, 255, 255, .15); color: #FFF6DC;
 }
 .qp-act.is-bookmarked { background: var(--danger, #A5473C); }
 
@@ -2878,25 +2876,16 @@ body.dark-mode .qs-medinan { background: #12363A; color: #8FD6CC; }
 }
 
 /* ===================== منوی پایین مصحف صفحه‌ای (سه‌بعدی) ===================== */
-.qp-dock {
-  position: sticky; bottom: 0; z-index: 7;
-  display: flex; flex-direction: column; align-items: center;
-  margin-top: 8px; pointer-events: none;
-  perspective: 900px;
-}
-.qp-dock > * { pointer-events: auto; }
-.qp-dock .qp-actions { position: static; align-self: stretch; margin: 0 12px 8px; }
-
 /* دکمهٔ 📖: کلید طلاییِ برجسته؛ با زدن، فرو می‌رود */
 .qp-menu-toggle {
-  width: 56px; height: 44px; margin-bottom: 10px; border: 0; border-radius: 15px; cursor: pointer;
-  font-size: 23px; line-height: 1; color: #3A2A08;
+  width: 42px; height: 34px; margin: 0 0 3px; padding: 0; border: 0; border-radius: 11px; cursor: pointer;
+  font-size: 18px; line-height: 1; color: #3A2A08;
   background:
     radial-gradient(120% 70% at 30% 8%, rgba(255,255,255,.75), rgba(255,255,255,0) 55%),
     linear-gradient(180deg, #F8E7AE 0%, #E2BA5C 55%, #C08F2E 100%);
   box-shadow:
-    0 5px 0 #8A6218,
-    0 10px 16px rgba(0, 0, 0, .45),
+    0 3px 0 #8A6218,
+    0 6px 9px rgba(0, 0, 0, .4),
     inset 0 1px 0 rgba(255, 255, 255, .85),
     inset 0 -3px 5px rgba(120, 80, 10, .35);
   text-shadow: 0 1px 0 rgba(255, 255, 255, .6);
@@ -2905,29 +2894,33 @@ body.dark-mode .qs-medinan { background: #12363A; color: #8FD6CC; }
 }
 .qp-menu-toggle:active,
 .qp-menu-toggle[aria-expanded="true"] {
-  transform: translateY(4px);
+  transform: translateY(2px);
   box-shadow:
     0 1px 0 #8A6218,
-    0 4px 8px rgba(0, 0, 0, .4),
+    0 3px 6px rgba(0, 0, 0, .4),
     inset 0 2px 5px rgba(120, 80, 10, .45);
 }
 
 /* خودِ منو: تختهٔ شیشه‌ایِ شب‌رنگ با لبهٔ طلایی و عمق */
 .qp-menu {
   align-self: stretch; margin: 0 4px; padding: 12px 8px 12px; overflow: hidden;
-  border-radius: 26px 26px 0 0; color: #FFF6DC;
+  border-radius: 0 0 22px 22px; color: #FFF6DC;
   background:
     radial-gradient(90% 60% at 50% 0%, rgba(232, 210, 155, .20), rgba(232, 210, 155, 0) 70%),
     var(--pat-soft, none),
     linear-gradient(180deg, #17566A 0%, var(--night-2, #12414F) 38%, var(--night-1, #0A2B36) 100%);
   background-size: auto, 64px 64px, auto;
   box-shadow:
-    0 -14px 30px rgba(0, 0, 0, .45),
+    0 14px 26px rgba(0, 0, 0, .4),
     inset 0 1px 0 rgba(255, 238, 190, .55),
     inset 0 0 0 1px rgba(232, 210, 155, .22),
     inset 0 -10px 18px rgba(0, 0, 0, .25);
-  transform-origin: 50% 100%;
-  animation: qpMenuIn .28s cubic-bezier(.2, .9, .3, 1.15);
+  transform-origin: 50% 0;
+  animation: qpMenuDown .22s ease-out;
+}
+@keyframes qpMenuDown {
+  from { opacity: 0; transform: translateY(-12px); }
+  to   { opacity: 1; transform: none; }
 }
 @keyframes qpMenuIn {
   from { opacity: 0; transform: rotateX(-24deg) translateY(22px) scale(.96); }
