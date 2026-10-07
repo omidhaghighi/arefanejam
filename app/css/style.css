@@ -4490,3 +4490,91 @@ body.dark-mode .sj-card-title b, body.dark-mode .sj-guide b { color: var(--gold-
 #tab-activities .zk-blk-go { flex: 0 0 auto; font-size: 24px; color: var(--gold); }
 body.dark-mode #tab-activities .zk-blk-lt small,
 body.dark-mode #tab-activities .zk-blk-image figcaption { color: #9FB1AC; }
+
+
+/* ---------- بیشتر ← تبلیغات ---------- */
+.tile-ads { --tile-c: #E0A12E; --tile-cd: #A8700F; }
+#tab-ads .ad-hero {
+  position: relative; overflow: hidden; margin: 14px 14px 4px; padding: 26px 20px 22px;
+  border-radius: 24px; text-align: center; color: #fff;
+  background: linear-gradient(155deg, #0F2E2A 0%, #1E5A50 62%, #2C7A6B 100%);
+  border: 1px solid rgba(217,189,135,0.45);
+  box-shadow: var(--raised-lg);
+}
+#tab-ads .ad-hero-glow {
+  position: absolute; top: -60px; left: 50%; width: 260px; height: 260px; margin-left: -130px;
+  background: radial-gradient(circle, rgba(217,189,135,0.55), rgba(217,189,135,0) 68%);
+  animation: adGlow 5s ease-in-out infinite alternate; pointer-events: none;
+}
+@keyframes adGlow { from { opacity: .55; transform: scale(.92); } to { opacity: 1; transform: scale(1.08); } }
+#tab-ads .ad-hero-icon {
+  position: relative; width: 64px; height: 64px; margin: 0 auto 10px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-size: 32px;
+  background: radial-gradient(circle at 32% 28%, #F6E2B4, #D9BD87 45%, #B08D4E);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.35), 0 1px 0 rgba(255,255,255,0.7) inset;
+}
+#tab-ads .ad-hero-title { position: relative; margin: 0 0 8px; font-family: var(--font-display, var(--font-ui)); font-size: 24px; color: #F6E2B4; }
+#tab-ads .ad-hero-text { position: relative; margin: 0; font-size: 13px; line-height: 2; color: rgba(255,255,255,0.9); }
+
+#tab-ads .ad-phones { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+#tab-ads .ad-phone {
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px; text-decoration: none; color: var(--ink);
+  background: var(--card-bg); border-radius: 18px; border: 1px solid var(--line);
+  box-shadow: var(--raised-md); border-bottom: 4px solid var(--gold);
+  -webkit-tap-highlight-color: transparent; transition: transform .12s, box-shadow .12s;
+}
+#tab-ads .ad-phone:active { transform: translateY(2px); box-shadow: var(--pressed); }
+#tab-ads .ad-phone-ic {
+  flex: 0 0 auto; width: 46px; height: 46px; border-radius: 50%; font-size: 22px;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 32% 28%, #7FE0B5, #2FA67C 55%, #166A4D);
+  box-shadow: 0 4px 10px rgba(22,106,77,0.4), 0 1px 0 rgba(255,255,255,0.6) inset;
+}
+#tab-ads .ad-phone-tx { flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+#tab-ads .ad-phone-tx small { font-size: 11.5px; color: #7C7568; }
+#tab-ads .ad-phone-tx b { font-size: 20px; font-weight: 800; letter-spacing: 1px; text-align: right; color: var(--emerald); }
+#tab-ads .ad-phone-go { flex: 0 0 auto; font-size: 26px; color: var(--gold); }
+
+#tab-ads .ad-plans { display: grid; grid-template-columns: 1fr; gap: 14px; margin-top: 8px; }
+#tab-ads .ad-plan {
+  position: relative; padding: 18px 16px 14px; border-radius: 22px; text-align: center;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--pc) 14%, var(--card-bg)), var(--card-bg) 70%);
+  border: 1px solid color-mix(in srgb, var(--pc) 40%, var(--line));
+  border-bottom: 5px solid var(--pc);
+  box-shadow: var(--raised-md);
+}
+#tab-ads .ad-plan-bronze { --pc: #C47F3E; }
+#tab-ads .ad-plan-silver { --pc: #8A9BA8; }
+#tab-ads .ad-plan-gold   { --pc: #D4A23A; }
+#tab-ads .ad-plan-best { transform: scale(1.02); box-shadow: var(--raised-lg), 0 0 0 2px rgba(212,162,58,0.55); }
+#tab-ads .ad-plan-ribbon {
+  position: absolute; top: -11px; left: 50%; transform: translateX(-50%); padding: 3px 14px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 800; color: #fff; white-space: nowrap;
+  background: linear-gradient(90deg, #D4A23A, #B07A14); box-shadow: 0 3px 8px rgba(176,122,20,0.45);
+}
+#tab-ads .ad-plan-badge { font-size: 34px; line-height: 1; margin-bottom: 4px; }
+#tab-ads .ad-plan-name { font-size: 18px; font-weight: 800; color: var(--emerald); }
+#tab-ads .ad-plan-price { margin: 6px 0 10px; color: var(--pc); }
+#tab-ads .ad-plan-price b { font-size: 26px; font-weight: 800; }
+#tab-ads .ad-plan-price small { font-size: 12px; color: #7C7568; }
+#tab-ads .ad-plan-list { list-style: none; margin: 0; padding: 10px 0 0; border-top: 1px dashed var(--line); text-align: right; }
+#tab-ads .ad-plan-list li { position: relative; padding: 4px 24px 4px 0; font-size: 13px; line-height: 1.8; }
+#tab-ads .ad-plan-list li::before { content: "✔"; position: absolute; right: 0; top: 4px; color: #2FA67C; font-weight: 800; }
+#tab-ads .ad-note { margin-top: 14px; text-align: center; }
+
+#tab-ads .ad-cta {
+  display: flex; align-items: center; justify-content: center; gap: 10px; padding: 15px; text-decoration: none; color: #fff;
+  border-radius: 20px; font-size: 17px; border-bottom: 5px solid #166A4D;
+  background: linear-gradient(180deg, #3CC191, #2FA67C 55%, #1F8663); box-shadow: var(--raised-md);
+  animation: adPulse 2.2s ease-in-out infinite;
+}
+#tab-ads .ad-cta:active { transform: translateY(3px); border-bottom-width: 2px; }
+@keyframes adPulse { 0%,100% { box-shadow: var(--raised-md), 0 0 0 0 rgba(47,166,124,0.45); } 50% { box-shadow: var(--raised-md), 0 0 0 10px rgba(47,166,124,0); } }
+
+body.dark-mode #tab-ads .ad-phone-tx small,
+body.dark-mode #tab-ads .ad-plan-price small { color: #9FB1AC; }
+body.dark-mode #tab-ads .ad-phone-tx b,
+body.dark-mode #tab-ads .ad-plan-name { color: #F0E6CC; }
+@media (prefers-reduced-motion: reduce) {
+  #tab-ads .ad-hero-glow, #tab-ads .ad-cta { animation: none; }
+}

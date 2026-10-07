@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
-<link rel="stylesheet" href="css/style.css?v=105">
+<link rel="stylesheet" href="css/style.css?v=106">
 </head>
 <body>
 
@@ -480,6 +480,10 @@
         <button class="menu-tile tile-feedback" id="feedback-more-tile" data-goto="feedback">
           <span class="menu-tile-badge">⭐</span>
           <span class="menu-tile-label" id="feedback-tile-label">نظر و پشتیبانی</span>
+        </button>
+        <button class="menu-tile tile-ads" id="ads-more-tile" data-goto="ads">
+          <span class="menu-tile-badge">📢</span>
+          <span class="menu-tile-label">تبلیغات</span>
         </button>
         <button class="menu-tile tile-fun" id="fun-more-tile" data-goto="fun">
           <span class="menu-tile-badge" id="fun-tile-badge">🎮</span>
@@ -1190,6 +1194,82 @@
       <p class="muted-text small act-empty hidden" id="act-empty"></p>
     </section>
 
+    <!-- تبلیغات: متن + شمارهٔ تماس (لمس = شماره‌گیر گوشی) + تعرفه‌ها
+         ⚠ متن‌ها و شماره‌های زیر نمونه است؛ فقط همین بخش را ویرایش کنید.
+         برای شمارهٔ جدید: هم عدد داخل href="tel:..." و هم عدد نمایشی را عوض کنید. -->
+    <section id="tab-ads" class="tab-panel">
+      <div class="ad-hero">
+        <div class="ad-hero-glow"></div>
+        <div class="ad-hero-icon">📢</div>
+        <h2 class="ad-hero-title">محل تبلیغات شما</h2>
+        <p class="ad-hero-text">کسب‌وکار، مجموعه یا پیام خود را به هزاران کاربر عارفان جام نشان دهید. برای هماهنگی و دریافت مشاوره رایگان تماس بگیرید.</p>
+      </div>
+
+      <div class="section-block">
+        <h3>تماس برای سفارش تبلیغ</h3>
+        <p class="muted-text small">برای تماس مستقیم، روی شماره بزنید.</p>
+        <div class="ad-phones">
+          <a class="ad-phone" href="tel:09120000000">
+            <span class="ad-phone-ic">📞</span>
+            <span class="ad-phone-tx"><small>مدیریت تبلیغات</small><b dir="ltr">0912 000 0000</b></span>
+            <span class="ad-phone-go">‹</span>
+          </a>
+          <a class="ad-phone" href="tel:05100000000">
+            <span class="ad-phone-ic">☎️</span>
+            <span class="ad-phone-tx"><small>دفتر</small><b dir="ltr">051 0000 0000</b></span>
+            <span class="ad-phone-go">‹</span>
+          </a>
+        </div>
+      </div>
+
+      <div class="section-block">
+        <h3>تعرفه تبلیغات</h3>
+        <div class="ad-plans">
+          <div class="ad-plan ad-plan-bronze">
+            <div class="ad-plan-badge">🥉</div>
+            <div class="ad-plan-name">پایه</div>
+            <div class="ad-plan-price"><b>۵۰۰,۰۰۰</b> <small>تومان / ماه</small></div>
+            <ul class="ad-plan-list">
+              <li>نمایش در بخش «تبلیغات»</li>
+              <li>متن و شمارهٔ تماس</li>
+              <li>یک تصویر</li>
+            </ul>
+          </div>
+
+          <div class="ad-plan ad-plan-gold ad-plan-best">
+            <div class="ad-plan-ribbon">پیشنهاد ویژه</div>
+            <div class="ad-plan-badge">🥇</div>
+            <div class="ad-plan-name">طلایی</div>
+            <div class="ad-plan-price"><b>۱,۵۰۰,۰۰۰</b> <small>تومان / ماه</small></div>
+            <ul class="ad-plan-list">
+              <li>بنر در صفحهٔ اصلی اپ</li>
+              <li>نمایش در بخش «تبلیغات»</li>
+              <li>اسلایدر تصویر + لینک تماس</li>
+              <li>اولویت نمایش</li>
+            </ul>
+          </div>
+
+          <div class="ad-plan ad-plan-silver">
+            <div class="ad-plan-badge">🥈</div>
+            <div class="ad-plan-name">نقره‌ای</div>
+            <div class="ad-plan-price"><b>۹۰۰,۰۰۰</b> <small>تومان / ماه</small></div>
+            <ul class="ad-plan-list">
+              <li>نمایش در بخش «تبلیغات»</li>
+              <li>متن، تصویر و شمارهٔ تماس</li>
+              <li>یک اعلان به کاربران</li>
+            </ul>
+          </div>
+        </div>
+        <p class="muted-text small ad-note">قیمت‌ها نمونه است و بسته به مدت و نوع تبلیغ، با تماس نهایی می‌شود.</p>
+      </div>
+
+      <div class="section-block">
+        <a class="ad-cta" href="tel:09120000000">
+          <span>📞</span><b>همین حالا تماس بگیرید</b>
+        </a>
+      </div>
+    </section>
+
     <!-- سرگرمی -->
     <section id="tab-fun" class="tab-panel">
       <div class="section-block">
@@ -1611,7 +1691,7 @@
 /* native-bridge.js و app.js (به‌همین ترتیب) فقط بعد از پایان صفحهٔ شروع (ویدیو/عکس/گیف) بارگذاری می‌شوند.
    اگر صفحهٔ شروعی نباشد یا تمام شده باشد، بی‌درنگ بارگذاری می‌شوند. */
 (function () {
-  var list = ['js/native-bridge.js?v=23', 'js/app.js?v=156'], i = 0;
+  var list = ['js/native-bridge.js?v=23', 'js/app.js?v=157'], i = 0;
   function next() {
     if (i >= list.length) return;
     var el = document.createElement('script'); el.src = list[i++];

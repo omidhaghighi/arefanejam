@@ -10565,6 +10565,11 @@ function mkTidy(t) {
 /* نوشتار چندخطی (مثل اکسل): مدیر در پیشخوان با Alt+Enter داخل خود فیلد به خط بعد می‌رود.
    اگر در نام یا مسئول شکست خط دستی باشد، همان خط‌ها عیناً نمایش داده می‌شوند (بدون شکستن خودکار نام/محله). */
 function mkHasBreak(t) { return /\n/.test(String(t == null ? '' : t).replace(/\r/g, '').trim()); }
+/* عنوان فرد هر مورد چارت مکاتب: «امام» یا «مسئول» (پیش‌فرض). از سایت با فیلد role می‌آید. */
+function mkRoleLabel(m) {
+  return (m && m.role === 'imam') ? 'امام' : 'مسئول';
+}
+
 function mkTidyLines(t) {
   return String(t == null ? '' : t).replace(/\r/g, '').split('\n').map((l) => mkTidy(l).trim()).filter(Boolean).join('\n');
 }
@@ -10591,7 +10596,7 @@ function renderMokatibBtn2View() {
       dNameEl.style.whiteSpace = 'pre-line';
       dNameEl.style.fontSize = Number(m.name_size) > 0 ? (Number(m.name_size) + 4) + 'px' : '';
       const dInfoEl = document.getElementById('mokatib-btn2-detail-info');
-      dInfoEl.textContent = m.imam_name ? 'مسئول: ' + mkTidyLines(m.imam_name) : '';
+      dInfoEl.textContent = m.imam_name ? mkRoleLabel(m) + ': ' + mkTidyLines(m.imam_name) : '';
       dInfoEl.style.whiteSpace = 'pre-line';
       dInfoEl.style.fontSize = Number(m.imam_size) > 0 ? (Number(m.imam_size) + 1.5) + 'px' : '';
       mkFitSoon();
@@ -10644,11 +10649,11 @@ function renderMokatibBtn2View() {
       const imamEl = document.createElement('span');
       const manualImam = mkHasBreak(m.imam_name);
       imamEl.className = 'mokatib-btn2-imam' + (manualImam ? ' mk-multiline' : '');
-      imamEl.textContent = 'مسئول:\u00A0' + (manualImam ? mkTidyLines(m.imam_name) : mkTidy(m.imam_name));
+      imamEl.textContent = mkRoleLabel(m) + ':\u00A0' + (manualImam ? mkTidyLines(m.imam_name) : mkTidy(m.imam_name));
       if (Number(m.imam_size) > 0) imamEl.style.fontSize = Number(m.imam_size) + 'px';
       btn.appendChild(imamEl);
     }
-    btn.title = String(m.name || '').replace(/\s*\n\s*/g, ' ') + (m.imam_name ? ' — مسئول: ' + String(m.imam_name).replace(/\s*\n\s*/g, ' ') : '');
+    btn.title = String(m.name || '').replace(/\s*\n\s*/g, ' ') + (m.imam_name ? ' — ' + mkRoleLabel(m) + ': ' + String(m.imam_name).replace(/\s*\n\s*/g, ' ') : '');
     if (m.btn_color) btn.style.background = m.btn_color;
     btn.addEventListener('click', () => {
       mokatibBtn2Path.push(m.id);
@@ -10859,7 +10864,7 @@ function renderMokatibTree(parentId, listElId) {
   children.forEach((m) => {
     const row = document.createElement('div');
     row.className = 'city-row';
-    row.innerHTML = `<strong>${m.name}</strong>${m.imam_name ? ' — مسئول: ' + m.imam_name : ''}`;
+    row.innerHTML = `<strong>${m.name}</strong>${m.imam_name ? ' — ' + mkRoleLabel(m) + ': ' + m.imam_name : ''}`;
     row.addEventListener('click', () => openMokatibMosque(m.id));
     el.appendChild(row);
   });
@@ -10905,7 +10910,7 @@ function openMokatibMosque(mosqueId) {
   mokatibState.currentMosqueId = mosqueId;
   document.getElementById('mokatib-mosque-name').textContent = m.name;
   document.getElementById('mokatib-mosque-info').textContent =
-    [m.address, m.imam_name ? 'مسئول: ' + m.imam_name : '', m.phone, m.extra_info].filter(Boolean).join(' | ');
+    [m.address, m.imam_name ? mkRoleLabel(m) + ': ' + m.imam_name : '', m.phone, m.extra_info].filter(Boolean).join(' | ');
   renderMokatibTree(mosqueId, 'mokatib-mosque-children-list');
   loadMokatibMeetings(mosqueId, 0);
   switchToTab('mokatib-mosque', { push: true });
