@@ -595,6 +595,15 @@ function overlayGo(group, steps, fallback) {
    مدیر در پیشخوان ← «پیغام‌های اپ» متن را عوض می‌کند و از مسیر /settings (فیلد app_messages) می‌رسد.
    جای متغیرها با {name} مشخص می‌شود (مثل {surah} و {reciter}) و هنگام نمایش پر می‌شود. */
 const APP_MSG_REG = {
+ "surah_reread_confirm": {
+  "kind": "confirm",
+  "tone": "info",
+  "icon": "📖",
+  "title": "این سوره خوانده شده است",
+  "text": "سورهٔ {surah} را قبلاً به‌طور کامل خوانده‌اید. اگر می‌خواهید مجدداً بخوانید تأیید بزنید.",
+  "ok": "تأیید",
+  "cancel": "انصراف"
+ },
  "audio_surah_dl_confirm": {
   "kind": "confirm",
   "tone": "download",
@@ -1311,12 +1320,16 @@ function renderCalendarWidget() {
   if (events.length) {
     eventCardEl.innerHTML = '<div class="ev-list">' + events.map((event, i) => {
       const img = event.image_url ? secureUrl(event.image_url) : '';
+      const okc = (c) => (/^#[0-9a-fA-F]{3,8}$/.test(c || '') ? c : '');
+      const evStyle = (okc(event.bg_color) ? 'background:' + okc(event.bg_color) + ';' : '');
+      const tStyle = okc(event.title_color) ? ' style="color:' + okc(event.title_color) + '"' : '';
+      const pStyle = okc(event.text_color) ? ' style="color:' + okc(event.text_color) + '"' : '';
       return `
-      <div class="event-card${img ? ' has-img' : ''}" style="--i:${i}">
+      <div class="event-card${img ? ' has-img' : ''}" style="--i:${i};${evStyle}">
         ${img ? `<img src="${calEsc(img)}" alt="" loading="lazy" data-ev-zoom="${calEsc(img)}" data-ev-name="${calEsc(event.title)}">` : '<span class="event-card-ic">✦</span>'}
         <div class="event-card-text">
-          <h4>${calEsc(event.title)}</h4>
-          ${event.description ? `<p>${calEsc(event.description).replace(/\r?\n/g, '<br>')}</p>` : ''}
+          <h4${tStyle}>${calEsc(event.title)}</h4>
+          ${event.description ? `<p${pStyle}>${calEsc(event.description).replace(/\r?\n/g, '<br>')}</p>` : ''}
         </div>
       </div>`;
     }).join('') + '</div>';
@@ -2214,6 +2227,52 @@ document.getElementById('city-picker-btn').addEventListener('click', () => {
 });
 document.getElementById('city-search-input').addEventListener('input', (e) => populateCityList(e.target.value.trim()));
 document.getElementById('city-cancel-btn').addEventListener('click', () => document.getElementById('city-modal').classList.add('hidden'));
+
+/* ---------- گزارش اختلاف ساعت اذان (زیر اوقات اذان) ---------- */
+function azrFillCities() {
+  const sel = document.getElementById('azr-city');
+  if (!sel) return;
+  const cur = (typeof effectiveCityName === 'function' ? effectiveCityName() : '') || state.activeCityName || '';
+  const names = (window.IRAN_CITIES || []).map((c) => c.name).sort((a, b) => a.localeCompare(b, 'fa'));
+  if (cur && names.indexOf(cur) < 0) names.unshift(cur);
+  const prev = sel.value;
+  sel.innerHTML = '';
+  names.forEach((n) => { const o = document.createElement('option'); o.value = n; o.textContent = n; sel.appendChild(o); });
+  sel.value = prev && names.indexOf(prev) >= 0 ? prev : (cur && names.indexOf(cur) >= 0 ? cur : names[0] || '');
+}
+(function setupAzanReport() {
+  const btn = document.getElementById('azr-send');
+  if (!btn) return;
+  const msg = (t, ok) => { const m = document.getElementById('azr-msg'); m.textContent = t || ''; m.className = 'azr-msg' + (t ? (ok ? ' is-ok' : ' is-err') : ''); };
+  azrFillCities();
+  const card = document.getElementById('azan-report-card');
+  if (card) card.addEventListener('focusin', azrFillCities, { once: true });
+  btn.addEventListener('click', async () => {
+    const city = document.getElementById('azr-city').value;
+    const prayer = document.getElementById('azr-prayer').value;
+    const time = document.getElementById('azr-time').value;
+    if (!city) { msg('شهر را انتخاب کنید.'); return; }
+    if (!/^\d{2}:\d{2}$/.test(time)) { msg('ساعت صحیح را وارد کنید.'); return; }
+    if (navigator.onLine === false) { msg('برای ارسال به اینترنت نیاز است.'); return; }
+    let appTime = '';
+    try {
+      const p = (lastPrayerList || []).find((x) => x.key === prayer);
+      if (p && p.time) appTime = formatTime(p.time);
+    } catch (e) {}
+    const now = new Date();
+    const j = gregorianToJalali(now.getFullYear(), now.getMonth() + 1, now.getDate());
+    btn.disabled = true; msg('در حال ارسال...', true);
+    try {
+      const device_id = await ensureDeviceId();
+      await apiFetch('/azan-report', { method: 'POST', body: JSON.stringify({ device_id, city, prayer, time, app_time: appTime, jy: j[0], jm: j[1], jd: j[2], app_version: String(window.NATIVE_APP_VERSION || '') }) });
+      msg('ممنون! گزارش شما ارسال شد و پس از بررسی، ساعت اصلاح می‌شود.', true);
+      document.getElementById('azr-time').value = '';
+    } catch (e) {
+      msg((e && e.message) ? String(e.message).slice(0, 120) : 'ارسال نشد. دوباره تلاش کنید.');
+    }
+    btn.disabled = false;
+  });
+})();
 
 function findNearestCity(lat, lng) {
   let nearest = null, minDist = Infinity;
@@ -3136,7 +3195,7 @@ function computePrayerTimes() {
   prepareTodayShareVerse();
 
   renderPrayerList('home-prayer-list', list, currentKey);
-  renderPrayerList('azan-prayer-list', list, currentKey);
+  azRenderDayList(list, currentKey);
   let heroKey = fullList[0].key;
   fullList.forEach((p) => { if (now >= p.time) heroKey = p.key; });
   try { renderAzanHero(fullList, heroKey, upcoming); } catch (e) { try { console.warn('azan-hero', e); } catch (e2) {} }
@@ -3325,6 +3384,53 @@ function updateStickyNotification(upcoming) {
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) { lastStickyBody = ''; updateStickyNotification(lastStickyUpcoming); }
 });
+
+/* ---------- مرور روزهای دیگر در اوقات اذان (کشیدن چپ/راست) ---------- */
+let azDayOffset = 0;
+const AZ_WEEKDAYS = ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه', 'جمعه', 'شنبه'];
+function azRenderDayList(todayList, currentKey, dir) {
+  const el = document.getElementById('azan-prayer-list');
+  if (!el || !state.coords) return;
+  let list = todayList, cur = currentKey;
+  const date = prayerDayAhead(azDayOffset);
+  if (azDayOffset !== 0) {
+    try { list = buildPrayerListForDate(date); cur = null; } catch (e) { list = todayList; }
+  }
+  renderPrayerList('azan-prayer-list', list, cur);
+  try {
+    const fixedTz = isIranCoords(state.coords.lat, state.coords.lng);
+    const [gy, gm, gd] = prayerDayParts(date, fixedTz);
+    const [jy, jm, jd] = gregorianToJalali(gy, gm, gd);
+    const wd = new Date(Date.UTC(gy, gm - 1, gd)).getUTCDay();
+    const t = document.getElementById('azd-title'), sub = document.getElementById('azd-sub');
+    const rel = azDayOffset === 0 ? 'امروز' : azDayOffset === 1 ? 'فردا' : azDayOffset === -1 ? 'دیروز' : '';
+    if (t) t.textContent = (rel ? rel + ' · ' : '') + AZ_WEEKDAYS[wd] + ' ' + toPersianDigits(jd) + ' ' + JALALI_MONTHS[jm - 1];
+    if (sub) sub.textContent = azDayOffset === 0 ? '' : 'برای برگشت به امروز لمس کنید';
+  } catch (e) {}
+  if (dir) { el.classList.remove('azd-in-next', 'azd-in-prev'); void el.offsetWidth; el.classList.add(dir > 0 ? 'azd-in-next' : 'azd-in-prev'); }
+}
+function azGoDay(delta) {
+  azDayOffset = Math.max(-366, Math.min(366, azDayOffset + delta));
+  const list = lastPrayerList || [];
+  azRenderDayList(list, lastPrayerCurrentKey, delta);
+}
+(function setupAzanDaySwipe() {
+  const el = document.getElementById('azan-prayer-list');
+  if (!el) return;
+  const prev = document.getElementById('azd-prev'), next = document.getElementById('azd-next'), mid = document.getElementById('azd-mid');
+  if (prev) prev.addEventListener('click', () => azGoDay(-1));
+  if (next) next.addEventListener('click', () => azGoDay(1));
+  if (mid) mid.addEventListener('click', () => { if (azDayOffset !== 0) { const d = azDayOffset; azDayOffset = 0; azRenderDayList(lastPrayerList || [], lastPrayerCurrentKey, d > 0 ? -1 : 1); } });
+  let x0 = null, y0 = null;
+  el.addEventListener('touchstart', (e) => { const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY; }, { passive: true });
+  el.addEventListener('touchend', (e) => {
+    if (x0 === null) return;
+    const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
+    x0 = null;
+    if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    azGoDay(dx < 0 ? 1 : -1); // کشیدن به چپ = روز بعد، به راست = روز قبل
+  }, { passive: true });
+})();
 
 function renderPrayerList(elId, list, currentKey) {
   const el = document.getElementById(elId);
@@ -4680,26 +4786,76 @@ function qbHttpJson(url, ms) {
     } catch (e) { fin(null); }
   });
 }
-// مسیر جاده‌ای از موقعیت کاربر تا کعبه؛ اگر جاده‌ای نبود (مثلاً آن‌سوی اقیانوس) pts خالی و km صفر است
+// ساده‌سازی مسیر (Douglas–Peucker) تا مسیر کامل بماند ولی سنگین نشود (تلورانس ≈ ۱۵۰ متر)
+function qbSimplify(pts, tol) {
+  const n = pts.length;
+  if (n < 3) return pts;
+  const keep = new Uint8Array(n); keep[0] = 1; keep[n - 1] = 1;
+  const st = [[0, n - 1]];
+  const k = Math.cos((pts[0].lat || 0) * Math.PI / 180);
+  while (st.length) {
+    const [i0, i1] = st.pop();
+    const A = pts[i0], B = pts[i1];
+    const ax = A.lng * k, ay = A.lat, bx = B.lng * k, by = B.lat;
+    const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+    let md = -1, mi = -1;
+    for (let i = i0 + 1; i < i1; i++) {
+      const px = pts[i].lng * k, py = pts[i].lat;
+      let t = L2 ? ((px - ax) * dx + (py - ay) * dy) / L2 : 0;
+      t = Math.max(0, Math.min(1, t));
+      const ex = ax + t * dx - px, ey = ay + t * dy - py;
+      const d = ex * ex + ey * ey;
+      if (d > md) { md = d; mi = i; }
+    }
+    if (md > tol * tol && mi > 0) { keep[mi] = 1; st.push([i0, mi], [mi, i1]); }
+  }
+  const out = [];
+  for (let i = 0; i < n; i++) if (keep[i]) out.push(pts[i]);
+  return out;
+}
+// مسیر جاده‌ای کامل از موقعیت کاربر تا کعبه (چند سرور مسیریابی، مسیر کامل نه ساده‌شده)؛
+// اگر جاده‌ای نبود (مثلاً آن‌سوی اقیانوس) pts خالی و km صفر است
 async function qbFetchLand(c) {
   const key = qbLandKey(c);
   try {
-    const cached = JSON.parse(localStorage.getItem('arefanejam_qb_land:' + key) || 'null');
+    const cached = JSON.parse(localStorage.getItem('arefanejam_qb_land2:' + key) || 'null');
     if (cached && Array.isArray(cached.pts)) { qbLand = Object.assign({ key: key }, cached); return qbLand; }
   } catch (e) {}
   if (qbLandBusy === key || navigator.onLine === false) return null;
   qbLandBusy = key;
-  const url = 'https://router.project-osrm.org/route/v1/driving/' + c.lng.toFixed(5) + ',' + c.lat.toFixed(5) + ';' + KAABA.lng + ',' + KAABA.lat + '?overview=simplified&geometries=geojson';
-  const j = await qbHttpJson(url, 14000);
+  const coords = c.lng.toFixed(5) + ',' + c.lat.toFixed(5) + ';' + KAABA.lng + ',' + KAABA.lat;
+  const q = '?overview=full&geometries=geojson&steps=false&alternatives=false';
+  const servers = [
+    'https://router.project-osrm.org/route/v1/driving/',
+    'https://routing.openstreetmap.de/routed-car/route/v1/driving/'
+  ];
+  let res = null, noRoute = 0;
+  for (let attempt = 0; attempt < 2 && !res; attempt++) {
+    for (const base of servers) {
+      const j = await qbHttpJson(base + coords + q, 30000);
+      if (j && j.code === 'Ok' && j.routes && j.routes[0] && j.routes[0].geometry) {
+        const co = j.routes[0].geometry.coordinates || [];
+        let pts = co.map((p) => ({ lat: p[1], lng: p[0] }));
+        let km = (j.routes[0].distance || 0) / 1000;
+        if (pts.length > 1) {
+          // اتصال مسیر به خود نقطهٔ کاربر و کعبه (مسیریاب به نزدیک‌ترین جاده می‌چسباند)
+          const f = pts[0], l = pts[pts.length - 1];
+          km += qbDistanceKm(c.lat, c.lng, f.lat, f.lng) + qbDistanceKm(l.lat, l.lng, KAABA.lat, KAABA.lng);
+          pts.unshift({ lat: c.lat, lng: c.lng });
+          pts.push({ lat: KAABA.lat, lng: KAABA.lng });
+          pts = qbSimplify(pts, 0.0015);
+          res = { pts: pts, km: km };
+          break;
+        }
+      } else if (j && (j.code === 'NoRoute' || j.code === 'NoSegment')) {
+        noRoute++;
+      }
+    }
+    if (!res && noRoute >= servers.length) { res = { pts: [], km: 0 }; break; } // هر دو سرور: جاده‌ای نیست
+  }
   qbLandBusy = '';
-  let res;
-  if (j && j.code === 'Ok' && j.routes && j.routes[0] && j.routes[0].geometry) {
-    const co = j.routes[0].geometry.coordinates || [];
-    res = { pts: co.map((q) => ({ lat: q[1], lng: q[0] })), km: (j.routes[0].distance || 0) / 1000 };
-  } else if (j && (j.code === 'NoRoute' || j.code === 'NoSegment')) {
-    res = { pts: [], km: 0 };       // جاده‌ای وجود ندارد
-  } else return null;               // خطای شبکه؛ بعداً دوباره تلاش می‌شود
-  try { localStorage.setItem('arefanejam_qb_land:' + key, JSON.stringify(res)); } catch (e) {}
+  if (!res) return null;           // خطای شبکه؛ بعداً دوباره تلاش می‌شود
+  try { localStorage.setItem('arefanejam_qb_land2:' + key, JSON.stringify(res)); } catch (e) {}
   qbLand = Object.assign({ key: key }, res);
   return qbLand;
 }
@@ -6089,7 +6245,7 @@ function renderSurahList(surahs, filter) {
         <span class="qs-name"></span>
         <span class="qs-meta"><span class="qs-en"></span>${rev}<span class="qs-count">${toPersianDigits(s.numberOfAyahs)} آیه</span></span>
       </span>
-      <button type="button" class="qs-dl" data-n="${s.number}" aria-label="دانلود صوت این سوره" title="دانلود صوت این سوره">⬇</button>
+      <button type="button" class="qs-dl" data-n="${s.number}" aria-label="دانلود سوره" title="دانلود سوره">دانلود سوره</button>
       <span class="qs-chev">‹</span>`;
     row.querySelector('.qs-name').textContent = s.name;
     const dlBtn = row.querySelector('.qs-dl');
@@ -6241,8 +6397,8 @@ function setSurahDlState(b, st, have, total, pct) {
   b.classList.remove('is-done', 'is-part', 'is-busy');
   if (st === 'done') { b.textContent = '✅'; b.classList.add('is-done'); b.title = 'صوت این سوره روی گوشی ذخیره است'; }
   else if (st === 'busy') { b.textContent = toPersianDigits(pct) + '٪'; b.classList.add('is-busy'); b.title = 'در حال دانلود (برای توقف بزنید)'; }
-  else if (st === 'part') { b.textContent = '⬇'; b.classList.add('is-part'); b.title = 'ادامهٔ دانلود صوت (' + toPersianDigits(have) + ' از ' + toPersianDigits(total) + ' آیه ذخیره است)'; }
-  else { b.textContent = '⬇'; b.title = 'دانلود صوت این سوره'; }
+  else if (st === 'part') { b.textContent = 'دانلود سوره'; b.classList.add('is-part'); b.title = 'ادامهٔ دانلود صوت (' + toPersianDigits(have) + ' از ' + toPersianDigits(total) + ' آیه ذخیره است)'; }
+  else { b.textContent = 'دانلود سوره'; b.title = 'دانلود سوره'; }
 }
 async function refreshSurahAudioIcons() {
   try {
@@ -6494,6 +6650,11 @@ async function openSurahReader(number, name, opts) {
     try {
       const resume = await getSurahResumePoint(number);
       if (resume) { showQuranResumePrompt(number, name, resume, !!opts.autoPlay); return; }
+      const rd = await getSurahMaxReadAyah(number);
+      if (rd && rd.total && rd.max >= rd.total) {
+        const again = await appConfirm('surah_reread_confirm', { surah: msgSurahName(name) });
+        if (!again) return;
+      }
     } catch (e) {} // در صورت هر خطایی (مثلاً هنوز دادهٔ آفلاین آماده نیست) مستقیم برو سراغ باز کردن سوره
   }
   if (getQuranMode() === 'page') {
@@ -11891,6 +12052,8 @@ function gaRange(a, b) { const r = []; for (let i = a; i <= b; i++) r.push(i); r
 var GA_CATS = [
   { id: '1',  label: '۱ جزء',     note: 'جزء اول و جزء آخر', juz: [1, 30] },
   { id: '2',  label: '۲ جزء',     note: '۲ جزء اول',          juz: [1, 2] },
+  { id: '3f', label: '۳ جزء اول', note: 'جزء ۱ تا ۳',         juz: gaRange(1, 3) },
+  { id: '3l', label: '۳ جزء آخر', note: 'جزء ۲۸ تا ۳۰',       juz: gaRange(28, 30) },
   { id: '5f', label: '۵ جزء اول', note: 'جزء ۱ تا ۵',         juz: gaRange(1, 5) },
   { id: '5l', label: '۵ جزء آخر', note: 'جزء ۲۶ تا ۳۰',       juz: gaRange(26, 30) },
   { id: '15', label: '۱۵ جزء',    note: '۱۵ جزء اول',         juz: gaRange(1, 15) },
@@ -12383,7 +12546,7 @@ async function loadFbView() {
     const closeNew = hideNew;
     const updateCounter = (taId, cId) => {
       const ta = $(taId), c = $(cId);
-      if (ta && c) c.textContent = toPersianDigits(ta.value.length) + ' / ' + toPersianDigits(ta.maxLength > 0 ? ta.maxLength : 2000);
+      if (ta && c) c.textContent = toPersianDigits(ta.value.length) + ' / ' + toPersianDigits(ta.maxLength > 0 ? ta.maxLength : 200);
     };
 
     // ستاره‌ها
@@ -12400,7 +12563,6 @@ async function loadFbView() {
     $('fb-new-btn').addEventListener('click', () => {
       $('fb-new-subject').value = '';
       $('fb-new-message').value = '';
-      $('fb-new-name').value = localStorage.getItem(FB_NAME_KEY) || '';
       $('fb-new-error').classList.add('hidden');
       setCat('suggestion');
       updateCounter('fb-new-message', 'fb-new-count');
@@ -12415,7 +12577,6 @@ async function loadFbView() {
       const errEl = $('fb-new-error');
       const message = $('fb-new-message').value.trim();
       const subject = $('fb-new-subject').value.trim();
-      const name = $('fb-new-name').value.trim();
       if (message.length < 5) {
         errEl.textContent = 'لطفاً متن پیام را کامل‌تر بنویسید.';
         errEl.classList.remove('hidden');
@@ -12425,8 +12586,7 @@ async function loadFbView() {
       btn.disabled = true; btn.textContent = 'در حال ارسال…';
       try {
         const device_id = await ensureDeviceId();
-        const r = await apiFetch('/feedback/create', { method: 'POST', body: JSON.stringify({ device_id, subject, message, category: fbCategory, name, app_version: String(window.NATIVE_APP_VERSION || '') }) });
-        try { if (name) localStorage.setItem(FB_NAME_KEY, name); } catch (e) {}
+        const r = await apiFetch('/feedback/create', { method: 'POST', body: JSON.stringify({ device_id, subject, message, category: fbCategory, app_version: String(window.NATIVE_APP_VERSION || '') }) });
         hideNew();
         if (r && r.id) openFbView(r.id); else loadFeedbackMain();
       } catch (e) {
