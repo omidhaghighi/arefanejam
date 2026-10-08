@@ -4624,13 +4624,17 @@ body.dark-mode #tab-ads .ad-card-title { color: #F0E6CC; }
 .topbar-title { font-family: 'BNazaninApp', 'B Nazanin', 'Noto Naskh Arabic', 'Vazirmatn', Tahoma, serif; font-weight: 700; font-size: 18px; line-height: 1.5; }
 
 
-/* تصویر دلخواه برای آیکون‌های «بیشتر» (از پیشخوان) */
+/* تصویر دلخواه برای آیکون‌های «بیشتر» (از پیشخوان)
+   قاعدهٔ اصلی کاشی‌ها (.menu-grid .menu-tile .menu-tile-badge) با shorthand «background» اندازه/جای تصویر را ریست می‌کند و
+   اندازهٔ فونت ایموجی را هم دارد؛ پس این‌جا همه !important است تا تصویر دقیقاً کل نشان را پر کند و ایموجی دیده نشود. */
 .menu-tile-badge.has-custom-icon {
-  background-size: cover; background-position: center; background-repeat: no-repeat;
-  font-size: 0; color: transparent; overflow: hidden;
+  background-size: cover !important; background-position: center !important; background-repeat: no-repeat !important;
+  font-size: 0 !important; line-height: 0 !important; color: transparent !important; text-shadow: none !important; overflow: hidden !important;
 }
-.menu-tile-badge.has-custom-icon > * { visibility: hidden; }
+.menu-tile-badge.has-custom-icon:not(.cicon-free) { border-radius: 50% !important; }
+.menu-tile-badge.has-custom-icon > * { visibility: hidden !important; }
+.menu-tile-badge.has-custom-icon::after { display: none !important; }
 .menu-tile-badge.has-custom-icon.cicon-free {
-  background-color: transparent !important; background-size: contain;
-  box-shadow: none !important; border-radius: 12px; width: 58px; height: 58px;
+  background-color: transparent !important; background-size: contain !important;
+  box-shadow: none !important; border-radius: 12px !important; width: 58px; height: 58px;
 }

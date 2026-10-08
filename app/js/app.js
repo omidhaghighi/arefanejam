@@ -316,6 +316,8 @@ function apiFetch(path, options = {}) {
 /* ---------- ذخیرهٔ آفلاینِ اطلاعات عمومی پیشخوان ----------
  * هر بار که اطلاعات با موفقیت از سایت گرفته شود، در حافظهٔ گوشی می‌ماند و اگر بعداً اینترنت نبود
  * (یا سرور خطا داد) همان آخرین نسخه نمایش داده می‌شود. فقط مسیرهای عمومیِ زیر؛ مسیرهای شخصی/ورود نه. */
+var moreIconsData = { shape: 'round', icons: {} }; // بیشتر: تصویر دلخواه آیکون‌ها (بالای فایل تعریف شده تا هر کدی بتواند هر زمان صدایش کند)
+var moreIconsLastLoad = 0;
 const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|hamburger-menu|more-icons|social-links|theme|shariq\/settings|khatm\/settings|feedback\/settings|zakat|activities|ads-page|ad-banners)$/;
 function apiCacheKey(basePath) {
   return API_OFFLINE_CACHE_RE.test(basePath) ? ('arefanejam_api_cache:' + basePath) : '';
@@ -7722,8 +7724,6 @@ function applyTimeOverride(date, hhmm) {
 /* ---------- بیشتر: تصویر دلخواهِ هر آیکون (مدیر از پیشخوان ← «🖼️ آیکون‌های بیشتر» تعیین می‌کند) ----------
    هر کاشی کلید data-ikey دارد (main:… برای صفحهٔ بیشتر، sub:… برای زیرمنوها). اگر برای کلید تصویری تعیین شده باشد،
    همان به‌جای ایموجی نشان داده می‌شود؛ وگرنه ایموجی/آیکون قبلی می‌ماند. آفلاین هم کار می‌کند (فهرست در localStorage و عکس‌ها در کش). */
-let moreIconsData = { shape: 'round', icons: {} };
-let moreIconsLastLoad = 0;
 function applyMoreIconToTile(tile) {
   try {
     if (!tile || !tile.dataset) return;
@@ -7734,10 +7734,10 @@ function applyMoreIconToTile(tile) {
       const url = String(secureUrl(raw)).replace(/["'()\\\s]/g, (c) => encodeURIComponent(c));
       badge.classList.add('has-custom-icon');
       badge.classList.toggle('cicon-free', moreIconsData.shape === 'free');
-      badge.style.backgroundImage = 'url("' + url + '")';
+      badge.style.setProperty('background-image', 'url("' + url + '")', 'important');
     } else if (badge.classList.contains('has-custom-icon')) {
       badge.classList.remove('has-custom-icon', 'cicon-free');
-      badge.style.backgroundImage = '';
+      badge.style.removeProperty('background-image');
     }
   } catch (e) {}
 }
