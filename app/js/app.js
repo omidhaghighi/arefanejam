@@ -12964,7 +12964,7 @@ function bnrRenderTab(tab) {
       slot.setAttribute('data-pos', pos);
       if (pos === 'top') panel.insertBefore(slot, panel.firstChild); else panel.appendChild(slot);
     }
-    const sig = list.map((b) => b.id + ':' + b.image + ':' + b.size + ':' + (b.label ? 1 : 0) + ':' + (b.link || '') + ':' + (b.phone || '')).join('|');
+    const sig = list.map((b) => b.id + ':' + b.image + ':' + b.size + ':' + b.height + ':' + (b.label ? 1 : 0) + ':' + (b.link || '') + ':' + (b.phone || '')).join('|');
     slot.classList.remove('hidden');
     if (slot.getAttribute('data-sig') === sig) return;
     slot.setAttribute('data-sig', sig);
@@ -12972,7 +12972,8 @@ function bnrRenderTab(tab) {
     slot.innerHTML = list.map((b, i) => {
       const size = /^(slim|normal|big)$/.test(b.size) ? b.size : 'normal';
       const act = (/^https?:\/\//i.test(b.link || '') ? 'link' : (b.phone ? 'tel' : ''));
-      return '<div class="bnr-item bnr-' + size + (i === start ? ' on' : '') + (act ? ' bnr-click' : '') + '"' +
+      const hh = Math.max(30, Math.min(250, parseInt(b.height, 10) || ({ slim: 40, normal: 56, big: 80 }[size] || 56)));
+      return '<div class="bnr-item bnr-' + size + (i === start ? ' on' : '') + (act ? ' bnr-click' : '') + '" style="height:' + hh + 'px"' +
         ' data-bnr-id="' + zkAttr(b.id) + '"' + (act ? ' data-bnr-act="' + act + '"' : '') +
         (act === 'link' ? ' data-bnr-link="' + zkAttr(b.link) + '"' : '') + (act === 'tel' ? ' data-bnr-tel="' + zkAttr(b.phone) + '"' : '') +
         (act ? ' role="link"' : '') + '>' +
