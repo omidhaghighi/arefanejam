@@ -4622,3 +4622,15 @@ body.dark-mode #tab-ads .ad-card-title { color: #F0E6CC; }
    تا آن موقع «Noto Naskh Arabic» (نزدیک‌ترین فونت نسخ) جایگزین می‌شود. */
 @font-face { font-family: 'BNazaninApp'; src: local('B Nazanin'), local('BNazanin'), local('B-Nazanin'), local('Nazanin'); font-display: swap; }
 .topbar-title { font-family: 'BNazaninApp', 'B Nazanin', 'Noto Naskh Arabic', 'Vazirmatn', Tahoma, serif; font-weight: 700; font-size: 18px; line-height: 1.5; }
+
+
+/* تصویر دلخواه برای آیکون‌های «بیشتر» (از پیشخوان) */
+.menu-tile-badge.has-custom-icon {
+  background-size: cover; background-position: center; background-repeat: no-repeat;
+  font-size: 0; color: transparent; overflow: hidden;
+}
+.menu-tile-badge.has-custom-icon > * { visibility: hidden; }
+.menu-tile-badge.has-custom-icon.cicon-free {
+  background-color: transparent !important; background-size: contain;
+  box-shadow: none !important; border-radius: 12px; width: 58px; height: 58px;
+}

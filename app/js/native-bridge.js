@@ -296,7 +296,8 @@
   var PROMPT_KEY = 'arefanejam_auto_prompt';     // {v, ts} آخرین باری که پنجرهٔ تأیید اندروید نشان داده شد
   var PROMPT_MS = 24 * 3600 * 1000;              // پنجرهٔ تأیید برای هر نسخه حداکثر یک بار در روز
   var RETRY_MS = 3 * 3600 * 1000;                // بعد از شکست، ۳ ساعت بعد دوباره
-  var RECHECK_MS = 6 * 3600 * 1000;              // بررسی دوره‌ای وقتی اپ باز مانده
+  var RECHECK_MS = 10 * 60 * 1000;               // بررسی دوره‌ای وقتی اپ باز مانده (قبلاً ۶ ساعت؛ برای رسیدن سریع‌تر بروزرسانی ۱۰ دقیقه)
+  var RESUME_MS = 2 * 60 * 1000;                 // بعد از برگشتن به اپ، اگر آخرین بررسی قدیمی‌تر از این بود دوباره می‌پرسد (قبلاً ۱ ساعت)
   var autoBusy = false;
   var pendingSilent = null;
   var lastCheckTs = 0;
@@ -1123,8 +1124,8 @@
     watchBoot();
     var done = showDoneIfUpdated();
     // بررسی خودکار چند ثانیه بعد از باز شدن اپ (اگر آنلاین باشد)
-    setTimeout(function () { if (!done && navigator.onLine !== false) check(false); }, 5000);
-    setTimeout(function () { if (navigator.onLine !== false) webCheck(); }, 9000);
+    setTimeout(function () { if (!done && navigator.onLine !== false) check(false); }, 2000);
+    setTimeout(function () { if (navigator.onLine !== false) webCheck(); }, 3000);
     // یادآوری فعال‌سازی «اجازهٔ نصب» (هر ۳ روز)؛ کمی بعد از بررسی بروزرسانی تا پنجره‌ها روی هم نیایند
     setTimeout(permReminder, 14000);
     setInterval(permReminder, 3600 * 1000);
@@ -1132,7 +1133,7 @@
     // اگر اپ مدت زیادی باز بماند یا از پس‌زمینه برگردد، دوباره از سایت می‌پرسد (بروزرسانی خودکار)
     setInterval(function () { if (navigator.onLine !== false) check(false); }, RECHECK_MS);
     document.addEventListener('visibilitychange', function () {
-      if (document.visibilityState === 'visible' && navigator.onLine !== false && Date.now() - lastCheckTs > 3600 * 1000) check(false);
+      if (document.visibilityState === 'visible' && navigator.onLine !== false && Date.now() - lastCheckTs > RESUME_MS) check(false);
     });
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'visible') setTimeout(permReminder, 3000);
@@ -1149,6 +1150,11 @@
   var webHiddenAt = 0;
   var webLastCheck = 0;
   var sessionStart = Date.now();
+  var webPending = false;      // نسخهٔ جدید ظاهر دانلود و «آماده» شده و منتظر اعمال است
+  var lastTouchTs = Date.now();
+  ['touchstart', 'click', 'scroll', 'keydown'].forEach(function (ev) {
+    document.addEventListener(ev, function () { lastTouchTs = Date.now(); }, { passive: true, capture: true });
+  });
 
   function webManifestFetch() {
     return fetch(apiBase() + '/web-manifest?t=' + Date.now(), { cache: 'no-store' })
@@ -1183,16 +1189,22 @@
       if (m.id === st.badId && Date.now() - (st.badTs || 0) < WEB_BAD_MS) return;
       return P.webSync({ id: m.id, base: m.base, files: m.files }).then(function () {
         // اگر اپ همین چند ثانیه پیش باز شده و کاربر مشغول کاری نیست، همین حالا اعمال شود؛ وگرنه دفعهٔ بعد
-        if (Date.now() - sessionStart < 25000 && !userIsTyping()) webApplyStaged();
+        webPending = true;
+        if (Date.now() - sessionStart < 60000 && !userIsTyping()) webApplyStaged();
       });
     }).catch(log).then(function () { webBusy = false; });
   }
 
   // اپ که بعد از مدتی از پس‌زمینه برگردد مثل باز شدن تازه است؛ نسخهٔ آماده را همان موقع اعمال می‌کنیم
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'hidden') { webHiddenAt = Date.now(); return; }
+    if (document.visibilityState === 'hidden') {
+      webHiddenAt = Date.now();
+      // کاربر از اپ خارج شد: نسخهٔ آمادهٔ ظاهر همین حالا (نامرئی) اعمال می‌شود تا دفعهٔ بعد که اپ را باز کرد نسخهٔ جدید را ببیند
+      if (webPending && !userIsTyping()) { webPending = false; webApplyStaged(); }
+      return;
+    }
     if (webHiddenAt && Date.now() - webHiddenAt > 30000 && !userIsTyping()) { webHiddenAt = 0; webApplyStaged(); }
-    if (navigator.onLine !== false && Date.now() - webLastCheck > 3600 * 1000) webCheck();
+    if (navigator.onLine !== false && Date.now() - webLastCheck > RESUME_MS) webCheck();
   });
 
   // تأیید سالم بودن: وقتی app.js تا آخر اجرا شد (window.__arefBooted)، اپ به بومی خبر می‌دهد
@@ -1209,6 +1221,14 @@
       }
     }, 500);
   }
+
+  // اگر نسخهٔ آماده منتظر است و کاربر ۲۰ ثانیه است به صفحه دست نزده (و تایپ نمی‌کند)، همان لحظه اعمال می‌شود
+  setInterval(function () {
+    if (!webPending || document.visibilityState !== 'visible') return;
+    if (Date.now() - lastTouchTs < 20000 || userIsTyping()) return;
+    webPending = false;
+    webApplyStaged();
+  }, 5000);
 
   function showWebLine() {
     var P = AU();

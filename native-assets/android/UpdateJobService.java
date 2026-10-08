@@ -64,8 +64,8 @@ public class UpdateJobService extends JobService {
     static final String INBOX_GROUP = "arefanejam_inbox_group";
     static final String PREFS = "arefanejam_bg_update";
     static final String DEFAULT_API = "https://arefanejam.com/wp-json/arefanejam/v1";
-    static final long PERIOD_MS = 6L * 3600L * 1000L;
-    static final long KICK_EVERY_MS = 3L * 3600L * 1000L;
+    static final long PERIOD_MS = 1L * 3600L * 1000L;   // قبلاً ۶ ساعت؛ برای رسیدن سریع‌تر بروزرسانی ۱ ساعت
+    static final long KICK_EVERY_MS = 1L * 3600L * 1000L;
 
     private static final Object LOCK = new Object();
     private static boolean running = false;
@@ -215,6 +215,14 @@ public class UpdateJobService extends JobService {
             JobScheduler js = (JobScheduler) app.getSystemService(Context.JOB_SCHEDULER_SERVICE);
             if (js == null) return;
             ComponentName cn = new ComponentName(app, UpdateJobService.class);
+            // کار دوره‌ای قدیمی (۶ ساعته) بعد از بروزرسانی اپ با دورهٔ جدید (۱ ساعت) جایگزین شود
+            try {
+                List<JobInfo> pend = js.getAllPendingJobs();
+                if (pend != null) for (int i = 0; i < pend.size(); i++) {
+                    JobInfo pj = pend.get(i);
+                    if (pj.getId() == JOB_PERIODIC && pj.isPeriodic() && pj.getIntervalMillis() != PERIOD_MS) js.cancel(JOB_PERIODIC);
+                }
+            } catch (Throwable ignore) { }
             if (!isPending(js, JOB_PERIODIC)) {
                 js.schedule(builder(JOB_PERIODIC, cn).setPeriodic(PERIOD_MS).setPersisted(true).build());
             }

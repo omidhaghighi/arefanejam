@@ -316,7 +316,7 @@ function apiFetch(path, options = {}) {
 /* ---------- ذخیرهٔ آفلاینِ اطلاعات عمومی پیشخوان ----------
  * هر بار که اطلاعات با موفقیت از سایت گرفته شود، در حافظهٔ گوشی می‌ماند و اگر بعداً اینترنت نبود
  * (یا سرور خطا داد) همان آخرین نسخه نمایش داده می‌شود. فقط مسیرهای عمومیِ زیر؛ مسیرهای شخصی/ورود نه. */
-const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|hamburger-menu|social-links|theme|shariq\/settings|khatm\/settings|feedback\/settings|zakat|activities|ads-page|ad-banners)$/;
+const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|hamburger-menu|more-icons|social-links|theme|shariq\/settings|khatm\/settings|feedback\/settings|zakat|activities|ads-page|ad-banners)$/;
 function apiCacheKey(basePath) {
   return API_OFFLINE_CACHE_RE.test(basePath) ? ('arefanejam_api_cache:' + basePath) : '';
 }
@@ -420,7 +420,7 @@ function switchToTab(tabName, opts) {
   if (tabName === 'about') renderAboutPage();
   if (tabName === 'qibla') autoStartQibla(); else qbStopSensors();
   if (tabName === 'quran-list') onQuranListOpened();
-  if (tabName === 'quran-juz') renderJuzList();
+  if (tabName === 'more') loadMoreIcons(false);
   if (tabName === 'quran-bookmarks') renderBookmarksPage();
   if (tabName === 'hifz-progress') loadHifzProgress();
   if (tabName === 'prayer-stats') renderWeeklyPrayerStats();
@@ -1918,15 +1918,45 @@ function checkQuranInvitePopup() {
   }
 }
 
-function showQuranInvitePopup(p) {
+let quranInviteResumeMode = false; // true فقط وقتی پاپ‌آپ «چند روز است قرآن نخوانده‌ای» باز شده
+function showQuranInvitePopup(p, opts) {
+  quranInviteResumeMode = !!(opts && opts.resumeLast);
   const textEl = document.getElementById('quran-invite-text');
   applyMokatibPopupText(textEl, { text: p.text, textColor: p.text_color, font: p.font, effect: p.effect });
   document.getElementById('quran-invite-btn1').textContent = p.btn1_text || 'بزن بریم';
   document.getElementById('quran-invite-btn2').textContent = p.btn2_text || 'ان‌شاءالله بعدا';
   document.getElementById('quran-invite-modal').classList.remove('hidden');
 }
-document.getElementById('quran-invite-btn1').addEventListener('click', () => {
+/* با تأیید یادآورِ «چند روز است قرآن نخوانده‌ای»: آخرین سوره‌ای که کاربر در آن بوده پیدا می‌شود و خواندن + پخش صوت
+   از آیهٔ بعدِ آخرین آیهٔ خوانده‌شده شروع می‌شود (مثلاً تا آیهٔ ۱۲۵ بقره خوانده → شروع از آیهٔ ۱۲۶). کاملاً محلی و آفلاین. */
+async function resumeQuranFromLastPosition() {
+  const pb = getPlaybackPosition();
+  const lr = getLastRead();
+  const pbOk = !!(pb && pb.surahNumber);
+  const lrOk = !!(lr && lr.number);
+  if (!pbOk && !lrOk) return false;
+  let number, name;
+  if (pbOk && (!lrOk || (Number(pb.ts) || 0) >= (Number(lr.ts) || 0))) { number = Number(pb.surahNumber); name = pb.surahName; }
+  else { number = Number(lr.number); name = lr.name; }
+  if (!(number >= 1 && number <= 114)) return false;
+  let last = 0, total = 0;
+  try { const rd = await getSurahMaxReadAyah(number); last = rd.max || 0; total = rd.total || 0; } catch (e) {}
+  if (pbOk && Number(pb.surahNumber) === number && Number(pb.numberInSurah) > last) last = Number(pb.numberInSurah);
+  if (total && last >= total) { number = number >= 114 ? 1 : number + 1; name = ''; last = 0; } // این سوره تمام شده؛ سورهٔ بعد از اول
+  if (!name || number !== Number(pb && pb.surahNumber) && number !== Number(lr && lr.number)) { try { name = await getSurahNameByNumber(number); } catch (e) {} }
+  const nextAyah = Math.max(1, last + 1);
+  navHistory = [];
+  openSurahReader(number, name || ('سورهٔ ' + toPersianDigits(number)), { skipResumeCheck: true, scrollToAyah: nextAyah, autoPlay: true });
+  return true;
+}
+document.getElementById('quran-invite-btn1').addEventListener('click', async () => {
   document.getElementById('quran-invite-modal').classList.add('hidden');
+  if (quranInviteResumeMode) {
+    quranInviteResumeMode = false;
+    let ok = false;
+    try { ok = await resumeQuranFromLastPosition(); } catch (e) { ok = false; }
+    if (ok) return;
+  }
   navHistory = [];
   switchToTab('quran-list', { push: true });
 });
@@ -1990,7 +2020,7 @@ function checkQuranInactivityPopup() {
   try { localStorage.setItem(QURAN_INACTIVITY_SEEN_KEY, todayKey); } catch (e) {}
 
   // همان ظاهر (فونت/رنگ/افکت) و متن دکمه‌های پاپ‌آپ اصلی، فقط با متنِ اختصاصیِ این یادآوری
-  showQuranInvitePopup(Object.assign({}, s.quran_popup, { text: inact.text }));
+  showQuranInvitePopup(Object.assign({}, s.quran_popup, { text: inact.text }), { resumeLast: true });
 }
 setInterval(checkQuranInactivityPopup, 30000); // مستقل از شبکه؛ آفلاین هم اجرا می‌شود
 
@@ -6585,6 +6615,13 @@ const RECITERS = [
   { id: 'ar.hudhaify', name: 'حذیفی' },
   { id: 'ar.muhammadjibreel', name: 'محمد جبریل' },
   { id: 'ar.abdullahbasfar', name: 'عبدالله بصفر' },
+  { id: 'ar.ahmedajamy', name: 'احمد العجمی' },
+  { id: 'ar.hanirifai', name: 'هانی الرفاعی' },
+  { id: 'ar.saoodshuraym', name: 'سعود الشریم' },
+  { id: 'ar.muhammadayyoub', name: 'محمد ایوب' },
+  { id: 'ar.ibrahimakhbar', name: 'ابراهیم الاخضر' },
+  { id: 'ar.husarymujawwad', name: 'حصری (مجوّد)' },
+  { id: 'ar.minshawimujawwad', name: 'منشاوی (مجوّد)' },
 ];
 let currentReciter = localStorage.getItem('arefanejam_reciter') || 'ar.alafasy';
 if (!RECITERS.some((r) => r.id === currentReciter)) currentReciter = 'ar.alafasy';
@@ -6882,6 +6919,33 @@ function ensureAyahCached(reciter, g, maxMs) {
   }
   return Promise.race([ayahDlInflight[k], new Promise((r) => setTimeout(() => r(false), maxMs || 12000))]);
 }
+/* ---------- پیش‌دانلودِ غلتان: همین‌که صوت یک آیه شروع به پخش شد، صوت دو آیهٔ بعدی (حتی اگر به سورهٔ بعد یا صفحهٔ بعد برسد)
+   بی‌صدا دانلود و ذخیره می‌شود؛ با شروع پخش هر آیه، دو آیهٔ بعدش هم همین‌طور — پس کاربر هنگام گوش‌دادن مدام منتظر دانلود نمی‌ماند.
+   آیه‌هایی که از قبل ذخیره‌اند رد می‌شوند؛ بدون اینترنت کاری نمی‌کند (و صدای ذخیره‌شده خودش آفلاین پخش می‌شود). */
+const AUDIO_LOOKAHEAD = 2;
+async function isAyahCachedQuick(reciter, g) {
+  try {
+    const cache = await caches.open(QURAN_AUDIO_CACHE_NAME);
+    for (const b of AUDIO_BITRATES) { if (await cache.match(buildAudioUrl(reciter, b, g))) return true; }
+  } catch (e) {}
+  return false;
+}
+function prefetchNextAyahs(fromGlobal) {
+  try {
+    if (!window.caches || navigator.onLine === false) return;
+    const reciter = currentReciter;
+    const base = Number(fromGlobal);
+    if (!(base >= 1)) return;
+    (async () => {
+      for (let n = 1; n <= AUDIO_LOOKAHEAD; n++) {
+        const g = base + n;
+        if (g > QURAN_TOTAL_AYAHS || navigator.onLine === false) break;
+        if (await isAyahCachedQuick(reciter, g)) continue;
+        await ensureAyahCached(reciter, g, 20000);
+      }
+    })().catch(() => {});
+  } catch (e) {}
+}
 function playAudioWithFallback(globalAyahNumber, session, onStart, onFail) {
   const reciterCandidates = currentReciter === 'ar.alafasy' ? ['ar.alafasy'] : [currentReciter, 'ar.alafasy'];
   const attempts = [];
@@ -6923,6 +6987,7 @@ function playAyahAudio(globalAyahNumber, blockEl) {
   const session = playbackSession;
   playAudioWithFallback(globalAyahNumber, session, () => {
     showMiniPlayer(window.__currentSurahName || '');
+    prefetchNextAyahs(globalAyahNumber);
   }, () => {
     if (session !== playbackSession) return;
     blockEl.classList.remove('is-playing');
@@ -6971,6 +7036,7 @@ function playCurrentQueueItem(surahName) {
   const session = playbackSession;
   playAudioWithFallback(ayah.number, session, () => {
     showMiniPlayer((surahName || window.__currentSurahName || '') + ' — آیه ' + toPersianDigits(ayah.numberInSurah));
+    prefetchNextAyahs(ayah.number);
   }, () => {
     if (session !== playbackSession) return;
     isSequentialPlaying = false;
@@ -7060,29 +7126,7 @@ document.getElementById('quran-fulltext-search').addEventListener('input', (e) =
 });
 
 /* ---------- جزءهای قرآن ---------- */
-let selectedJuz = null;
-const JUZ_COLORS = ['#7FB56F','#6FA3B5','#D98E7C','#A99BCF','#D9BD87','#8FAFA6'];
-function renderJuzList() {
-  const el = document.getElementById('quran-juz-grid');
-  if (el.children.length) return;
-  el.innerHTML = '';
-  for (let j = 1; j <= 30; j++) {
-    const cell = document.createElement('div');
-    cell.className = 'juz-cell';
-    cell.style.background = JUZ_COLORS[j % JUZ_COLORS.length];
-    cell.textContent = toPersianDigits(j);
-    cell.addEventListener('click', () => {
-      selectedJuz = j;
-      document.querySelectorAll('.juz-cell').forEach((c) => c.classList.remove('is-selected'));
-      cell.classList.add('is-selected');
-      document.getElementById('play-selected-juz-btn').classList.remove('hidden');
-    });
-    el.appendChild(cell);
-  }
-}
-document.getElementById('play-selected-juz-btn').addEventListener('click', () => {
-  if (selectedJuz) openJuzReader(selectedJuz);
-});
+/* صفحهٔ «فهرست جزءها» از اپ حذف شد (به درخواست مدیر). خواندن/پخش جزء از مسیرهای دیگر (openJuzReader) سر جایش است. */
 async function openJuzReader(juzNumber) {
   if (getQuranMode() === 'page') { openQuranPageReader({ juz: juzNumber }); return; }
   qpSetMode(false);
@@ -7675,12 +7719,50 @@ function applyTimeOverride(date, hhmm) {
   return d;
 }
 
+/* ---------- بیشتر: تصویر دلخواهِ هر آیکون (مدیر از پیشخوان ← «🖼️ آیکون‌های بیشتر» تعیین می‌کند) ----------
+   هر کاشی کلید data-ikey دارد (main:… برای صفحهٔ بیشتر، sub:… برای زیرمنوها). اگر برای کلید تصویری تعیین شده باشد،
+   همان به‌جای ایموجی نشان داده می‌شود؛ وگرنه ایموجی/آیکون قبلی می‌ماند. آفلاین هم کار می‌کند (فهرست در localStorage و عکس‌ها در کش). */
+let moreIconsData = { shape: 'round', icons: {} };
+let moreIconsLastLoad = 0;
+function applyMoreIconToTile(tile) {
+  try {
+    if (!tile || !tile.dataset) return;
+    const key = tile.dataset.ikey; if (!key) return;
+    const badge = tile.querySelector('.menu-tile-badge'); if (!badge) return;
+    const raw = moreIconsData.icons && moreIconsData.icons[key];
+    if (raw) {
+      const url = String(secureUrl(raw)).replace(/["'()\\\s]/g, (c) => encodeURIComponent(c));
+      badge.classList.add('has-custom-icon');
+      badge.classList.toggle('cicon-free', moreIconsData.shape === 'free');
+      badge.style.backgroundImage = 'url("' + url + '")';
+    } else if (badge.classList.contains('has-custom-icon')) {
+      badge.classList.remove('has-custom-icon', 'cicon-free');
+      badge.style.backgroundImage = '';
+    }
+  } catch (e) {}
+}
+function applyMoreIcons() {
+  document.querySelectorAll('#tab-more .menu-tile[data-ikey], #submenu-list .menu-tile[data-ikey]').forEach(applyMoreIconToTile);
+}
+function loadMoreIcons(force) {
+  if (!force && Date.now() - moreIconsLastLoad < 60000) return;
+  moreIconsLastLoad = Date.now();
+  try {
+    apiSWR('/more-icons', (d) => {
+      if (!d || typeof d !== 'object') return;
+      const icons = (d.icons && typeof d.icons === 'object' && !Array.isArray(d.icons)) ? d.icons : {};
+      moreIconsData = { shape: d.shape === 'free' ? 'free' : 'round', icons: icons };
+      applyMoreIcons();
+      try { prefetchSiteImages(Object.keys(icons).map((k) => icons[k]).filter(Boolean)); } catch (e) {}
+    }).catch(() => {});
+  } catch (e) {}
+}
+
 /* ---------- بیشتر: منوهای گروه‌بندی‌شده ---------- */
 const MENU_GROUPS = {
   quran: { title: 'قرآن و مطالعه', items: [
     { icon: '📖', label: 'درس امروز', goto: 'lesson' },
     { icon: '🔍', label: 'جست‌وجو در قرآن', goto: 'quran-search' },
-    { icon: '🔢', label: 'فهرست جزءها', goto: 'quran-juz' },
     { icon: '🔖', label: 'نشان‌شده‌ها', goto: 'quran-bookmarks' },
     { icon: '📊', label: 'پیشرفت حفظ من', goto: 'hifz-progress' },
     { icon: '🕋', label: 'آیات سجده', goto: 'sajdah-list' },
@@ -7724,7 +7806,9 @@ function openMenuGroup(key) {
     tile.className = 'menu-tile';
     tile.style.setProperty('--tile-c', c);
     tile.style.setProperty('--tile-cd', cd);
+    tile.dataset.ikey = 'sub:' + item.goto;
     tile.innerHTML = `<span class="menu-tile-badge">${item.icon}</span><span class="menu-tile-label">${item.label}</span>`;
+    applyMoreIconToTile(tile);
     tile.addEventListener('click', () => switchToTab(item.goto, { push: true }));
     listEl.appendChild(tile);
   });
@@ -11567,7 +11651,6 @@ function qpJumpTo(p) {
     switch (act) {
       case 'search':    qpMenuClose(); switchToTab('quran-search', { push: true }); break;
       case 'index':     qpMenuClose(); switchToTab('quran-list', { push: true }); break;
-      case 'juz':       qpMenuClose(); switchToTab('quran-juz', { push: true }); break;
       case 'bookmarks': qpMenuClose(); switchToTab('quran-bookmarks', { push: true }); break;
       case 'more':      qpMenuClose(); switchToTab('more', { push: true }); break;
       case 'theme':
@@ -12049,6 +12132,7 @@ document.getElementById('hb-close').addEventListener('click', hbClose);
 document.getElementById('hb-page-close').addEventListener('click', () => overlayGo('hbpage', 0, closeHbPage));
 document.getElementById('hb-page').addEventListener('click', (e) => { if (e.target.id === 'hb-page') overlayGo('hbpage', 0, closeHbPage); });
 hbLoad();
+loadMoreIcons(true);
 
 /* ---------- سرگرمی ← بازی «حدس آیه» ----------
    بیشتر ← سرگرمی ← حدس آیه قرآنی. اول کاربر رشته را از فهرست ثابت GA_CATS (۱ جزء، ۲ جزء، ۵ جزء اول، ۵ جزء آخر، ۱۵، ۲۰، ۳۰ جزء) انتخاب می‌کند؛ هر دور ۱۰ سؤال:

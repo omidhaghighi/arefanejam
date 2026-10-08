@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
-<link rel="stylesheet" href="css/style.css?v=110">
+<link rel="stylesheet" href="css/style.css?v=111">
 </head>
 <body>
 
@@ -433,67 +433,67 @@
     <!-- بیشتر: دسته‌بندی‌شده -->
     <section id="tab-more" class="tab-panel">
       <div class="menu-grid">
-        <button class="menu-tile tile-quran" data-group="quran">
+        <button data-ikey="main:quran" class="menu-tile tile-quran" data-group="quran">
           <span class="menu-tile-badge">📗</span>
           <span class="menu-tile-label">قرآن و مطالعه</span>
         </button>
-        <button class="menu-tile tile-deeds" data-group="deeds">
+        <button data-ikey="main:deeds" class="menu-tile tile-deeds" data-group="deeds">
           <span class="menu-tile-badge">🧮</span>
           <span class="menu-tile-label">محاسبه اعمال</span>
         </button>
-        <button class="menu-tile tile-checklist" data-group="ibadah">
+        <button data-ikey="main:ibadah" class="menu-tile tile-checklist" data-group="ibadah">
           <span class="menu-tile-badge" id="ibadah-tile-badge">🕌</span>
           <span class="menu-tile-label" id="ibadah-tile-label">عبادت</span>
         </button>
-        <button class="menu-tile tile-ramadan" data-goto="ramadan-countdown">
+        <button data-ikey="main:ramadan" class="menu-tile tile-ramadan" data-goto="ramadan-countdown">
           <span class="menu-tile-badge">🌙</span>
           <span class="menu-tile-label">رمضان</span>
         </button>
-        <button class="menu-tile tile-notes" data-goto="notes">
+        <button data-ikey="main:notes" class="menu-tile tile-notes" data-goto="notes">
           <span class="menu-tile-badge">📝</span>
           <span class="menu-tile-label">یادداشت‌های من</span>
         </button>
-        <button class="menu-tile tile-about" data-goto="about">
+        <button data-ikey="main:about" class="menu-tile tile-about" data-goto="about">
           <span class="menu-tile-badge">ℹ️</span>
           <span class="menu-tile-label">درباره ما</span>
         </button>
-        <button class="menu-tile tile-media" data-group="media">
+        <button data-ikey="main:media" class="menu-tile tile-media" data-group="media">
           <span class="menu-tile-badge">📰</span>
           <span class="menu-tile-label">اطلاع‌رسانی</span>
         </button>
-        <button class="menu-tile tile-mokatib" id="mokatib-tile">
+        <button data-ikey="main:mokatib" class="menu-tile tile-mokatib" id="mokatib-tile">
           <span class="menu-tile-badge" id="mokatib-tile-badge">🕌</span>
           <span class="menu-tile-label">مکاتب</span>
         </button>
-        <button class="menu-tile tile-shariq" id="shariq-more-tile" data-goto="shariq">
+        <button data-ikey="main:shariq" class="menu-tile tile-shariq" id="shariq-more-tile" data-goto="shariq">
           <span class="menu-tile-badge" id="shariq-tile-badge">❓</span>
           <span class="menu-tile-label" id="shariq-tile-label">سوالات شرعی</span>
         </button>
-        <button class="menu-tile tile-khatm" id="khatm-more-tile" data-goto="khatm">
+        <button data-ikey="main:khatm" class="menu-tile tile-khatm" id="khatm-more-tile" data-goto="khatm">
           <span class="menu-tile-badge" id="khatm-tile-badge">📖</span>
           <span class="menu-tile-label" id="khatm-tile-label">ختم قرآن</span>
         </button>
-        <button class="menu-tile tile-charity" id="charity-tile" data-goto="charity">
+        <button data-ikey="main:charity" class="menu-tile tile-charity" id="charity-tile" data-goto="charity">
           <span class="menu-tile-badge">🤝</span>
           <span class="menu-tile-label">کمک‌های مردمی</span>
         </button>
-        <button class="menu-tile tile-feedback" id="feedback-more-tile" data-goto="feedback">
+        <button data-ikey="main:feedback" class="menu-tile tile-feedback" id="feedback-more-tile" data-goto="feedback">
           <span class="menu-tile-badge">⭐</span>
           <span class="menu-tile-label" id="feedback-tile-label">نظر و پشتیبانی</span>
         </button>
-        <button class="menu-tile tile-ads" id="ads-more-tile" data-goto="ads">
+        <button data-ikey="main:ads" class="menu-tile tile-ads" id="ads-more-tile" data-goto="ads">
           <span class="menu-tile-badge">📢</span>
           <span class="menu-tile-label" id="ads-tile-label">تبلیغات</span>
         </button>
-        <button class="menu-tile tile-fun" id="fun-more-tile" data-goto="fun">
+        <button data-ikey="main:fun" class="menu-tile tile-fun" id="fun-more-tile" data-goto="fun">
           <span class="menu-tile-badge" id="fun-tile-badge">🎮</span>
           <span class="menu-tile-label" id="fun-tile-label">سرگرمی</span>
         </button>
-        <button class="menu-tile tile-activities hidden" id="activities-more-tile" data-goto="activities">
+        <button data-ikey="main:activities" class="menu-tile tile-activities hidden" id="activities-more-tile" data-goto="activities">
           <span class="menu-tile-badge" id="activities-tile-badge">🏛️</span>
           <span class="menu-tile-label" id="activities-tile-label">فعالیت‌های حوزه</span>
         </button>
-        <button class="menu-tile tile-update hidden" id="app-update-tile">
+        <button data-ikey="main:update" class="menu-tile tile-update hidden" id="app-update-tile">
           <span class="menu-tile-badge">🔄</span>
           <span class="menu-tile-label">بروزرسانی برنامه</span>
         </button>
@@ -963,7 +963,6 @@
           </div>
           <div class="qp-menu-row">
             <button type="button" class="qp-menu-item" data-act="index"><span class="qp-menu-ico">☰</span><span>فهرست سوره‌ها</span></button>
-            <button type="button" class="qp-menu-item" data-act="juz"><span class="qp-menu-ico">🧩</span><span>جزءها</span></button>
             <button type="button" class="qp-menu-item" data-act="pages"><span class="qp-menu-ico">📄</span><span>صفحه‌ها</span></button>
             <button type="button" class="qp-menu-item" data-act="bookmarks"><span class="qp-menu-ico">⭐</span><span>نشان‌شده‌ها</span></button>
           </div>
@@ -1003,16 +1002,6 @@
         <input type="text" id="quran-fulltext-search" placeholder="کلمه یا عبارت فارسی را جست‌وجو کنید...">
       </div>
       <div id="quran-search-results" class="city-list"></div>
-    </section>
-
-    <!-- جزءهای قرآن -->
-    <section id="tab-quran-juz" class="tab-panel">
-      <div class="section-block">
-        <div class="rc-bar"></div>
-        <h3>فهرست جزءها</h3>
-        <div id="quran-juz-grid" class="juz-grid"></div>
-        <button id="play-selected-juz-btn" class="secondary-btn hidden" style="width:100%;margin-top:12px">▶ پخش این جزء</button>
-      </div>
     </section>
 
     <!-- نشان‌شده‌ها -->
@@ -1695,7 +1684,7 @@
 /* native-bridge.js و app.js (به‌همین ترتیب) فقط بعد از پایان صفحهٔ شروع (ویدیو/عکس/گیف) بارگذاری می‌شوند.
    اگر صفحهٔ شروعی نباشد یا تمام شده باشد، بی‌درنگ بارگذاری می‌شوند. */
 (function () {
-  var list = ['js/native-bridge.js?v=23', 'js/app.js?v=161'], i = 0;
+  var list = ['js/native-bridge.js?v=24', 'js/app.js?v=165'], i = 0;
   function next() {
     if (i >= list.length) return;
     var el = document.createElement('script'); el.src = list[i++];
