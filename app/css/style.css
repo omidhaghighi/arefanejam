@@ -4599,3 +4599,29 @@ body.dark-mode #tab-ads .ad-plan-name { color: #F0E6CC; }
 #tab-ads .ad-card-link { border-bottom-color: #A8700F; background: linear-gradient(180deg, #F0BE5A, #E0A12E 55%, #C98A17); }
 #tab-ads .ad-card-btn:active { transform: translateY(2px); border-bottom-width: 2px; }
 body.dark-mode #tab-ads .ad-card-title { color: #F0E6CC; }
+
+
+/* ---------- بنرهای تبلیغاتی همهٔ بخش‌ها (داخل جریان صفحه، بدون پوشاندن محتوا) ---------- */
+.bnr-slot { margin: 10px 12px; }
+.bnr-slot.hidden { display: none; }
+.bnr-item { display: none; position: relative; width: 100%; border-radius: 14px; overflow: hidden;
+  background: rgba(127,127,127,.12); box-shadow: 0 2px 8px rgba(0,0,0,.14); -webkit-tap-highlight-color: transparent; }
+.bnr-item.on { display: block; animation: bnrIn .45s ease-out both; }
+.bnr-item.bnr-click { cursor: pointer; }
+.bnr-item.bnr-click:active { transform: scale(.99); }
+.bnr-slim { aspect-ratio: 6 / 1; }
+.bnr-normal { aspect-ratio: 4 / 1; }
+.bnr-big { aspect-ratio: 3 / 1; }
+.bnr-item img { display: block; width: 100%; height: 100%; object-fit: cover; user-select: none; -webkit-user-drag: none; }
+.bnr-tag { position: absolute; top: 4px; left: 4px; font-size: 9px; line-height: 1; padding: 3px 6px; border-radius: 99px;
+  background: rgba(0,0,0,.5); color: #fff; pointer-events: none; }
+@keyframes bnrIn { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .bnr-item.on { animation: none; } }
+
+
+/* ---------- عنوان نوار بالا: فونت «بی‌نازنین» و کوچک‌تر ----------
+   «B Nazanin» فونت مجوزدار است و روی گوگل‌فونت نیست؛ فقط روی گوشی‌ای که نصب باشد دیده می‌شود.
+   برای همه‌ی گوشی‌ها: فایل فونت را در app/fonts/BNazanin.woff2 بگذارید و خط «src: url(...)» زیر را فعال کنید.
+   تا آن موقع «Noto Naskh Arabic» (نزدیک‌ترین فونت نسخ) جایگزین می‌شود. */
+@font-face { font-family: 'BNazaninApp'; src: local('B Nazanin'), local('BNazanin'), local('B-Nazanin'), local('Nazanin'); font-display: swap; }
+.topbar-title { font-family: 'BNazaninApp', 'B Nazanin', 'Noto Naskh Arabic', 'Vazirmatn', Tahoma, serif; font-weight: 700; font-size: 18px; line-height: 1.5; }

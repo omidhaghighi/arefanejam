@@ -298,7 +298,7 @@ function apiFetch(path, options = {}) {
         apiCacheWrite(cacheKey, data);
         if (/^\/(mokatib\/|shariq\/settings)/.test(basePath)) setTimeout(() => { prefetchSiteImages(collectImageUrls(data)); }, 1500);
         else if (basePath === '/activities') setTimeout(() => { prefetchSiteImages(actCollectImages(data)); }, 1500);
-        else if (basePath === '/ads-page') setTimeout(() => { prefetchSiteImages(collectImageUrls(data)); }, 1500);
+        else if (basePath === '/ads-page' || basePath === '/ad-banners') setTimeout(() => { prefetchSiteImages(collectImageUrls(data)); }, 1500);
       }
       return data;
     })
@@ -316,7 +316,7 @@ function apiFetch(path, options = {}) {
 /* ---------- ذخیرهٔ آفلاینِ اطلاعات عمومی پیشخوان ----------
  * هر بار که اطلاعات با موفقیت از سایت گرفته شود، در حافظهٔ گوشی می‌ماند و اگر بعداً اینترنت نبود
  * (یا سرور خطا داد) همان آخرین نسخه نمایش داده می‌شود. فقط مسیرهای عمومیِ زیر؛ مسیرهای شخصی/ورود نه. */
-const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|hamburger-menu|social-links|theme|shariq\/settings|khatm\/settings|feedback\/settings|zakat|activities|ads-page)$/;
+const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|hamburger-menu|social-links|theme|shariq\/settings|khatm\/settings|feedback\/settings|zakat|activities|ads-page|ad-banners)$/;
 function apiCacheKey(basePath) {
   return API_OFFLINE_CACHE_RE.test(basePath) ? ('arefanejam_api_cache:' + basePath) : '';
 }
@@ -443,6 +443,7 @@ function switchToTab(tabName, opts) {
   if (tabName === 'feedback-view') loadFbView();
   if (tabName === 'activities') actOnTabOpen(); else actLeaveTab();
   if (tabName === 'ads') adsOnTabOpen();
+  try { bnrRenderTab(tabName); } catch (e) {}
   if (tabName !== 'game-ayah') gaStopTimer();
   if (tabName === 'game-ayah') gaOpen();
 }
@@ -12776,6 +12777,22 @@ function actLoad() {
     if (currentTab === 'activities') actRender();
   }).catch(() => { if (currentTab === 'activities') actRender(); });
 }
+// پیدا کردن آیکون با شناسه در فهرست فعلی (سطح جاری)، و رفتن به یک بخش اپ (همان منطق منوی همبرگری)
+function actFindNode(id) {
+  try {
+    const chain = actChain();
+    const node = chain.length ? chain[chain.length - 1] : null;
+    const list = node ? (node.children || []) : ((actData && actData.items) || []);
+    return list.find((x) => String(x.id) === String(id)) || null;
+  } catch (e) { return null; }
+}
+function actGoTab(t) {
+  t = String(t || '');
+  if (t.indexOf('group:') === 0) { openMenuGroup(t.slice(6)); return true; }
+  if (!document.getElementById('tab-' + t)) return false;
+  switchToTab(t, { push: true }); // همیشه با تاریخچه: دکمهٔ برگشت گوشی به صفحهٔ فعالیت‌ها برمی‌گردد
+  return true;
+}
 (function setupActivitiesEvents() {
   try {
     const grid = document.getElementById('act-grid');
@@ -12784,7 +12801,12 @@ function actLoad() {
     if (!grid || !blocks || !back) return;
     grid.addEventListener('click', (e) => {
       const t = e.target.closest('[data-act-id]');
-      if (t) actEnter(t.getAttribute('data-act-id'));
+      if (!t) return;
+      // هدایت: اگر مدیر برای این آیکون «رفتن به بخش اپ / لینک» گذاشته باشد، به‌جای باز شدن محتوا همان انجام می‌شود
+      const gn = actFindNode(t.getAttribute('data-act-id'));
+      if (gn && gn.go_type === 'tab' && gn.go_tab) { try { trackClick('activities_goto'); } catch (e2) {} if (actGoTab(gn.go_tab)) return; }
+      if (gn && gn.go_type === 'link' && /^https?:\/\//i.test(gn.go_url || '')) { try { trackClick('activities_golink'); } catch (e2) {} try { window.open(gn.go_url, '_blank'); } catch (e3) { location.href = gn.go_url; } return; }
+      actEnter(t.getAttribute('data-act-id'));
     });
     back.addEventListener('click', () => overlayGo('act', 1, actPopOne));
     blocks.addEventListener('click', (e) => {
@@ -12906,5 +12928,103 @@ function adsOnTabOpen() { adsLoad(); }
 })();
 adsLoad();
 
+
+/* ---------- بنرهای تبلیغاتی در همهٔ بخش‌های اپ ----------
+   پیشخوان ← عارفان جام ← «🖼️ بنرهای اپ». داده از GET /ad-banners می‌آید (آفلاین هم ذخیره می‌شود).
+   برای هر بنر مدیر بخش‌ها (scope: all = همه به‌جز sections، some = فقط sections)، جایگاه (top/bottom)، اندازه، لینک/تلفن
+   و بازهٔ زمانی را تعیین می‌کند. بنر داخل جریان صفحه است: یک کادر `.bnr-slot` اول یا آخر همان `.tab-panel` (روی محتوا نمی‌افتد).
+   کلید بخش = نام تب (id پنل بدون «tab-»)؛ پس هر پنل تازه‌ای که اضافه شود خودکار بنر می‌گیرد (برای انتخاب در پیشخوان: SLOTS در class-ad-banners.php).
+   چند بنر در یک جایگاه به‌نوبت (هر ۶ ثانیه) عوض می‌شوند. فقط مدیر بنر را پنهان/حذف می‌کند؛ بنر ناقص یا بدون عکس نمایش داده نمی‌شود.
+   ⚠ متغیرها عمداً با var هستند (switchToTab ممکن است قبل از رسیدن اجرا به این خط‌ها صدا زده شود). */
+var bnrData = null;
+var bnrLastLoad = 0;
+function bnrIsLive(b) {
+  const now = Math.floor(Date.now() / 1000);
+  if (!b || !b.image) return false;
+  if (b.from && now < b.from) return false;
+  if (b.to && now > b.to) return false;
+  return true;
+}
+function bnrMatches(b, tab) {
+  const secs = Array.isArray(b.sections) ? b.sections : [];
+  return b.scope === 'some' ? secs.indexOf(tab) > -1 : secs.indexOf(tab) === -1;
+}
+function bnrRenderTab(tab) {
+  const panel = document.getElementById('tab-' + tab);
+  if (!panel) return;
+  ['top', 'bottom'].forEach((pos) => {
+    let slot = null;
+    for (const ch of panel.children) { if (ch.classList && ch.classList.contains('bnr-slot') && ch.getAttribute('data-pos') === pos) { slot = ch; break; } }
+    const all = (bnrData && bnrData.enabled !== false && Array.isArray(bnrData.banners)) ? bnrData.banners : [];
+    const list = all.filter((b) => (b.pos === 'bottom' ? 'bottom' : 'top') === pos && bnrMatches(b, tab) && bnrIsLive(b));
+    if (!list.length) { if (slot) { slot.innerHTML = ''; slot.removeAttribute('data-sig'); slot.classList.add('hidden'); } return; }
+    if (!slot) {
+      slot = document.createElement('div');
+      slot.className = 'bnr-slot';
+      slot.setAttribute('data-pos', pos);
+      if (pos === 'top') panel.insertBefore(slot, panel.firstChild); else panel.appendChild(slot);
+    }
+    const sig = list.map((b) => b.id + ':' + b.image + ':' + b.size + ':' + (b.label ? 1 : 0) + ':' + (b.link || '') + ':' + (b.phone || '')).join('|');
+    slot.classList.remove('hidden');
+    if (slot.getAttribute('data-sig') === sig) return;
+    slot.setAttribute('data-sig', sig);
+    const start = Math.floor(Math.random() * list.length);
+    slot.innerHTML = list.map((b, i) => {
+      const size = /^(slim|normal|big)$/.test(b.size) ? b.size : 'normal';
+      const act = (/^https?:\/\//i.test(b.link || '') ? 'link' : (b.phone ? 'tel' : ''));
+      return '<div class="bnr-item bnr-' + size + (i === start ? ' on' : '') + (act ? ' bnr-click' : '') + '"' +
+        ' data-bnr-id="' + zkAttr(b.id) + '"' + (act ? ' data-bnr-act="' + act + '"' : '') +
+        (act === 'link' ? ' data-bnr-link="' + zkAttr(b.link) + '"' : '') + (act === 'tel' ? ' data-bnr-tel="' + zkAttr(b.phone) + '"' : '') +
+        (act ? ' role="link"' : '') + '>' +
+        '<img src="' + zkAttr(secureUrl(b.image)) + '" alt="' + zkAttr(b.name || 'تبلیغ') + '" loading="lazy" draggable="false">' +
+        (b.label ? '<span class="bnr-tag">تبلیغ</span>' : '') + '</div>';
+    }).join('');
+  });
+}
+function bnrLoad() {
+  bnrLastLoad = Date.now();
+  return apiSWR('/ad-banners', (d) => {
+    bnrData = (d && typeof d === 'object') ? d : null;
+    try { bnrRenderTab(currentTab); } catch (e) {}
+  }).catch(() => {});
+}
+(function setupBanners() {
+  try {
+    document.addEventListener('click', (e) => {
+      const it = e.target.closest ? e.target.closest('.bnr-item[data-bnr-act]') : null;
+      if (!it) return;
+      try { trackClick('banner_' + it.getAttribute('data-bnr-id')); } catch (e2) {}
+      if (it.getAttribute('data-bnr-act') === 'link') window.open(it.getAttribute('data-bnr-link'), '_blank');
+      else window.location.href = adsTel(it.getAttribute('data-bnr-tel'));
+    });
+    // عکسی که باز نشد (آفلاین بدون کش / حذف‌شده): همان بنر پنهان شود تا کادر خالی نماند
+    document.addEventListener('error', (e) => {
+      const t = e.target;
+      if (t && t.tagName === 'IMG' && t.closest && t.closest('.bnr-item')) {
+        const it = t.closest('.bnr-item'); const slot = it.parentNode;
+        it.remove();
+        if (slot && !slot.querySelector('.bnr-item')) slot.classList.add('hidden');
+        else if (slot && !slot.querySelector('.bnr-item.on')) slot.querySelector('.bnr-item').classList.add('on');
+      }
+    }, true);
+    // چرخش خودکار بنرهای هم‌جایگاه (فقط صفحهٔ باز)
+    setInterval(() => {
+      if (document.hidden) return;
+      document.querySelectorAll('.tab-panel.active > .bnr-slot:not(.hidden)').forEach((slot) => {
+        const items = slot.querySelectorAll('.bnr-item');
+        if (items.length < 2) return;
+        let cur = 0; items.forEach((x, i) => { if (x.classList.contains('on')) cur = i; });
+        items[cur].classList.remove('on');
+        items[(cur + 1) % items.length].classList.add('on');
+      });
+    }, 6000);
+    // تازه‌سازی با برگشتن به اپ (حداکثر هر ۵ دقیقه) و پایان بازهٔ زمانی بنرها
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) return;
+      if (Date.now() - bnrLastLoad > 300000) bnrLoad(); else { try { bnrRenderTab(currentTab); } catch (e) {} }
+    });
+  } catch (e) { try { console.error('banners', e); } catch (e2) {} }
+})();
+bnrLoad();
 
 window.__arefBooted = true;
