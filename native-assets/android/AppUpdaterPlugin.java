@@ -1602,16 +1602,23 @@ public class AppUpdaterPlugin extends Plugin {
     }
 
     // ===== Qibla compass: native sensor, works on old phones / old WebView =====
-    // Order: rotation vector -> accelerometer + magnetic field -> legacy orientation sensor.
-    // Emits "qiblaHeading" {heading, source} (degrees from MAGNETIC north; JS adds the declination).
+    // Chain with watchdog: rotation vector -> geomagnetic rotation vector -> accelerometer + magnetic field -> legacy orientation sensor.
+    // If a sensor exists but sends nothing for ~1.6 s (common on cheap/old phones), the next one in the chain is tried automatically.
+    // Emits "qiblaHeading" {heading, source, accuracy} (degrees from MAGNETIC north; JS adds the declination; accuracy 0..3).
     private android.hardware.SensorManager qbSm;
     private android.hardware.SensorEventListener qbListener;
     private final float[] qbAcc = new float[3];
     private final float[] qbMag = new float[3];
     private boolean qbHaveAcc = false, qbHaveMag = false;
     private long qbLastEmit = 0;
+    private volatile long qbStageStart = 0;
+    private volatile int qbMagAccuracy = 3;
+    private int qbStage = 0;
+    private final java.util.ArrayList<String> qbChain = new java.util.ArrayList<String>();
+    private android.os.Handler qbHandler;
+    private Runnable qbWatchdog;
 
-    private void qbEmit(float[] r, String source) {
+    private void qbEmit(float[] r, String source, int accuracy) {
         // Phone lying flat: direction of the top edge; phone upright: direction of the back camera.
         double east, north;
         if (Math.abs(r[8]) > 0.6) { east = r[1]; north = r[4]; }
@@ -1625,7 +1632,51 @@ public class AppUpdaterPlugin extends Plugin {
         JSObject o = new JSObject();
         o.put("heading", h);
         o.put("source", source);
+        o.put("accuracy", accuracy);
         notifyListeners("qiblaHeading", o);
+    }
+
+    /** Registers the sensor(s) of one stage of the chain and arms the watchdog that moves to the next stage if nothing arrives. */
+    private void qbRunStage() {
+        try {
+            if (qbSm == null || qbListener == null || qbStage >= qbChain.size()) return;
+            String src = qbChain.get(qbStage);
+            qbSm.unregisterListener(qbListener);
+            qbHaveAcc = false; qbHaveMag = false;
+            qbStageStart = System.currentTimeMillis();
+            int delay = android.hardware.SensorManager.SENSOR_DELAY_UI;
+            if (src.equals("rotation_vector")) {
+                qbSm.registerListener(qbListener, qbSm.getDefaultSensor(android.hardware.Sensor.TYPE_ROTATION_VECTOR), delay);
+            } else if (src.equals("geomagnetic_rv")) {
+                qbSm.registerListener(qbListener, qbSm.getDefaultSensor(android.hardware.Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR), delay);
+            } else if (src.equals("accel_mag")) {
+                qbSm.registerListener(qbListener, qbSm.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER), delay);
+                qbSm.registerListener(qbListener, qbSm.getDefaultSensor(android.hardware.Sensor.TYPE_MAGNETIC_FIELD), delay);
+            } else {
+                @SuppressWarnings("deprecation")
+                android.hardware.Sensor ori = qbSm.getDefaultSensor(android.hardware.Sensor.TYPE_ORIENTATION);
+                qbSm.registerListener(qbListener, ori, delay);
+            }
+            // The last stage has nothing to fall back to, so no watchdog is needed there.
+            if (qbStage < qbChain.size() - 1) {
+                if (qbHandler == null) qbHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+                if (qbWatchdog != null) qbHandler.removeCallbacks(qbWatchdog);
+                final int myStage = qbStage;
+                qbWatchdog = new Runnable() {
+                    @Override public void run() {
+                        try {
+                            synchronized (AppUpdaterPlugin.this) {
+                                if (qbListener == null || qbStage != myStage) return;
+                                if (qbLastEmit >= qbStageStart) return; // this stage works
+                                qbStage++;
+                                qbRunStage();
+                            }
+                        } catch (Throwable ignore) { }
+                    }
+                };
+                qbHandler.postDelayed(qbWatchdog, 1600);
+            }
+        } catch (Throwable ignore) { }
     }
 
     @PluginMethod
@@ -1638,28 +1689,38 @@ public class AppUpdaterPlugin extends Plugin {
                 qbSm = (android.hardware.SensorManager) getContext().getSystemService(Context.SENSOR_SERVICE);
                 if (qbSm == null) { call.reject("no sensor service"); return; }
                 final android.hardware.Sensor rv = qbSm.getDefaultSensor(android.hardware.Sensor.TYPE_ROTATION_VECTOR);
+                final android.hardware.Sensor grv = (Build.VERSION.SDK_INT >= 19) ? qbSm.getDefaultSensor(android.hardware.Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR) : null;
                 final android.hardware.Sensor acc = qbSm.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER);
                 final android.hardware.Sensor mag = qbSm.getDefaultSensor(android.hardware.Sensor.TYPE_MAGNETIC_FIELD);
                 @SuppressWarnings("deprecation")
                 final android.hardware.Sensor ori = qbSm.getDefaultSensor(android.hardware.Sensor.TYPE_ORIENTATION);
-                qbHaveAcc = false; qbHaveMag = false;
-                final String src;
-                if (rv != null) src = "rotation_vector";
-                else if (acc != null && mag != null) src = "accel_mag";
-                else if (ori != null) src = "orientation";
-                else { call.reject("no compass sensor"); return; }
+                qbChain.clear();
+                if (rv != null) qbChain.add("rotation_vector");
+                if (grv != null) qbChain.add("geomagnetic_rv");
+                if (acc != null && mag != null) qbChain.add("accel_mag");
+                if (ori != null) qbChain.add("orientation");
+                if (qbChain.isEmpty()) { call.reject("no compass sensor"); return; }
+                qbStage = 0;
+                qbMagAccuracy = 3;
                 qbListener = new android.hardware.SensorEventListener() {
                     private final float[] R = new float[9];
-                    private final float[] rvVals = new float[4];
-                    @Override public void onAccuracyChanged(android.hardware.Sensor s, int a) { }
+                    private final float[] rv4 = new float[4];
+                    private final float[] rv3 = new float[3];
+                    @Override public void onAccuracyChanged(android.hardware.Sensor s, int a) {
+                        if (s != null && s.getType() == android.hardware.Sensor.TYPE_MAGNETIC_FIELD) qbMagAccuracy = a;
+                    }
                     @Override public void onSensorChanged(android.hardware.SensorEvent e) {
                         try {
                             int t = e.sensor.getType();
-                            if (t == android.hardware.Sensor.TYPE_ROTATION_VECTOR) {
-                                int n = Math.min(4, e.values.length);
-                                System.arraycopy(e.values, 0, rvVals, 0, n);
-                                android.hardware.SensorManager.getRotationMatrixFromVector(R, rvVals);
-                                qbEmit(R, "rotation_vector");
+                            if (t == android.hardware.Sensor.TYPE_ROTATION_VECTOR || t == android.hardware.Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR) {
+                                if (e.values.length >= 4) {
+                                    System.arraycopy(e.values, 0, rv4, 0, 4);
+                                    android.hardware.SensorManager.getRotationMatrixFromVector(R, rv4);
+                                } else {
+                                    System.arraycopy(e.values, 0, rv3, 0, 3);
+                                    android.hardware.SensorManager.getRotationMatrixFromVector(R, rv3);
+                                }
+                                qbEmit(R, t == android.hardware.Sensor.TYPE_ROTATION_VECTOR ? "rotation_vector" : "geomagnetic_rv", 3);
                             } else if (t == android.hardware.Sensor.TYPE_ACCELEROMETER || t == android.hardware.Sensor.TYPE_MAGNETIC_FIELD) {
                                 float[] dst = (t == android.hardware.Sensor.TYPE_ACCELEROMETER) ? qbAcc : qbMag;
                                 boolean have = (t == android.hardware.Sensor.TYPE_ACCELEROMETER) ? qbHaveAcc : qbHaveMag;
@@ -1667,7 +1728,7 @@ public class AppUpdaterPlugin extends Plugin {
                                 for (int i = 0; i < 3; i++) dst[i] = have ? dst[i] + a * (e.values[i] - dst[i]) : e.values[i];
                                 if (t == android.hardware.Sensor.TYPE_ACCELEROMETER) qbHaveAcc = true; else qbHaveMag = true;
                                 if (qbHaveAcc && qbHaveMag && android.hardware.SensorManager.getRotationMatrix(R, null, qbAcc, qbMag)) {
-                                    qbEmit(R, "accel_mag");
+                                    qbEmit(R, "accel_mag", qbMagAccuracy);
                                 }
                             } else if (t == android.hardware.Sensor.TYPE_ORIENTATION) {
                                 long now = System.currentTimeMillis();
@@ -1676,16 +1737,14 @@ public class AppUpdaterPlugin extends Plugin {
                                 JSObject o = new JSObject();
                                 o.put("heading", (double) ((e.values[0] + 360f) % 360f));
                                 o.put("source", "orientation");
+                                o.put("accuracy", 3);
                                 notifyListeners("qiblaHeading", o);
                             }
                         } catch (Throwable ignore) { }
                     }
                 };
-                int delay = android.hardware.SensorManager.SENSOR_DELAY_UI;
-                if (src.equals("rotation_vector")) qbSm.registerListener(qbListener, rv, delay);
-                else if (src.equals("accel_mag")) { qbSm.registerListener(qbListener, acc, delay); qbSm.registerListener(qbListener, mag, delay); }
-                else qbSm.registerListener(qbListener, ori, delay);
-                JSObject r = new JSObject(); r.put("source", src); call.resolve(r);
+                qbRunStage();
+                JSObject r = new JSObject(); r.put("source", qbChain.get(0)); r.put("chain", android.text.TextUtils.join(",", qbChain)); call.resolve(r);
             }
         } catch (Throwable t) {
             call.reject("qibla sensor: " + t);
@@ -1696,6 +1755,7 @@ public class AppUpdaterPlugin extends Plugin {
     public void stopQiblaSensor(PluginCall call) {
         try {
             synchronized (this) {
+                if (qbHandler != null && qbWatchdog != null) qbHandler.removeCallbacks(qbWatchdog);
                 if (qbSm != null && qbListener != null) qbSm.unregisterListener(qbListener);
                 qbListener = null;
             }

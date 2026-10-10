@@ -441,6 +441,8 @@ let navHistory = JSON.parse(sessionStorage.getItem('arefanejam_nav_history') || 
 
 function switchToTab(tabName, opts) {
   opts = opts || {};
+  // «مکاتب»: اگر ناظر وارد شده باشد، از هر راهی (منوی پایین، همبرگری، کاشی) صفحهٔ ناظر باز شود
+  try { if (tabName === 'mokatib-public' && mokatibState.token) tabName = 'mokatib-home'; } catch (e) {}
   // اگر همین الان (قبل از تعویض) داخل صفحهٔ خواندنِ یک سوره بودیم و داریم از آن خارج می‌شویم،
   // شمارهٔ همان سوره را نگه می‌داریم تا بعد از تعویض تب، پاپ‌آپ «تا اینجا خوانده‌اید/کامل شد»
   // را برایش بررسی کنیم. اگر مقصد هم دوباره «quran-reader» باشد (مثلاً ادامهٔ خودکار به سورهٔ
@@ -486,6 +488,9 @@ function switchToTab(tabName, opts) {
   if (tabName === 'feedback-view') loadFbView();
   if (tabName === 'activities') actOnTabOpen(); else actLeaveTab();
   if (tabName === 'ads') adsOnTabOpen();
+  // مکاتب: بارگذاری داده همین‌جا انجام می‌شود (نه فقط با کلیک کاشی «بیشتر»)، تا از منوی پایین هم کامل باز شود
+  if (tabName === 'mokatib-public') { try { loadMokatibPublicTree(); } catch (e) {} }
+  if (tabName === 'mokatib-home') { try { loadMokatibHome(); } catch (e) {} }
   try { bnrRenderTab(tabName); } catch (e) {}
   if (tabName !== 'game-ayah') gaStopTimer();
   if (tabName === 'game-ayah') gaOpen();
@@ -5152,7 +5157,7 @@ function qbOldWebview() {
 function handleOrientationAbs(event) {
   if (gotNativeHeading) return;
   if (event.alpha === null || event.alpha === undefined) return;
-  gotAbsoluteOrientation = true;
+  gotAbsoluteOrientation = true; qbSource = 'web-absolute';
   let h = headingFromEuler(event.alpha, event.beta || 0, event.gamma || 0);
   if (h === null) return;
   if (calibrationFlipped) h = (360 - h) % 360;
@@ -5163,7 +5168,7 @@ function handleOrientation(event) {
   if (gotNativeHeading) return;
   // iOS: جهت قطب‌نما را خود سیستم می‌دهد
   if (typeof event.webkitCompassHeading === 'number') {
-    gotWebkitCompass = true;
+    gotWebkitCompass = true; qbSource = 'webkit';
     let h = event.webkitCompassHeading;
     if (calibrationFlipped) h = (360 - h) % 360;
     applyHeading(h);
@@ -5172,7 +5177,7 @@ function handleOrientation(event) {
   // اندروید: رویداد «نسبی» جهت واقعی ندارد؛ فقط اگر مطلق باشد و رویداد absolute نیامده استفاده می‌شود
   if (gotAbsoluteOrientation || event.alpha === null || event.alpha === undefined) return;
   if (event.absolute !== true && !qbOldWebview()) return;
-  gotAbsoluteOrientation = true;
+  gotAbsoluteOrientation = true; qbSource = 'web-orientation';
   let h = headingFromEuler(event.alpha, event.beta || 0, event.gamma || 0);
   if (h === null) return;
   if (calibrationFlipped) h = (360 - h) % 360;
@@ -5216,6 +5221,42 @@ async function qbStartSensors() {
   window.addEventListener('deviceorientationabsolute', handleOrientationAbs, true);
   window.addEventListener('deviceorientation', handleOrientation, true);
   qbStartNativeCompass();
+  // ترفند ۲: اگر ~۲ ثانیه هیچ جهتی نرسید، سنسور استاندارد AbsoluteOrientationSensor (کروم ۶۷+) امتحان می‌شود
+  clearTimeout(qbGenericTimer);
+  qbGenericTimer = setTimeout(qbStartGenericSensor, 2000);
+}
+
+let qbSource = '';            // منبع جهت فعلی (برای تشخیص عیب؛ ۵ ضربهٔ سریع روی صفحهٔ قطب‌نما)
+let qbNativeAcc = 3;          // دقت سنسور مغناطیسی بومی (۰ تا ۳)
+let qbGenericTimer = null;
+let qbGenericSensor = null;
+function qbStartGenericSensor() {
+  try {
+    if (!qiblaListenerAttached || gotNativeHeading || gotAbsoluteOrientation || gotWebkitCompass || qbGenericSensor) return;
+    if (typeof window.AbsoluteOrientationSensor !== 'function') return;
+    const sen = new window.AbsoluteOrientationSensor({ frequency: 30, referenceFrame: 'device' });
+    sen.addEventListener('reading', () => {
+      if (gotNativeHeading || !sen.quaternion) return;
+      const x = sen.quaternion[0], y = sen.quaternion[1], z = sen.quaternion[2], w = sen.quaternion[3];
+      const r8 = 1 - 2 * (x * x + y * y);
+      let east, north;
+      if (Math.abs(r8) > 0.6) { east = 2 * (x * y - z * w); north = 1 - 2 * (x * x + z * z); }
+      else { east = -2 * (x * z + y * w); north = -2 * (y * z - x * w); }
+      if (Math.abs(east) < 1e-6 && Math.abs(north) < 1e-6) return;
+      let h = (Math.atan2(east, north) * 180 / Math.PI + 360) % 360;
+      if (calibrationFlipped) h = (360 - h) % 360;
+      qbSource = 'web-sensor';
+      applyHeading(h);
+    });
+    sen.addEventListener('error', () => {});
+    sen.start();
+    qbGenericSensor = sen;
+  } catch (e) {}
+}
+function qbStopGenericSensor() {
+  clearTimeout(qbGenericTimer);
+  try { if (qbGenericSensor) qbGenericSensor.stop(); } catch (e) {}
+  qbGenericSensor = null;
 }
 
 // سنسور بومی اندروید (با APK جدید): روی همهٔ گوشی‌ها کار می‌کند، حتی بدون گیروسکوپ و با وب‌ویوی قدیمی.
@@ -5228,7 +5269,8 @@ function qbStartNativeCompass() {
       qbNativeHandle = 'pending';
       Promise.resolve(A.addListener('qiblaHeading', (e) => {
         if (!qiblaListenerAttached || !e || typeof e.heading !== 'number') return;
-        gotNativeHeading = true;
+        gotNativeHeading = true; qbSource = 'native:' + (e.source || '?');
+        if (typeof e.accuracy === 'number') qbNativeAcc = e.accuracy;
         let h = ((e.heading % 360) + 360) % 360;
         if (calibrationFlipped) h = (360 - h) % 360;
         applyHeading(h);
@@ -5248,6 +5290,7 @@ function qbStopNativeCompass() {
 function qbStopSensors() {
   if (!qiblaListenerAttached) return;
   qiblaListenerAttached = false;
+  qbStopGenericSensor();
   qbStopNativeCompass();
   try {
     window.removeEventListener('deviceorientationabsolute', handleOrientationAbs, true);
@@ -5260,7 +5303,7 @@ setInterval(() => {
   try {
     const s = qbEl('qb-scene');
     if (!s || currentTab !== 'qibla') return;
-    s.classList.toggle('is-calib', qiblaListenerAttached && qbHasLocation() && (Date.now() - qbLastHeadingTs > 3500));
+    s.classList.toggle('is-calib', qiblaListenerAttached && qbHasLocation() && (Date.now() - qbLastHeadingTs > 3500 || (gotNativeHeading && qbNativeAcc <= 0)));
   } catch (e) {}
 }, 1000);
 
@@ -5387,6 +5430,31 @@ async function autoStartQibla() {
 }
 
 qbEl('qibla-gps-btn').addEventListener('click', () => { qbFetchGps(true); });
+// تشخیص عیب (بدون نوشته در صفحه): ۵ ضربهٔ سریع روی قطب‌نما، گزارش کوتاهی نشان می‌دهد تا برای گوشی‌های قدیمی بشود علت را دقیق فهمید
+(function () {
+  let taps = [];
+  const c = qbEl('qb-compass');
+  if (!c) return;
+  c.addEventListener('click', () => {
+    const now = Date.now();
+    taps = taps.filter((t) => now - t < 3000); taps.push(now);
+    if (taps.length < 5) return;
+    taps = [];
+    const m = /Chrome\/(\d+)/.exec(navigator.userAgent || '');
+    const A = qbNative();
+    const info = [
+      'WebView: ' + (m ? m[1] : '?'),
+      'Android: ' + ((/Android ([\d.]+)/.exec(navigator.userAgent || '') || [])[1] || '?'),
+      'منبع جهت: ' + (qbSource || 'هیچ'),
+      'سنسور بومی: ' + (A && A.startQiblaSensor ? 'هست' : 'نیست (APK قدیمی)'),
+      'AbsoluteOrientationSensor: ' + (typeof window.AbsoluteOrientationSensor === 'function' ? 'هست' : 'نیست'),
+      'DeviceOrientationEvent: ' + (typeof window.DeviceOrientationEvent !== 'undefined' ? 'هست' : 'نیست'),
+      'مکان: ' + (qbHasLocation() ? 'مشخص' : 'نامشخص'),
+      'جهت قبله: ' + (qiblaBearing === null ? '—' : Math.round(qiblaBearing) + '°')
+    ];
+    try { alert(info.join('\n')); } catch (e) {}
+  });
+})();
 qbEl('qb-prompt-primary').addEventListener('click', qbPromptPrimary);
 qbEl('qb-prompt-close').addEventListener('click', qbHidePrompt);
 qbEl('qb-prompt-city').addEventListener('click', () => {
@@ -8871,7 +8939,7 @@ function charityCardNumberHtml(card2, i) {
 function bindCharityCopyButtons(root) {
   root.querySelectorAll('.copy-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
-      navigator.clipboard?.writeText(btn.dataset.copy).then(() => { btn.textContent = 'کپی شد'; setTimeout(() => { btn.textContent = 'کپی'; }, 1500); });
+      (navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(btn.dataset.copy) : Promise.reject()).then(() => { btn.textContent = 'کپی شد'; setTimeout(() => { btn.textContent = 'کپی'; }, 1500); }).catch(() => {});
     });
   });
 }
@@ -9409,7 +9477,7 @@ async function loadGallery() {
   } catch (e) { el.innerHTML = '<p class="note-empty">در حال حاضر در دسترس نیست.</p>'; }
 }
 // جلوگیری از باز شدن منوی راست‌کلیک/نگه‌داشتن انگشت روی عکس‌های گالری (برای جلوگیری از ذخیرهٔ مستقیم عکس)
-document.getElementById('gallery-content')?.addEventListener('contextmenu', (e) => e.preventDefault());
+(function () { const g = document.getElementById('gallery-content'); if (g) g.addEventListener('contextmenu', (e) => e.preventDefault()); })();
 
 /* ---------- گالری فرهنگی: نمایش تمام‌صفحه (لایت‌باکس) با زوم و اسلاید ---------- */
 const galleryLightbox = {};
@@ -10557,8 +10625,7 @@ function renderMokatibSlider(data) {
 loadMokatibSlider();
 
 document.getElementById('mokatib-tile').addEventListener('click', () => {
-  if (mokatibState.token) { switchToTab('mokatib-home', { push: true }); loadMokatibHome(); }
-  else { switchToTab('mokatib-public', { push: true }); loadMokatibPublicTree(); }
+  switchToTab(mokatibState.token ? 'mokatib-home' : 'mokatib-public', { push: true }); // بارگذاری داده داخل switchToTab
 });
 
 document.getElementById('mokatib-public-login-link').addEventListener('click', () => {
@@ -11079,8 +11146,7 @@ document.getElementById('mokatib-login-btn').addEventListener('click', async () 
     const data = await mokatibFetch('/mokatib/login', { method: 'POST', body: JSON.stringify({ username, password }) });
     mokatibState.token = data.token;
     sessionStorage.setItem('arefanejam_mokatib_token', data.token);
-    switchToTab('mokatib-home');
-    loadMokatibHome();
+    switchToTab('mokatib-home'); // loadMokatibHome داخل switchToTab صدا زده می‌شود
   } catch (e) { errEl.textContent = 'نام کاربری یا رمز عبور اشتباه است.'; }
 });
 
