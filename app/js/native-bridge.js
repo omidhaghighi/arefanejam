@@ -6,6 +6,98 @@
   if (!Cap || typeof Cap.isNativePlatform !== 'function' || !Cap.isNativePlatform()) return;
   var LN = Cap.Plugins && Cap.Plugins.LocalNotifications;
   if (!LN) return;
+  // iOS: بدون پلاگین بومیِ اذان (AzanReceiver/AzanService مخصوص اندروید است). اذان، درس بعد از نماز و یادآور یادداشت‌ها با اعلان‌های محلی
+  // خود iOS زمان‌بندی می‌شود. محدودیت‌های iOS: حداکثر ۶۴ اعلان هم‌زمان، و صدای اعلان حداکثر ۳۰ ثانیه (فایل azan_<id>.caf که هنگام ساخت
+  // اپ iOS در گیت‌هاب از صدای اذان سایت ساخته می‌شود). هر بار که اپ باز می‌شود، برنامهٔ ۶-۷ روز آینده دوباره چیده می‌شود.
+  var IS_IOS = false;
+  try { IS_IOS = (typeof Cap.getPlatform === 'function' && Cap.getPlatform() === 'ios'); } catch (e) { IS_IOS = false; }
+  var IOS_MAX_NOTIFS = 54;   // اذان + درس؛ ۱۰ جای دیگر برای یادآور یادداشت‌ها می‌ماند (سقف iOS: ۶۴)
+  var IOS_MAX_NOTES = 8;
+  var LESSONS = [
+    "Qخداوند با صابران است؛ پس در سختی‌ها صبر را رها نکن.",
+    "Hکارها به نیت‌هاست و برای هر کس همان است که نیت کرده است.",
+    "Qهر که از خدا بترسد، خدا برایش راه خروجی می‌گشاید و از جایی که گمان ندارد روزی‌اش می‌دهد.",
+    "Hمسلمان کسی است که مسلمانان از زبان و دستش در امان باشند.",
+    "Qبی‌گمان همراه هر سختی، آسانی‌ای هست.",
+    "Hهیچ‌یک از شما مؤمن نیست تا آنچه را برای خود دوست دارد برای برادرش هم دوست بدارد.",
+    "Qمرا یاد کنید تا شما را یاد کنم و شکرگزارم باشید و ناسپاسی نکنید.",
+    "Hهر که به خدا و روز آخرت ایمان دارد، سخن خوب بگوید یا سکوت کند.",
+    "Qآگاه باشید، تنها با یاد خدا دل‌ها آرام می‌گیرد.",
+    "Hهر که به خدا و روز آخرت ایمان دارد، مهمانش را گرامی بدارد.",
+    "Qخدا می‌فرماید: من نزدیکم و دعای دعاکننده را وقتی مرا بخواند اجابت می‌کنم.",
+    "Hبهترین شما کسی است که قرآن را بیاموزد و به دیگران بیاموزاند.",
+    "Qاگر شکرگزار باشید، نعمت را برایتان بیشتر می‌کنم.",
+    "Hلبخند زدن تو به روی برادرت صدقه است.",
+    "Qخدا هیچ‌کس را جز به اندازهٔ توانش تکلیف نمی‌کند.",
+    "Hپاکیزگی نیمی از ایمان است.",
+    "Qبه پدر و مادر نیکی کن؛ و حتی «اف» هم به آن‌ها نگو و با آن‌ها نیکو سخن بگو.",
+    "Hبهترین شما، خوش‌اخلاق‌ترین شماست.",
+    "Qبا مردم نیکو سخن بگویید.",
+    "Hسنگین‌ترین چیز در ترازوی اعمال، خوش‌اخلاقی است.",
+    "Qبدی را با نیکی دفع کن؛ آن‌گاه کسی که با تو دشمنی داشت، چون دوستی گرم خواهد شد.",
+    "Hخدا مهربان است و مهربانی را در همهٔ کارها دوست دارد.",
+    "Qخدا به عدالت و نیکی و بخشش به خویشاوندان فرمان می‌دهد.",
+    "Hبه مهربانان، خدای مهربان رحم می‌کند؛ به اهل زمین مهربانی کنید تا آسمانیان بر شما مهربان باشند.",
+    "Qدر نیکی و پرهیزگاری یکدیگر را یاری کنید، نه در گناه و دشمنی.",
+    "Hهر که به مردم رحم نکند، خدا به او رحم نمی‌کند.",
+    "Qمؤمنان با هم برادرند؛ پس میان برادرانتان آشتی برقرار کنید.",
+    "Hمؤمن برای مؤمن مانند ساختمانی است که اجزایش یکدیگر را محکم نگه می‌دارند.",
+    "Qاز بسیاری گمان‌های بد دوری کنید و از عیب‌جویی و غیبت یکدیگر بپرهیزید.",
+    "Hدین، خیرخواهی است.",
+    "Qدر راه خدا انفاق کنید و نیکی کنید؛ خدا نیکوکاران را دوست دارد.",
+    "Hدعا همان عبادت است.",
+    "Qبه نیکی واقعی نمی‌رسید مگر آنکه از آنچه دوست دارید ببخشید.",
+    "Hخشنودی پروردگار در خشنودی پدر و مادر است.",
+    "Qبگو: نماز و عبادت و زندگی و مرگ من، همه برای خدا، پروردگار جهانیان است.",
+    "Hنمازهای پنجگانه مانند نهری جاری در برابر خانهٔ توست که هر روز پنج بار در آن شست‌وشو می‌کنی؛ دیگر چه آلودگی‌ای می‌ماند؟",
+    "Qنماز را برپا دار؛ همانا نماز از کار زشت و ناپسند باز می‌دارد.",
+    "Hنخستین چیزی که در قیامت از بنده حساب می‌شود، نماز است.",
+    "Qاز صبر و نماز کمک بگیرید.",
+    "Hدو کلمه بر زبان سبک و در ترازو سنگین و نزد خدا محبوب‌اند: «سبحان‌الله و بحمده، سبحان‌الله العظیم».",
+    "Qخدا توبه‌کنندگان و پاکیزگان را دوست دارد.",
+    "Hهر که راهی برای دانش‌آموزی بپیماید، خدا راه بهشت را برایش آسان می‌کند.",
+    "Qای بندگان من که بر خود زیاده‌روی کرده‌اید، از رحمت خدا ناامید نشوید؛ او همهٔ گناهان را می‌بخشد.",
+    "Hهر که به کار نیکی راهنمایی کند، همانند انجام‌دهندهٔ آن پاداش دارد.",
+    "Qهر که ذره‌ای نیکی کند آن را می‌بیند و هر که ذره‌ای بدی کند آن را می‌بیند.",
+    "Hصدقه از مال کم نمی‌کند.",
+    "Qپیمانه و ترازو را با عدالت تمام بدهید.",
+    "Hدست بخشنده از دست گیرنده بهتر است.",
+    "Qبه پیمان خود وفا کنید؛ زیرا از پیمان پرسیده می‌شود.",
+    "Hقوی کسی نیست که در کشتی پیروز شود؛ قوی کسی است که هنگام خشم خود را نگه دارد.",
+    "Qهیچ‌کس بار گناه دیگری را بر دوش نمی‌کشد.",
+    "Hمردی از پیامبر نصیحت خواست؛ فرمود: «خشمگین مشو».",
+    "Qهر که بر خدا توکل کند، خدا او را کافی است.",
+    "Hنشانهٔ منافق سه چیز است: سخن می‌گوید دروغ می‌گوید، وعده می‌دهد خلاف می‌کند، امانت به او سپرده شود خیانت می‌کند.",
+    "Qخدا را بسیار یاد کنید تا رستگار شوید.",
+    "Hراستگویی به نیکی راه می‌برد و نیکی به بهشت می‌رساند.",
+    "Qاز آنچه در زمین حلال و پاکیزه است بخورید.",
+    "Hدر دنیا چنان باش که گویی غریبی یا رهگذری.",
+    "Qبگو: آیا آنان که می‌دانند با آنان که نمی‌دانند برابرند؟",
+    "Hدو نعمت است که بسیاری از مردم در آن زیان می‌بینند: تندرستی و فراغت.",
+    "Qبگو: پروردگارا، دانشم را بیفزا.",
+    "Hثروت واقعی به داشتن مال فراوان نیست؛ ثروت واقعی بی‌نیازی دل است.",
+    "Qبا راستگویان باشید.",
+    "Hآنچه تو را به تردید می‌اندازد رها کن و به سراغ آنچه در آن تردید نیست برو.",
+    "Qآنان که خشم خود را فرو می‌خورند و از مردم درمی‌گذرند، نیکوکارانند و خدا نیکوکاران را دوست دارد.",
+    "Hاز خوبیِ اسلام آدمی این است که کاری را که به او مربوط نیست رها کند.",
+    "Qدر زمین با تکبر راه مرو؛ خدا هیچ متکبر خودستایی را دوست ندارد.",
+    "Hمحبوب‌ترین عمل نزد خدا، نماز در وقتش است.",
+    "Qهر که کار شایسته کند، مرد باشد یا زن، در حالی که مؤمن است، به او زندگی پاکیزه می‌دهیم.",
+    "Hهر که در برآوردن نیاز برادرش بکوشد، خدا نیاز او را برآورده می‌کند.",
+    "Qپروردگارا، در دنیا به ما نیکی ده و در آخرت نیکی ده و ما را از عذاب آتش نگه دار.",
+    "Hهر که عیب مسلمانی را بپوشاند، خدا در دنیا و آخرت عیب او را می‌پوشاند.",
+    "Hهیچ کار نیکی را کوچک مشمار، حتی اینکه برادرت را با چهرهٔ گشاده ببینی.",
+    "Hایمان شاخه‌های بسیار دارد؛ برترینش گفتن «لا اله الا الله» و کمترینش برداشتن آزار از سر راه است و حیا نیز شاخه‌ای از ایمان است.",
+    "Hسخن پاک و نیکو صدقه است."
+  ];
+  function lessonPrayerIndex(k) { return ({ fajr: 0, dhuhr: 1, asr: 2, maghrib: 3, isha: 4 })[k]; }
+  function lessonFor(t, key) {
+    var pidx = lessonPrayerIndex(key);
+    if (pidx === undefined || !LESSONS.length) return null;
+    var day = Math.floor((t - new Date(t).getTimezoneOffset() * 60000) / 86400000);
+    var raw = LESSONS[(day * 5 + pidx) % LESSONS.length];
+    return { title: raw.charAt(0) === 'Q' ? 'درسی از قرآن' : 'درسی از حدیث', body: raw.slice(1) };
+  }
 
   // صدای کانال اندروید بعد از ساخت قابل تغییر نیست؛ برای همین به ازای هر صدای اذانِ داخل اپ یک کانال جدا داریم
   // (azan-<id>) و هنگام زمان‌بندی، کانالِ «صدای فعال» انتخاب می‌شود. کانال azan-v3 فقط برای وقتی است که
@@ -16,7 +108,7 @@
   var DEFAULT_VOICE = window.NATIVE_AZAN_DEFAULT || '';
   function hasVoice(id) { for (var i = 0; i < VOICES.length; i++) { if (VOICES[i].id === id) return true; } return false; }
   function voiceChannel(id) { return 'azan-' + id; }
-  function voiceFile(id) { return 'azan_' + id + '.mp3'; }
+  function voiceFile(id) { return 'azan_' + id + (IS_IOS ? '.caf' : '.mp3'); }
   // صدایی که واقعاً باید استفاده شود: صدای فعالِ سایت اگر داخل این نسخهٔ اپ هست؛ وگرنه صدای پیش‌فرضِ زمان ساخت
   function pickVoice(wanted) {
     if (wanted && hasVoice(wanted)) return wanted;
@@ -75,10 +167,38 @@
     }).catch(log);
   }
 
+  // iOS: اذان (+ ۱۰ دقیقه بعد، درس کوتاه) با اعلان محلی؛ به‌ترتیب زمان، حداکثر IOS_MAX_NOTIFS تای اول
+  function applyScheduleIOS(prayers, enabled, brand, voiceId) {
+    return cancelByKind('azan').then(function () { return cancelByKind('lesson'); }).then(function () {
+      if (!enabled) return;
+      var now = Date.now();
+      var voice = pickVoice(voiceId);
+      var items = [];
+      (prayers || []).forEach(function (p) {
+        var t = new Date(p.timeIso).getTime();
+        if (!(t > now + 2000)) return;
+        var n = { id: azanId(p.key + '|' + p.timeIso), title: 'وقت اذان ' + p.label, body: brand || 'عارفان جام',
+                  schedule: { at: new Date(t) }, extra: { kind: 'azan', label: p.label }, _t: t };
+        if (voice) n.sound = voiceFile(voice);
+        items.push(n);
+        var ls = lessonFor(t, p.key);
+        if (ls) {
+          var lt = t + 10 * 60 * 1000;
+          items.push({ id: azanId('lesson|' + p.key + '|' + p.timeIso), title: ls.title, body: ls.body,
+                       schedule: { at: new Date(lt) }, extra: { kind: 'lesson' }, _t: lt });
+        }
+      });
+      items.sort(function (a, b) { return a._t - b._t; });
+      items = items.slice(0, IOS_MAX_NOTIFS).map(function (n) { delete n._t; return n; });
+      if (items.length) return LN.schedule({ notifications: items });
+    }).catch(log);
+  }
+
   /* Native azan (AzanReceiver/AzanService in the APK): plays the azan with the phone locked, the app closed
      and NO internet. If the APK is old (no such method) or it fails, the old notification way is used. */
   var nativeAzan = false;
   function applySchedule(prayers, enabled, brand, voiceId, url) {
+    if (IS_IOS) return applyScheduleIOS(prayers, enabled, brand, voiceId);
     var AUp = Cap.Plugins && Cap.Plugins.AppUpdater;
     if (AUp && typeof AUp.scheduleAzan === 'function') {
       var items = [];
@@ -117,6 +237,7 @@
           extra: { kind: 'note', noteId: n.id }
         });
       });
+      if (IS_IOS) items = items.slice(0, IOS_MAX_NOTES);
       if (items.length) return LN.schedule({ notifications: items });
     }).catch(log);
   }
@@ -166,6 +287,7 @@
       if (ready) enqueue(function () { return applyNotes(list); });
     },
     syncSticky: function (payload) {
+      if (IS_IOS) return;   // اعلان ثابت (ongoing) در iOS وجود ندارد
       queuedSticky = { p: payload };
       if (ready) enqueue(function () { return applySticky(payload); });
     }
@@ -190,7 +312,7 @@
       var st = {};
       try { st = JSON.parse(localStorage.getItem(BAT_ASK_KEY) || '{}'); } catch (e) {}
       var n = Number(st.n) || 0, ts = Number(st.ts) || 0;
-      if (!force && n > 0 && (n >= 5 || Date.now() - ts < 24 * 3600 * 1000)) return;
+      if (!force && n > 0 && (n >= 3 || Date.now() - ts < 3 * 24 * 3600 * 1000)) return;
       try { localStorage.setItem(BAT_ASK_KEY, JSON.stringify({ n: n + 1, ts: Date.now() })); } catch (e) {}
       var shown;
       if (typeof window.appAlert === 'function') shown = window.appAlert('battery_ask');
@@ -215,8 +337,56 @@
     }).catch(log);
   }
 
+  /* مجوزهای مرحله‌ای (برای اینکه کاربر تازه‌وارد زیر فشار نباشد):
+     ۱) اولین باز شدن: فقط «موقعیت مکانی» (پنجرهٔ خوش‌آمدگویی داخل app.js) — اذان پیش‌فرض روشن است و برای پخش اذان بومی مجوز دیگری لازم نیست.
+     ۲) باز شدن دوم (پس از تعیین موقعیت): مجوز اعلان‌ها.  ۳) حداقل یک روز بعد: مجوز اجرا در پس‌زمینه (باتری).
+     ۴) حداقل دو روز بعد: «آلارم‌ها و یادآورها».  هر بار حداکثر یکی و با فاصلهٔ ≥ ۲۰ ساعت.
+     ۵) «نصب از منبع ناشناس» هر ۳ روز یک‌بار یادآوری می‌شود (permReminder پایین‌تر؛ اولین بار ۳ روز بعد از نصب).
+     وضعیت در localStorage ← arefanejam_perm_stage = {first, sessions, notif, bat, exact, last}. */
+  var STAGE_KEY = 'arefanejam_perm_stage';
+  var DAY_MS = 24 * 3600 * 1000;
+  function stGet() { try { return JSON.parse(localStorage.getItem(STAGE_KEY) || 'null') || null; } catch (e) { return null; } }
+  function stSet(o) { try { localStorage.setItem(STAGE_KEY, JSON.stringify(o)); } catch (e) {} }
+  function locationDone() {
+    try {
+      return !!(localStorage.getItem('arefanejam_location_prompted') || localStorage.getItem('arefanejam_last_coords') || localStorage.getItem('arefanejam_manual_city'));
+    } catch (e) { return true; }
+  }
+  (function countSession() {
+    var s = stGet(), now = Date.now();
+    if (!s) {
+      var old = false;
+      try { old = !!localStorage.getItem('arefanejam_device_id'); } catch (e) {}   // نصب قدیمی‌تر: دیگر معطل نمی‌ماند
+      s = old ? { first: now - 10 * DAY_MS, sessions: 5, notif: 0, bat: 0, exact: 0, last: 0 } : { first: now, sessions: 0, notif: 0, bat: 0, exact: 0, last: 0 };
+    }
+    s.sessions = (Number(s.sessions) || 0) + 1;
+    stSet(s);
+  })();
+  var permStepBusy = false;
+  function permStep() {
+    try {
+      if (permStepBusy) return Promise.resolve();
+      var s = stGet(); if (!s) return Promise.resolve();
+      var now = Date.now();
+      if (!locationDone()) return Promise.resolve();                       // اول فقط مکان
+      if (s.last && now - s.last < 20 * 3600 * 1000) return Promise.resolve();
+      var step = null;
+      if (!s.notif) { if (s.sessions >= (IS_IOS ? 1 : 2)) { s.notif = 1; step = function () { return LN.requestPermissions(); }; } }
+      else if (IS_IOS) { step = null; }                                    // iOS: باتری/آلارم دقیق ندارد
+      else if (!s.bat) { if (now - s.first >= DAY_MS) { s.bat = 1; step = function () { return askBattery(false); }; } }
+      else if (!s.exact) { if (now - s.first >= 2 * DAY_MS) { s.exact = 1; step = askExactAlarmIfNeeded; } }
+      else { step = function () { return askBattery(false); }; }          // اگر باتری را نپذیرفته: هر ۳ روز، حداکثر ۳ بار
+      if (!step) return Promise.resolve();
+      s.last = now; stSet(s);
+      permStepBusy = true;
+      return Promise.resolve().then(step).catch(log).then(function () { permStepBusy = false; });
+    } catch (e) { permStepBusy = false; log(e); return Promise.resolve(); }
+  }
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') setTimeout(permStep, 2500); });
+
   function init() {
-    return LN.requestPermissions().then(function () {
+    return Promise.resolve().then(function () {
+      if (IS_IOS) return;   // iOS کانال ندارد
       var ch = [
         { id: CH_AZAN, name: 'اذان (صدای پیش‌فرض گوشی)', description: 'اعلان اذان', importance: 5, visibility: 1, vibration: true },
         { id: CH_NOTES, name: 'یادآوری یادداشت‌ها', description: 'یادآورهای یادداشت شخصی', importance: 4, visibility: 1, vibration: true },
@@ -229,13 +399,13 @@
         if (typeof LN.deleteChannel === 'function') CH_AZAN_OLD.forEach(function (id) { LN.deleteChannel({ id: id }); });
       } catch (e) {}
       return Promise.all(ch.map(function (c) { return LN.createChannel(c); }));
-    }).then(askExactAlarmIfNeeded).then(function () {
+    }).then(function () {
       ready = true;
       if (queuedSchedule) enqueue(function () { return applySchedule(queuedSchedule[0], queuedSchedule[1], queuedSchedule[2], queuedSchedule[3], queuedSchedule[4]); });
       if (queuedNotes) enqueue(function () { return applyNotes(queuedNotes[0]); });
       if (queuedSticky) enqueue(function () { return applySticky(queuedSticky.p); });
-      // چند ثانیه بعد (تا صفحه و زمان‌بندی اذان آماده شوند) مجوز باتری را می‌پرسد
-      setTimeout(function () { askBattery(false); }, 4000);
+      // چند ثانیه بعد، اگر نوبت یکی از مجوزهای مرحله‌ای رسیده باشد (نه در اولین باز شدن)
+      setTimeout(permStep, 8000);
     }).catch(log);
   }
 
@@ -276,6 +446,8 @@
 (function () {
   var Cap = window.Capacitor;
   if (!Cap || typeof Cap.isNativePlatform !== 'function' || !Cap.isNativePlatform()) return;
+  // iOS: بروزرسانی APK/خودکار و یادآوری «منبع ناشناس» مخصوص اندروید است؛ نسخهٔ iOS از طریق TestFlight/App Store بروز می‌شود.
+  try { if (typeof Cap.getPlatform === 'function' && Cap.getPlatform() === 'ios') return; } catch (e) {}
 
   var CURRENT = String(window.NATIVE_APP_VERSION || '0.0.0');
   var DEFAULT_API = 'https://arefanejam.com/wp-json/arefanejam/v1';
@@ -771,7 +943,8 @@
       if (!P || typeof P.status !== 'function') return;
       if (!force) {
         var last = Number(lsGet(PERM_KEY) || 0);
-        if (last && Date.now() - last < PERM_MS) return;
+        if (!last) { lsSet(PERM_KEY, String(Date.now())); return; }   // اولین باز شدن: اصلاً نمی‌پرسد؛ اولین یادآوری ۳ روز بعد
+        if (Date.now() - last < PERM_MS) return;
       }
       permBusy = true;
       P.status().then(function (s) {

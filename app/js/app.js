@@ -37,7 +37,43 @@ const CALC_METHODS = {
   UmmAlQura:             { fajr: 18.5, ishaInterval: 90 },
   MoonsightingCommittee: { fajr: 18,   isha: 18 },
   NorthAmerica:          { fajr: 15,   isha: 15 },
+  // دو روش ایرانی (فقه جعفری): مغرب با زاویه، نه لحظهٔ غروب (۴٫۵° تهران / ۴° قم پایین‌تر از افق)
+  Tehran:                { fajr: 17.7, isha: 14, maghrib: 4.5 },
+  Qom:                   { fajr: 16,   isha: 14, maghrib: 4 },
 };
+// ام‌القری: عشاء ۹۰ دقیقه بعد از مغرب، و ۱۲۰ دقیقه در ماه رمضان (طبق روش رسمی)
+CALC_METHODS.UmmAlQura.ishaIntervalRamadan = 120;
+
+/* ===== روش محاسبهٔ اذان که «خود کاربر» از صفحهٔ اذان انتخاب می‌کند =====
+   'default' = پیش‌فرض عارفان جام (سریع): همان رفتار قبلی (جدول دقیق تربت‌جام + روش و اصلاحیه‌های پیشخوان).
+   هر مقدار دیگر = محاسبهٔ نجومی خالص با همان روش برای هر شهر (بدون جدول و بدون اصلاحیه‌های پیشخوان). */
+const AZAN_METHOD_KEY = 'arefanejam_azan_calc_method';
+const AZAN_DEFAULT_METHOD_NAME = 'پیش‌فرض عارفان جام (سریع)';
+const AZAN_METHOD_OPTIONS = [
+  { key: 'default',           name: AZAN_DEFAULT_METHOD_NAME,           desc: 'جدول دقیق تربت‌جام برای تربت‌جام و اطراف؛ برای بقیهٔ شهرها محاسبهٔ تنظیم‌شدهٔ عارفان جام' },
+  { key: 'Tehran',            name: 'مؤسسه ژئوفیزیک دانشگاه تهران',       desc: 'فجر ۱۷٫۷° · عشاء ۱۴° · مغرب ۴٫۵° (روش صدا و سیما)' },
+  { key: 'Egyptian',          name: 'مرکز مطالعات مصر',                   desc: 'فجر ۱۹٫۵° · عشاء ۱۷٫۵°' },
+  { key: 'UmmAlQura',         name: 'ام‌القری، مکه',                      desc: 'فجر ۱۸٫۵° · عشاء ۹۰ دقیقه بعد از مغرب (۱۲۰ دقیقه در رمضان)' },
+  { key: 'MuslimWorldLeague', name: 'باشگاه مسلمانان دنیا',               desc: 'فجر ۱۸° · عشاء ۱۷°' },
+  { key: 'Qom',               name: 'مؤسسه لواء قم',                      desc: 'فجر ۱۶° · عشاء ۱۴° · مغرب ۴°' },
+  { key: 'Karachi',           name: 'دانشگاه علوم اسلامی کراچی',          desc: 'فجر ۱۸° · عشاء ۱۸°' },
+  { key: 'NorthAmerica',      name: 'جامعه اسلامی شمال آمریکا',           desc: 'فجر ۱۵° · عشاء ۱۵°' },
+];
+function getUserCalcMethod() {
+  try {
+    const v = localStorage.getItem(AZAN_METHOD_KEY);
+    if (v && v !== 'default' && CALC_METHODS[v] && AZAN_METHOD_OPTIONS.some((o) => o.key === v)) return v;
+  } catch (e) {}
+  return 'default';
+}
+function setUserCalcMethod(key) {
+  try { if (!key || key === 'default') localStorage.removeItem(AZAN_METHOD_KEY); else localStorage.setItem(AZAN_METHOD_KEY, key); } catch (e) {}
+}
+function userCalcMethodName() {
+  const k = getUserCalcMethod();
+  const o = AZAN_METHOD_OPTIONS.find((x) => x.key === k);
+  return o ? o.name : AZAN_DEFAULT_METHOD_NAME;
+}
 
 /* ===== ساعت ثابت ایران (یکسان‌سازی اوقات در همهٔ گوشی‌ها) =====
    ایران از ۱۴۰۱ ساعت تابستانی ندارد و همیشه UTC+3:30 است. قبلاً اوقات با «منطقهٔ زمانی خود گوشی» حساب می‌شد؛
@@ -103,9 +139,12 @@ function computePrayerTimesLocal(lat, lng, date, methodKey, asrFactor, offsets) 
   }
 
   const sunriseUTC = dhuhrUTC - hourAngle(0.833);
-  const maghribUTC = dhuhrUTC + hourAngle(0.833);
+  const sunsetUTC = dhuhrUTC + hourAngle(0.833);
+  const maghribUTC = method.maghrib ? dhuhrUTC + hourAngle(method.maghrib) : sunsetUTC;
   const fajrUTC = dhuhrUTC - hourAngle(method.fajr);
-  const ishaUTC = method.ishaInterval ? maghribUTC + method.ishaInterval / 60 : dhuhrUTC + hourAngle(method.isha);
+  let ishaInt = method.ishaInterval;
+  if (ishaInt && method.ishaIntervalRamadan) { try { if (isRamadanDay(date)) ishaInt = method.ishaIntervalRamadan; } catch (e) {} }
+  const ishaUTC = ishaInt ? maghribUTC + ishaInt / 60 : dhuhrUTC + hourAngle(method.isha);
   const asrUTC = dhuhrUTC + asrHourAngle(asrFactor);
 
   function toLocalDate(utcHour, offsetMinutes) {
@@ -123,7 +162,7 @@ function computePrayerTimesLocal(lat, lng, date, methodKey, asrFactor, offsets) 
     dhuhr: toLocalDate(dhuhrUTC, offsets.dhuhr),
     asr: toLocalDate(asrUTC, offsets.asr),
     // غروب آفتاب (نجومی) و مغرب (شرعی) از یک لحظه محاسبه می‌شوند اما هرکدام تنظیم دستی جداگانه دارند
-    sunset: toLocalDate(maghribUTC, offsets.sunset),
+    sunset: toLocalDate(sunsetUTC, offsets.sunset),
     maghrib: toLocalDate(maghribUTC, offsets.maghrib),
     isha: toLocalDate(ishaUTC, offsets.isha),
   };
@@ -235,6 +274,8 @@ let qbPromptKind = '';
 let qbPermAsked = false;
 let gotAbsoluteOrientation = false;
 let gotWebkitCompass = false;
+let gotNativeHeading = false;       // سنسور بومی اندروید (برای گوشی‌های قدیمی که وب‌ویو جهت مطلق نمی‌دهد)
+let qbNativeHandle = null;
 let azUpcoming = null;              // اذان بعدی برای صحنهٔ سه‌بعدی تب اذان (شمارش معکوس زنده)
 let qbMapKey = '';                  // کلید آخرین نقشهٔ کشیده‌شده (مختصات + اندازه) تا بی‌دلیل دوباره کشیده نشود
 let qbMapTilesOk = 0, qbMapTilesBad = 0;
@@ -318,7 +359,7 @@ function apiFetch(path, options = {}) {
  * (یا سرور خطا داد) همان آخرین نسخه نمایش داده می‌شود. فقط مسیرهای عمومیِ زیر؛ مسیرهای شخصی/ورود نه. */
 var moreIconsData = { shape: 'round', icons: {} }; // بیشتر: تصویر دلخواه آیکون‌ها (بالای فایل تعریف شده تا هر کدی بتواند هر زمان صدایش کند)
 var moreIconsLastLoad = 0;
-const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|hamburger-menu|more-icons|social-links|theme|shariq\/settings|khatm\/settings|feedback\/settings|zakat|activities|ads-page|ad-banners)$/;
+const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|hamburger-menu|more-icons|social-links|theme|shariq\/settings|khatm\/settings|feedback\/settings|zakat|activities|ads-page|ad-banners|bottom-nav)$/;
 function apiCacheKey(basePath) {
   return API_OFFLINE_CACHE_RE.test(basePath) ? ('arefanejam_api_cache:' + basePath) : '';
 }
@@ -450,9 +491,21 @@ function switchToTab(tabName, opts) {
   if (tabName === 'game-ayah') gaOpen();
 }
 
-document.querySelectorAll('.nav-btn').forEach((btn) => {
-  btn.addEventListener('click', () => { navHistory = []; switchToTab(btn.dataset.tab); });
-});
+/* دکمه‌های نوار پایین: یک شنوندهٔ مشترک روی خود نوار (تا دکمه‌های ساخته‌شده از پیشخوان ← «منوی پایین اپ» هم کار کنند).
+   مقصد می‌تواند یکی از گروه‌های صفحهٔ «بیشتر» هم باشد (group:...). */
+(function () {
+  const nav = document.querySelector('.bottom-nav');
+  if (!nav) return;
+  nav.addEventListener('click', (e) => {
+    const btn = e.target.closest ? e.target.closest('.nav-btn') : null;
+    if (!btn || !nav.contains(btn)) return;
+    const t = String(btn.dataset.tab || '');
+    if (t.indexOf('group:') === 0) { try { openMenuGroup(t.slice(6)); } catch (err) {} return; }
+    if (!t) return;
+    navHistory = [];
+    switchToTab(t);
+  });
+})();
 document.querySelectorAll('.menu-tile[data-goto]').forEach((tile) => {
   tile.addEventListener('click', () => switchToTab(tile.dataset.goto, { push: true }));
 });
@@ -500,6 +553,7 @@ const HW_MODAL_CLOSERS = {
   'charity-food-thanks-modal': 'charity-food-thanks-ok',
   'onboarding-location-modal': 'onboarding-location-later-btn',
   'city-modal': 'city-cancel-btn',
+  'azan-method-modal': 'azan-method-cancel-btn',
   'deeds-popup': 'deeds-popup-later',
   'alarm-modal': 'alarm-ok-btn'
 };
@@ -1936,7 +1990,14 @@ async function resumeQuranFromLastPosition() {
   const lr = getLastRead();
   const pbOk = !!(pb && pb.surahNumber);
   const lrOk = !!(lr && lr.number);
-  if (!pbOk && !lrOk) return false;
+  if (!pbOk && !lrOk) {
+    // کاربر هنوز هیچ‌چیز نخوانده/نشنیده: از اول قرآن (سورهٔ حمد، آیهٔ ۱) خواندن و پخش صوت شروع می‌شود
+    let fname = '';
+    try { fname = await getSurahNameByNumber(1); } catch (e) {}
+    navHistory = [];
+    openSurahReader(1, fname || 'الفاتحة', { skipResumeCheck: true, scrollToAyah: 1, autoPlay: true });
+    return true;
+  }
   let number, name;
   if (pbOk && (!lrOk || (Number(pb.ts) || 0) >= (Number(lr.ts) || 0))) { number = Number(pb.surahNumber); name = pb.surahName; }
   else { number = Number(lr.number); name = lr.name; }
@@ -1955,6 +2016,7 @@ document.getElementById('quran-invite-btn1').addEventListener('click', async () 
   document.getElementById('quran-invite-modal').classList.add('hidden');
   if (quranInviteResumeMode) {
     quranInviteResumeMode = false;
+    unlockRecitationAudio();   // باید همین‌جا و همزمان با لمس کاربر باشد (قبل از هر await)
     let ok = false;
     try { ok = await resumeQuranFromLastPosition(); } catch (e) { ok = false; }
     if (ok) return;
@@ -2263,6 +2325,44 @@ document.getElementById('city-picker-btn').addEventListener('click', () => {
 document.getElementById('city-search-input').addEventListener('input', (e) => populateCityList(e.target.value.trim()));
 document.getElementById('city-cancel-btn').addEventListener('click', () => document.getElementById('city-modal').classList.add('hidden'));
 
+/* ---------- انتخاب روش محاسبهٔ اذان (صفحهٔ اذان) ---------- */
+function refreshAzanMethodUi() {
+  const el = document.getElementById('azan-method-name');
+  if (el) el.textContent = userCalcMethodName();
+}
+function renderAzanMethodList() {
+  const box = document.getElementById('azan-method-list');
+  if (!box) return;
+  const cur = getUserCalcMethod();
+  box.innerHTML = '';
+  AZAN_METHOD_OPTIONS.forEach((o) => {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'amm-row' + (o.key === cur ? ' on' : '');
+    row.setAttribute('role', 'radio');
+    row.setAttribute('aria-checked', o.key === cur ? 'true' : 'false');
+    row.innerHTML = '<span class="amm-dot" aria-hidden="true"></span><span class="amm-txt"><b></b><small></small></span>';
+    row.querySelector('b').textContent = o.name;
+    row.querySelector('small').textContent = o.desc;
+    row.addEventListener('click', () => {
+      setUserCalcMethod(o.key);
+      refreshAzanMethodUi();
+      document.getElementById('azan-method-modal').classList.add('hidden');
+      lastScheduleSyncKey = '';
+      try { if (state.coords) computePrayerTimes(); } catch (e) {}
+    });
+    box.appendChild(row);
+  });
+}
+(function setupAzanMethod() {
+  const btn = document.getElementById('azan-method-btn');
+  if (!btn) return;
+  refreshAzanMethodUi();
+  btn.addEventListener('click', () => { renderAzanMethodList(); document.getElementById('azan-method-modal').classList.remove('hidden'); });
+  const cancel = document.getElementById('azan-method-cancel-btn');
+  if (cancel) cancel.addEventListener('click', () => document.getElementById('azan-method-modal').classList.add('hidden'));
+})();
+
 /* ---------- گزارش اختلاف ساعت اذان (زیر اوقات اذان) ---------- */
 function azrFillCities() {
   const sel = document.getElementById('azr-city');
@@ -2337,10 +2437,10 @@ function fetchExactGPSLocation(onDone) {
 
 document.getElementById('azan-gps-btn').addEventListener('click', () => {
   const btn = document.getElementById('azan-gps-btn');
-  const original = btn.textContent;
-  btn.textContent = 'در حال یافتن موقعیت...';
+  btn.classList.add('is-busy');
+  setLocationLabel('در حال یافتن موقعیت...');
   fetchExactGPSLocation((error) => {
-    btn.textContent = original;
+    btn.classList.remove('is-busy');
     if (error) setLocationLabel(error);
   });
 });
@@ -3149,7 +3249,10 @@ function buildPrayerListForDate(date, includeHidden) {
     fajr: s.offset_fajr, sunrise: s.offset_sunrise, dhuhr: s.offset_dhuhr,
     asr: s.offset_asr, maghrib: s.offset_maghrib, sunset: s.offset_sunset, isha: s.offset_isha,
   };
-  const times = computePrayerTimesLocal(state.coords.lat, state.coords.lng, date, s.calc_method, asrFactor, offsets);
+  // روشی که کاربر خودش انتخاب کرده؛ 'default' = رفتار قبلی (جدول تربت‌جام + اصلاحیه‌های پیشخوان)
+  const userMethod = getUserCalcMethod();
+  const customMethod = userMethod !== 'default';
+  const times = computePrayerTimesLocal(state.coords.lat, state.coords.lng, date, customMethod ? userMethod : s.calc_method, asrFactor, customMethod ? {} : offsets);
 
   const fixedTz = isIranCoords(state.coords.lat, state.coords.lng);
   const [egy, egm, egd] = prayerDayParts(date, fixedTz);
@@ -3159,7 +3262,7 @@ function buildPrayerListForDate(date, includeHidden) {
   // برای شهر تربت‌جام، به‌جای محاسبهٔ نجومی، از جدول دقیق اوقات شرعی (طبق تقویم رسمی تربت‌جام) استفاده می‌شود.
   // این جدول همراه خود اپ ذخیره شده، پس کاملاً آفلاین کار می‌کند و نیازی به اینترنت ندارد.
   // اگر تاریخ روز جاری در جدول نباشد (مثلاً بعد از پایان سال ۱۴۰۵)، به‌صورت خودکار به محاسبهٔ نجومی برمی‌گردد.
-  if (normCityName(cityForTimes) === normCityName('تربت جام')) {
+  if (!customMethod && normCityName(cityForTimes) === normCityName('تربت جام')) {
     const tjKey = String(ejm).padStart(2, '0') + '-' + String(ejd).padStart(2, '0');
     const tjRow = TORBAT_JAM_EXACT_TIMES[tjKey];
     if (tjRow) {
@@ -3181,7 +3284,7 @@ function buildPrayerListForDate(date, includeHidden) {
     }
   }
 
-  const exception = findAzanException(ejm, ejd, cityForTimes);
+  const exception = customMethod ? null : findAzanException(ejm, ejd, cityForTimes);
   if (exception) {
     times.fajr = applyTimeOverride(times.fajr, exception.fajr);
     times.dhuhr = applyTimeOverride(times.dhuhr, exception.dhuhr);
@@ -5035,7 +5138,19 @@ function headingFromEuler(alphaDeg, betaDeg, gammaDeg) {
   return (Math.atan2(east, north) / d + 360) % 360;
 }
 
+// وب‌ویوی قدیمی (کروم قبل از ۵۰ یا مرورگر پیش‌فرض اندروید ۴): رویداد deviceorientation همان جهت «مطلق» (نسبت به شمال) را می‌دهد
+// ولی event.absolute را درست پر نمی‌کند و رویداد deviceorientationabsolute هم وجود ندارد.
+function qbOldWebview() {
+  try {
+    const ua = navigator.userAgent || '';
+    const m = /Chrome\/(\d+)/.exec(ua);
+    if (m) return parseInt(m[1], 10) < 50;
+    return /Android [2-4]\./.test(ua);
+  } catch (e) { return false; }
+}
+
 function handleOrientationAbs(event) {
+  if (gotNativeHeading) return;
   if (event.alpha === null || event.alpha === undefined) return;
   gotAbsoluteOrientation = true;
   let h = headingFromEuler(event.alpha, event.beta || 0, event.gamma || 0);
@@ -5045,6 +5160,7 @@ function handleOrientationAbs(event) {
 }
 
 function handleOrientation(event) {
+  if (gotNativeHeading) return;
   // iOS: جهت قطب‌نما را خود سیستم می‌دهد
   if (typeof event.webkitCompassHeading === 'number') {
     gotWebkitCompass = true;
@@ -5054,7 +5170,8 @@ function handleOrientation(event) {
     return;
   }
   // اندروید: رویداد «نسبی» جهت واقعی ندارد؛ فقط اگر مطلق باشد و رویداد absolute نیامده استفاده می‌شود
-  if (gotAbsoluteOrientation || event.absolute !== true || event.alpha === null) return;
+  if (gotAbsoluteOrientation || event.alpha === null || event.alpha === undefined) return;
+  if (event.absolute !== true && !qbOldWebview()) return;
   gotAbsoluteOrientation = true;
   let h = headingFromEuler(event.alpha, event.beta || 0, event.gamma || 0);
   if (h === null) return;
@@ -5098,11 +5215,40 @@ async function qbStartSensors() {
   qbLastHeadingTs = Date.now();
   window.addEventListener('deviceorientationabsolute', handleOrientationAbs, true);
   window.addEventListener('deviceorientation', handleOrientation, true);
+  qbStartNativeCompass();
+}
+
+// سنسور بومی اندروید (با APK جدید): روی همهٔ گوشی‌ها کار می‌کند، حتی بدون گیروسکوپ و با وب‌ویوی قدیمی.
+// (بردار چرخش ← شتاب‌سنج + میدان مغناطیسی ← سنسور قدیمی جهت). هر وقت جهت بومی رسید، سنسورهای وب نادیده گرفته می‌شوند.
+function qbStartNativeCompass() {
+  try {
+    const A = qbNative();
+    if (!A || !A.startQiblaSensor || !A.addListener) return;
+    if (!qbNativeHandle) {
+      qbNativeHandle = 'pending';
+      Promise.resolve(A.addListener('qiblaHeading', (e) => {
+        if (!qiblaListenerAttached || !e || typeof e.heading !== 'number') return;
+        gotNativeHeading = true;
+        let h = ((e.heading % 360) + 360) % 360;
+        if (calibrationFlipped) h = (360 - h) % 360;
+        applyHeading(h);
+      })).then((hd) => { qbNativeHandle = hd || null; }).catch(() => { qbNativeHandle = null; });
+    }
+    Promise.resolve(A.startQiblaSensor()).catch(() => {});
+  } catch (e) {}
+}
+function qbStopNativeCompass() {
+  try {
+    const A = qbNative();
+    gotNativeHeading = false;
+    if (A && A.stopQiblaSensor) Promise.resolve(A.stopQiblaSensor()).catch(() => {});
+  } catch (e) {}
 }
 
 function qbStopSensors() {
   if (!qiblaListenerAttached) return;
   qiblaListenerAttached = false;
+  qbStopNativeCompass();
   try {
     window.removeEventListener('deviceorientationabsolute', handleOrientationAbs, true);
     window.removeEventListener('deviceorientation', handleOrientation, true);
@@ -6628,6 +6774,21 @@ const RECITERS = [
 let currentReciter = localStorage.getItem('arefanejam_reciter') || 'ar.alafasy';
 if (!RECITERS.some((r) => r.id === currentReciter)) currentReciter = 'ar.alafasy';
 const recitationAudio = new Audio();
+/* «بازکردن قفل صدا» برای پخش خودکار بعد از تأیید یادآوری: مرورگر/WebView اجازهٔ پخش را فقط در لحظهٔ لمس کاربر می‌دهد، اما پیدا کردن
+   آخرین آیه و آماده‌شدن صوت چند ثانیه (گاهی بیشتر) طول می‌کشد و اجازه می‌پرد. پس همان لحظهٔ لمس، روی همین المنت یک صدای بی‌صدا و بسیار
+   کوتاه پخش می‌کنیم؛ بعد از آن پخش آیه‌ها روی همین المنت هر وقت آماده شدند بدون مانع شروع می‌شود. */
+let recitationUnlocking = false;
+const SILENT_WAV_URI = 'data:audio/wav;base64,UklGRmQGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YUAGAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA';
+function unlockRecitationAudio() {
+  try {
+    if (!recitationAudio.paused) return;          // همین الان صدایی در حال پخش است؛ قفل باز است
+    recitationUnlocking = true;
+    recitationAudio.src = SILENT_WAV_URI;
+    const pr = recitationAudio.play();
+    if (pr && pr.catch) pr.catch(() => {});
+    setTimeout(() => { recitationUnlocking = false; }, 600);
+  } catch (e) { recitationUnlocking = false; }
+}
 
 // فهرست قاری‌ها داخل همان select قدیمی هم ساخته می‌شود (پنهان است؛ فقط برای هماهنگی)
 (function fillReciterSelect() {
@@ -7062,6 +7223,7 @@ async function goToNextSurahAfterFinish(finishedSurahNumber, session) {
   openSurahReader(nextNumber, nextName, { autoPlay: true });
 }
 recitationAudio.addEventListener('ended', () => {
+  if (recitationUnlocking) return; // پایان صدای بی‌صدای «باز کردن قفل»، نه پایان یک آیه
   if (isSequentialPlaying) {
     playQueueIndex++;
     playCurrentQueueItem();
@@ -9457,11 +9619,12 @@ function shariqIconMarkup(s) {
 }
 function applyShariqSettings(s) {
   if (!s || typeof s !== 'object') return;
-  document.getElementById('shariq-nav-icon').innerHTML = shariqIconMarkup(s);
-  document.getElementById('shariq-nav-label').textContent = s.nav_label || 'سوالات شرعی';
-  document.getElementById('shariq-tile-badge').innerHTML = shariqIconMarkup(s);
-  document.getElementById('shariq-tile-label').textContent = s.nav_label || 'سوالات شرعی';
-  document.getElementById('shariq-page-title').textContent = s.nav_label || 'سوالات شرعی';
+  // دکمهٔ «سوالات شرعی» ممکن است در منوی پایین (که مدیر ساخته) نباشد؛ پس همه‌جا بررسی می‌کنیم
+  const nIc = document.getElementById('shariq-nav-icon'); if (nIc) nIc.innerHTML = shariqIconMarkup(s);
+  const nLb = document.getElementById('shariq-nav-label'); if (nLb) nLb.textContent = s.nav_label || 'سوالات شرعی';
+  const tBd = document.getElementById('shariq-tile-badge'); if (tBd) tBd.innerHTML = shariqIconMarkup(s);
+  const tLb = document.getElementById('shariq-tile-label'); if (tLb) tLb.textContent = s.nav_label || 'سوالات شرعی';
+  const pTt = document.getElementById('shariq-page-title'); if (pTt) pTt.textContent = s.nav_label || 'سوالات شرعی';
 }
 async function loadShariqSettings() {
   try { await apiSWR('/shariq/settings', applyShariqSettings); } catch (e) { /* ignore */ }
@@ -12114,7 +12277,7 @@ function hbRunItem(it) {
       const t = String(it.target || '');
       if (t.indexOf('group:') === 0) { openMenuGroup(t.slice(6)); break; }
       if (!document.getElementById('tab-' + t)) break;
-      if (HB_MAIN_TABS.indexOf(t) >= 0) { navHistory = []; switchToTab(t); } else switchToTab(t, { push: true });
+      if (HB_MAIN_TABS.indexOf(t) >= 0 || document.querySelector('.bottom-nav .nav-btn[data-tab="' + t + '"]')) { navHistory = []; switchToTab(t); } else switchToTab(t, { push: true });
       break;
     }
   }
@@ -12134,8 +12297,34 @@ document.getElementById('hb-page').addEventListener('click', (e) => { if (e.targ
 hbLoad();
 loadMoreIcons(true);
 
+/* ---------- منوی پایین اپ (قابل‌مدیریت از پیشخوان ← «🧭 منوی پایین اپ») ----------
+   مسیر /bottom-nav: { custom, items: [{tab, label, icon, image}] }. اگر custom=false همان شش دکمهٔ پیش‌فرض است.
+   ساخت دکمه‌ها در window.__bnavBuild (اسکریپت کوچک داخل index.html زیر نوار پایین) انجام می‌شود تا هم با اولین نمایش
+   (از کش گوشی، پیش از لود app.js) و هم اینجا (بعد از دریافت تازه) یک منطق داشته باشند. کلیک: شنوندهٔ مشترک بالای فایل. */
+var bnavLastLoad = 0;
+function bnavApply(d) {
+  if (!d || typeof d !== 'object') return;
+  try {
+    if (typeof window.__bnavBuild === 'function') window.__bnavBuild(d);
+    document.querySelectorAll('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === currentTab));
+    // اگر «سوالات شرعی» داخل منو هست و نوشته/آیکونش از تنظیمات خودش می‌آید، دوباره از کش بگیر
+    if (document.getElementById('shariq-nav-label') || document.getElementById('shariq-nav-icon')) loadShariqSettings();
+    const imgs = [];
+    (d.items || []).forEach((it) => { if (it && it.image) imgs.push(it.image); });
+    if (imgs.length) prefetchSiteImages(imgs);
+  } catch (e) {}
+}
+function bnavLoad(force) {
+  if (!force && Date.now() - bnavLastLoad < 60000) return;
+  bnavLastLoad = Date.now();
+  try { apiSWR('/bottom-nav', bnavApply).catch(() => {}); } catch (e) {}
+}
+bnavLoad(true);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) bnavLoad(false); });
+window.addEventListener('online', () => bnavLoad(true));
+
 /* ---------- سرگرمی ← بازی «حدس آیه» ----------
-   بیشتر ← سرگرمی ← حدس آیه قرآنی. اول کاربر رشته را از فهرست ثابت GA_CATS (۱ جزء، ۲ جزء، ۵ جزء اول، ۵ جزء آخر، ۱۵، ۲۰، ۳۰ جزء) انتخاب می‌کند؛ هر دور ۱۰ سؤال:
+   بیشتر ← سرگرمی ← حدس آیه قرآنی. اول کاربر رشته را از فهرست ثابت GA_CATS (۱ جزء، ۲ جزء، ۳ و ۵ جزء اول، ۳ و ۵ جزء آخر، ۱۵ جزء اول، ۱۵ جزء آخر، ۲۰، ۳۰ جزء) انتخاب می‌کند؛ هر دور ۱۰ سؤال:
    «صفحهٔ N مصحف (عثمان طاها): از آیهٔ a سورهٔ X، ۸ خط به پایین بیا و تا ابتدای آیهٔ b را بخوان».
    بدون زمان‌بندی: همراه سؤال ۵ کلمهٔ اول آیهٔ شروع نشان داده می‌شود؛ تا ۲ بار «راهنمایی» می‌گیرد و هر بار ۴ کلمهٔ بعدی باز می‌شود (۵ ← ۹ ← ۱۳)؛
    بعد خودش «نمایش پاسخ» را می‌زند، می‌گوید درست خواند یا نه؛ در پایان امتیاز جمع می‌شود.
@@ -12158,6 +12347,7 @@ var GA_CATS = [
   { id: '5f', label: '۵ جزء اول', note: 'جزء ۱ تا ۵',         juz: gaRange(1, 5) },
   { id: '5l', label: '۵ جزء آخر', note: 'جزء ۲۶ تا ۳۰',       juz: gaRange(26, 30) },
   { id: '15', label: '۱۵ جزء',    note: '۱۵ جزء اول',         juz: gaRange(1, 15) },
+  { id: '15l', label: '۱۵ جزء آخر', note: 'جزء ۱۶ تا ۳۰',      juz: gaRange(16, 30) },
   { id: '20', label: '۲۰ جزء',    note: '۲۰ جزء اول',         juz: gaRange(1, 20) },
   { id: '30', label: '۳۰ جزء',    note: 'کل قرآن',            juz: gaRange(1, 30) }
 ];
@@ -12354,12 +12544,14 @@ function gaShowQuestion() {
       <div class="ga-first-text" id="ga-first-text" dir="rtl"></div>
     </div>
     <button class="ghost-btn ga-hint-btn" id="ga-hint-btn"></button>
+    <div id="ga-voice" class="ga-voice hidden"></div>
     <p class="muted-text small ga-hint">وقتی خواندید یا آماده بودید، پاسخ را ببینید</p>
     <button class="secondary-btn ga-show" id="ga-show-btn">نمایش پاسخ</button>
   </div>`;
   gaRenderFirst(0);
   document.getElementById('ga-hint-btn').addEventListener('click', gaHint);
   document.getElementById('ga-show-btn').addEventListener('click', gaShowAnswer);
+  gaVoiceInit();
 }
 function gaRenderFirst(prevWords) {
   const g = gaGame, toks = g.toks;
@@ -12373,6 +12565,126 @@ function gaRenderFirst(prevWords) {
   if (left <= 0 || n >= gaWordCount(toks)) btn.classList.add('hidden');
   else { btn.classList.remove('hidden'); btn.textContent = `💡 راهنمایی (+${toPersianDigits(GA_HINT_WORDS)} کلمه) — ${toPersianDigits(left)} بار مانده`; }
 }
+/* ---------- 🎤 «بخوان تا بسنجم» در بازی حدس آیه ----------
+   کاربر آیه‌های سؤال را با صدا می‌خواند؛ پنجرهٔ تشخیص گفتار گوشی (عربی) متن را برمی‌گرداند و اینجا کلمه‌به‌کلمه با متن آیه مقایسه می‌شود.
+   ⚠ فقط «درستیِ کلمه‌ها» سنجیده می‌شود، نه تجوید و مخرج حروف؛ و دقتش به موتور گفتار گوشی بستگی دارد (املای عثمانی و عربی استاندارد
+   با مقایسهٔ «اسکلت حروف» و شباهت فازی تا حدی جبران می‌شود). فقط در اپ اندروید با APK جدید (متد speechListen) دکمه دیده می‌شود. */
+var GA_VOICE_PASS = 0.75;      // حداقل درصد کلمه‌های درست برای «درست خواندی»
+var gaVoiceBusy = false;
+function gaNormAr(w) {
+  return String(w || '')
+    .replace(/[\u0640\u064B-\u065F\u0670\u06D6-\u06ED\u200c\u200d\u200e\u200f]/g, '')   // تطویل و حرکات و علامت‌های قرآنی
+    .replace(/[إأآٱ]/g, 'ا').replace(/ى/g, 'ي').replace(/ی/g, 'ي').replace(/ك|ک/g, 'ك').replace(/ة/g, 'ه')
+    .replace(/ؤ/g, 'و').replace(/ئ/g, 'ي').replace(/ء/g, '')
+    .replace(/[^\u0621-\u063A\u0641-\u064A]/g, '');
+}
+function gaSkel(w) {            // اسکلت: حروف صدادار (ا و ي) حذف می‌شود تا «السموات/السماوات» و «الرحمن/الرحمان» یکی شوند
+  const k = gaNormAr(w).replace(/[اويى]/g, '');
+  return k || gaNormAr(w);
+}
+function gaLev(a, b) {
+  const m = a.length, n = b.length;
+  if (!m) return n; if (!n) return m;
+  let prev = new Array(n + 1), cur = new Array(n + 1);
+  for (let j = 0; j <= n; j++) prev[j] = j;
+  for (let i = 1; i <= m; i++) {
+    cur[0] = i;
+    for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    const t = prev; prev = cur; cur = t;
+  }
+  return prev[n];
+}
+function gaWordMatch(e, s) {    // e: کلمهٔ آیه، s: کلمهٔ گفته‌شده (هر دو از قبل {n, k} دارند)
+  if (e.n && e.n === s.n) return true;
+  if (e.k && e.k === s.k) return true;
+  const L = Math.max(e.k.length, s.k.length);
+  if (L < 3) return false;
+  return 1 - gaLev(e.k, s.k) / L >= 0.7;
+}
+// مقایسهٔ ترتیبی (LCS روی کلمه‌ها): هر کلمهٔ آیه «درست» یا «جاافتاده/اشتباه» می‌شود. کلمه‌های اضافهٔ گفته‌شده نادیده گرفته می‌شود.
+function gaVoiceScore(expWords, spokenText) {
+  const E = expWords.map((w) => ({ w, n: gaNormAr(w), k: gaSkel(w) })).filter((x) => x.n);
+  const S = String(spokenText || '').split(/\s+/).map((w) => ({ n: gaNormAr(w), k: gaSkel(w) })).filter((x) => x.n);
+  const m = E.length, n = S.length;
+  if (!m) return { pct: 0, marks: [] };
+  const dp = [];
+  for (let i = 0; i <= m; i++) dp.push(new Array(n + 1).fill(0));
+  for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++) {
+    dp[i][j] = gaWordMatch(E[i - 1], S[j - 1]) ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
+  }
+  const marks = new Array(m).fill(false);
+  let i = m, j = n;
+  while (i > 0 && j > 0) {
+    if (gaWordMatch(E[i - 1], S[j - 1]) && dp[i][j] === dp[i - 1][j - 1] + 1) { marks[i - 1] = true; i--; j--; }
+    else if (dp[i - 1][j] >= dp[i][j - 1]) i--; else j--;
+  }
+  return { pct: dp[m][n] / m, marks, words: E.map((x) => x.w) };
+}
+function gaVoiceNative() {
+  const C = window.Capacitor;
+  return !!(C && typeof C.isNativePlatform === 'function' && C.isNativePlatform() && C.Plugins && C.Plugins.AppUpdater);
+}
+function gaVoiceInit() {
+  const box = document.getElementById('ga-voice');
+  if (!box || !gaVoiceNative()) return;
+  const AUp = window.Capacitor.Plugins.AppUpdater;
+  if (typeof AUp.speechAvailable !== 'function') return;
+  const g = gaGame, qi = g && g.i;
+  AUp.speechAvailable().then((r) => {
+    if (!r || !r.ok) return;
+    if (!gaGame || gaGame.i !== qi || !document.getElementById('ga-voice')) return;   // سؤال عوض شده
+    box.classList.remove('hidden');
+    box.innerHTML = '<button class="ghost-btn ga-mic-btn" id="ga-mic-btn">🎤 بخوان تا بسنجم</button>' +
+      '<p class="muted-text small ga-mic-note">آیه‌های این سؤال را با صدا بخوانید؛ اپ می‌گوید کلمه‌ها درست بود یا نه (تجوید سنجیده نمی‌شود).</p>';
+    document.getElementById('ga-mic-btn').addEventListener('click', gaVoiceListen);
+  }).catch(() => { /* APK قدیمی: دکمه نمایش داده نمی‌شود */ });
+}
+function gaVoiceListen() {
+  if (gaVoiceBusy || !gaGame) return;
+  const g = gaGame, D = g.D, q = g.qs[g.i], qi = g.i;
+  const box = document.getElementById('ga-voice');
+  const exp = [];
+  for (let x = q.from; x < q.to; x++) String(D.flat[x].t).split(/\s+/).filter(Boolean).forEach((w) => exp.push(w));
+  gaVoiceBusy = true;
+  const AUp = window.Capacitor.Plugins.AppUpdater;
+  AUp.speechListen({ prompt: 'آیه‌های این سؤال را بخوانید' }).then((r) => {
+    gaVoiceBusy = false;
+    if (!gaGame || gaGame.i !== qi || !document.getElementById('ga-voice')) return;
+    const list = (r && r.results) || [];
+    if (!list.length) { gaVoiceShowMsg(box, r && r.cancelled ? 'چیزی شنیده نشد. دوباره امتحان کنید.' : 'صدایی تشخیص داده نشد. دوباره امتحان کنید.'); return; }
+    let best = null;
+    list.forEach((t) => { const sc = gaVoiceScore(exp, t); if (!best || sc.pct > best.pct) best = sc; });
+    gaVoiceShowResult(box, best, exp.length);
+  }).catch((e) => {
+    gaVoiceBusy = false;
+    const m = String((e && (e.message || e.errorMessage)) || e || '');
+    gaVoiceShowMsg(box, /unavailable/i.test(m) ? 'این گوشی برنامهٔ تشخیص گفتار (گوگل) ندارد یا غیرفعال است.' : 'تشخیص صدا انجام نشد. دوباره امتحان کنید.');
+  });
+}
+function gaVoiceShowMsg(box, msg) {
+  if (!box) return;
+  box.innerHTML = '<p class="ga-mic-msg">' + gaEsc(msg) + '</p><button class="ghost-btn ga-mic-btn" id="ga-mic-btn">🎤 دوباره بخوان</button>';
+  document.getElementById('ga-mic-btn').addEventListener('click', gaVoiceListen);
+}
+function gaVoiceShowResult(box, sc, total) {
+  const pct = Math.round(sc.pct * 100);
+  const ok = sc.pct >= GA_VOICE_PASS;
+  const ws = sc.words.map((w, i) => '<span class="' + (sc.marks[i] ? 'ga-vok' : 'ga-vbad') + '">' + gaEsc(w) + '</span>').join(' ');
+  const hit = sc.marks.filter(Boolean).length;
+  box.innerHTML = '<div class="ga-vres ' + (ok ? 'ok' : 'bad') + '">' +
+    '<div class="ga-vpct">' + toPersianDigits(pct) + '٪</div>' +
+    '<p class="ga-vtitle">' + (ok ? '✅ ماشاءالله، درست خواندی' : '❌ هنوز کامل نبود') + '</p>' +
+    '<p class="muted-text small">' + toPersianDigits(hit) + ' کلمه از ' + toPersianDigits(total) + ' کلمه تشخیص داده شد. سبز: درست، قرمز: جاافتاده یا متفاوت.</p>' +
+    '<div class="ga-vwords" dir="rtl">' + ws + '</div>' +
+    '<div class="ga-vbtns">' +
+      (ok ? '<button class="secondary-btn" id="ga-vnext-btn">ادامه ✅ (درست حساب شود)</button>' : '') +
+      '<button class="ghost-btn" id="ga-mic-btn">🎤 دوباره بخوان</button>' +
+    '</div></div>';
+  document.getElementById('ga-mic-btn').addEventListener('click', gaVoiceListen);
+  const nx = document.getElementById('ga-vnext-btn');
+  if (nx) { let done = false; nx.addEventListener('click', () => { if (done) return; done = true; gaJudge(true); }); }
+}
+
 function gaHint() {
   const g = gaGame;
   if (!g || g.hints >= GA_HINTS) return;

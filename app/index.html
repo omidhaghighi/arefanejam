@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
-<link rel="stylesheet" href="css/style.css?v=112">
+<link rel="stylesheet" href="css/style.css?v=115">
 </head>
 <body>
 
@@ -249,11 +249,18 @@
 
       <div class="section-block">
         <h3>اوقات شرعی</h3>
-        <p class="muted-text" id="azan-location-label">در حال یافتن موقعیت...</p>
-        <div class="location-btn-row">
-          <button id="city-picker-btn" class="ghost-btn small-btn">انتخاب شهر از فهرست</button>
-          <button id="azan-gps-btn" class="ghost-btn small-btn">📍 یافتن موقعیت دقیق من (GPS)</button>
+        <div class="az-loc-row">
+          <p class="az-loc-label muted-text" id="azan-location-label">در حال یافتن موقعیت...</p>
+          <div class="az-loc-btns">
+            <button id="city-picker-btn" class="az-ico-btn" type="button" aria-label="انتخاب شهر از فهرست" title="انتخاب شهر از فهرست"><span aria-hidden="true">🏙️</span><small>شهر</small></button>
+            <button id="azan-gps-btn" class="az-ico-btn" type="button" aria-label="یافتن موقعیت دقیق من (GPS)" title="یافتن موقعیت دقیق من (GPS)"><span aria-hidden="true">📍</span><small>GPS</small></button>
+          </div>
         </div>
+        <button id="azan-method-btn" class="az-method-pill" type="button" aria-haspopup="dialog">
+          <span class="amp-ic" aria-hidden="true">🧭</span>
+          <span class="amp-txt"><small>روش محاسبه اذان</small><b id="azan-method-name">پیش‌فرض عارفان جام (سریع)</b></span>
+          <span class="amp-arrow" aria-hidden="true">‹</span>
+        </button>
         <div class="azd-nav" id="azd-nav">
           <button type="button" class="azd-btn" id="azd-prev" aria-label="روز قبل">›</button>
           <button type="button" class="azd-mid" id="azd-mid" aria-label="برگشت به امروز"><b id="azd-title">امروز</b><small id="azd-sub"></small></button>
@@ -1384,6 +1391,21 @@
   </nav>
 
 </div>
+<script src="js/native-seed.js"></script>
+<script>
+/* بستهٔ اولیه: اگر این APK هنگام ساخت، تنظیمات پیشخوان را داخل خودش گذاشته باشد (window.NATIVE_SEED)، همین اولین باز شدن
+   (بدون اینترنت) در حافظهٔ گوشی گذاشته می‌شود. فقط کلیدهایی که هنوز نیستند پر می‌شوند؛ داده‌ٔ تازه‌تر هیچ‌وقت خراب نمی‌شود. */
+(function () {
+  try {
+    var sd = window.NATIVE_SEED;
+    if (!sd || !sd.items || localStorage.getItem('arefanejam_seed_id') === sd.id) return;
+    Object.keys(sd.items).forEach(function (k) {
+      try { if (localStorage.getItem(k) === null) localStorage.setItem(k, sd.items[k]); } catch (e) { /* حافظه پر: ادامه */ }
+    });
+    localStorage.setItem('arefanejam_seed_id', sd.id);
+  } catch (e) { /* مهم نیست */ }
+})();
+</script>
 <script>
 /* نمایش فوریِ آخرین اطلاعات ذخیره‌شدهٔ گوشی (نام و لوگوی بالا، آیکون «سوالات شرعی» و «مکاتب») همین لحظهٔ اول،
    پیش از بارگذاری app.js و پیش از هر اتصال به اینترنت؛ تا آیکون/عکس پیش‌فرض یک لحظه هم دیده نشود. */
@@ -1401,6 +1423,55 @@
       el.appendChild(i);
     } else if (emojiKey && obj[emojiKey]) { el.textContent = obj[emojiKey]; }
   }
+  /* منوی پایین اپ: از پیشخوان ← «🧭 منوی پایین اپ» (مسیر /bottom-nav). اگر مدیر چیزی ذخیره نکرده باشد، همان شش دکمهٔ پیش‌فرض می‌ماند.
+     کلیک دکمه‌ها در app.js (یک شنوندهٔ مشترک روی .bottom-nav) انجام می‌شود، پس بازسازی دکمه‌ها نیازی به اتصال دوباره ندارد. */
+  var BN_NAMES = { 'home':'خانه','quran-list':'قرآن','azan':'اذان','qibla':'قبله','shariq':'سوالات شرعی','more':'بیشتر','mokatib-public':'مکاتب','khatm':'ختم قرآن','feedback':'پشتیبانی','fun':'سرگرمی','ads':'تبلیغات','game-ayah':'حدس آیه','activities':'فعالیت‌ها','ramadan-countdown':'رمضان','charity':'خیرین','notes':'یادداشت‌ها','about':'درباره ما','news-list':'اخبار','social':'فضای مجازی','gallery':'گالری','books':'کتاب‌ها','lesson':'درس امروز','quran-search':'جست‌وجو','quran-bookmarks':'نشان‌شده‌ها','hifz-progress':'حفظ من','sajdah-list':'آیات سجده','prayer-checklist':'نماز','prayer-stats':'آمار نماز','daily-deeds':'اعمال','quran-report':'گزارش قرآن','tasbih':'تسبیح','zakat-calc':'زکات','date-converter':'مبدل تاریخ','group:quran':'قرآن و مطالعه','group:deeds':'اعمال','group:ibadah':'عبادت','group:personal':'شخصی','group:media':'اطلاع‌رسانی' };
+  var BN_ICONS = { 'home':'🏠','quran-list':'📗','azan':'🕌','qibla':'🧭','shariq':'❓','more':'☰','mokatib-public':'🏛️','khatm':'📿','feedback':'💬','fun':'🎮','ads':'📢','game-ayah':'🎯','activities':'🌟','ramadan-countdown':'🌙','charity':'🤲','notes':'📝','about':'ℹ️','news-list':'📰','social':'🌐','gallery':'🖼️','books':'📚','lesson':'📖','quran-search':'🔍','quran-bookmarks':'🔖','hifz-progress':'📊','sajdah-list':'🕋','prayer-checklist':'✅','prayer-stats':'📈','daily-deeds':'🧮','quran-report':'📑','tasbih':'📿','zakat-calc':'💰','date-converter':'📅' };
+  var BN_DEFAULT = [ { tab:'home' }, { tab:'quran-list' }, { tab:'azan' }, { tab:'qibla' }, { tab:'shariq', inherit:true }, { tab:'more' } ];
+  window.__bnavBuild = function (d) {
+    try {
+      var nav = document.querySelector('.bottom-nav'); if (!nav) return false;
+      var raw = (d && d.custom && Array.isArray(d.items)) ? d.items : null;
+      var items = [];
+      (raw || []).forEach(function (it) {
+        if (!it || typeof it.tab !== 'string' || items.length >= 8) return;
+        if (it.tab.indexOf('group:') !== 0 && !document.getElementById('tab-' + it.tab)) return;
+        items.push({ tab: it.tab, label: String(it.label || ''), icon: String(it.icon || ''), image: String(it.image || '') });
+      });
+      if (items.length < 2) items = BN_DEFAULT.map(function (x) { return { tab: x.tab, label: '', icon: '', image: '' }; });
+      var sig = JSON.stringify(items);
+      if (window.__bnavSig === sig) return true;
+      if (!raw && !window.__bnavSig && nav.children.length === 6) { window.__bnavSig = sig; return true; } // پیش‌فرض و همان شش دکمهٔ داخل HTML
+      window.__bnavSig = sig;
+      var cur = ''; try { cur = sessionStorage.getItem('arefanejam_current_tab') || 'home'; } catch (e) { cur = 'home'; }
+      nav.textContent = '';
+      nav.setAttribute('data-n', String(items.length));
+      items.forEach(function (it) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'nav-btn' + (it.tab === cur ? ' active' : '');
+        b.setAttribute('data-tab', it.tab);
+        var ic = document.createElement('span'); ic.className = 'nav-icon';
+        var lb = document.createElement('span');
+        var isShariq = it.tab === 'shariq';
+        if (it.image) {
+          var im = document.createElement('img'); im.src = su(it.image); im.alt = ''; ic.appendChild(im); ic.classList.add('has-img');
+        } else {
+          ic.textContent = it.icon || BN_ICONS[it.tab] || '📌';
+          if (isShariq && !it.icon) ic.id = 'shariq-nav-icon';
+        }
+        lb.textContent = it.label || BN_NAMES[it.tab] || '';
+        if (isShariq && !it.label) lb.id = 'shariq-nav-label';
+        b.appendChild(ic); b.appendChild(lb);
+        nav.appendChild(b);
+      });
+      return true;
+    } catch (e) { return false; }
+  };
+  try {
+    var bnc = rd('arefanejam_api_cache:/bottom-nav');
+    if (bnc && bnc.data) window.__bnavBuild(bnc.data);
+  } catch (e) { /* مهم نیست */ }
   try {
     var st = rd('arefanejam_settings_cache');
     if (st) {
@@ -1658,10 +1729,21 @@
   <div class="modal-box" style="text-align:center">
     <div style="font-size:40px;margin-bottom:10px">📍</div>
     <h3>تشخیص خودکار موقعیت مکانی</h3>
-    <p class="muted-text" style="margin-bottom:18px">با روشن کردن موقعیت مکانی، اوقات شرعی و قبله به‌طور خودکار و دقیق برای شهر شما تنظیم می‌شود. در هر زمان می‌توانید آن را از دکمهٔ «📍 موقعیت من» در صفحهٔ خانه تغییر دهید.</p>
+    <p class="muted-text" style="margin-bottom:18px">فقط همین یک اجازه لازم است: با روشن کردن موقعیت مکانی، اوقات شرعی و قبله دقیقاً برای شهر شما تنظیم می‌شود و اذان‌ها فعال می‌شوند. هر زمان خواستید از دکمهٔ «📍 موقعیت من» در صفحهٔ خانه تغییرش دهید.</p>
     <div class="modal-actions" style="justify-content:center">
       <button id="onboarding-location-later-btn" class="ghost-btn small-btn">بعداً</button>
       <button id="onboarding-location-yes-btn" class="secondary-btn">فعال‌سازی موقعیت مکانی</button>
+    </div>
+  </div>
+</div>
+
+<div id="azan-method-modal" class="modal hidden">
+  <div class="modal-box amm-box">
+    <h3>روش محاسبهٔ اذان</h3>
+    <div id="azan-method-list" class="amm-list" role="radiogroup" aria-label="روش محاسبه اذان"></div>
+    <p class="muted-text small amm-note">وقت عصر در همهٔ روش‌ها طبق تنظیم عارفان جام محاسبه می‌شود. در روش‌های تهران و قم، مغرب طبق فقه جعفری چند دقیقه بعد از غروب است. با انتخاب هر روش به‌جز پیش‌فرض، اوقات به‌صورت محاسبهٔ نجومی همان روش نمایش داده می‌شود.</p>
+    <div class="modal-actions">
+      <button id="azan-method-cancel-btn" class="ghost-btn small-btn" type="button">بستن</button>
     </div>
   </div>
 </div>
@@ -1684,7 +1766,7 @@
 /* native-bridge.js و app.js (به‌همین ترتیب) فقط بعد از پایان صفحهٔ شروع (ویدیو/عکس/گیف) بارگذاری می‌شوند.
    اگر صفحهٔ شروعی نباشد یا تمام شده باشد، بی‌درنگ بارگذاری می‌شوند. */
 (function () {
-  var list = ['js/native-bridge.js?v=24', 'js/app.js?v=166'], i = 0;
+  var list = ['js/native-bridge.js?v=26', 'js/app.js?v=172'], i = 0;
   function next() {
     if (i >= list.length) return;
     var el = document.createElement('script'); el.src = list[i++];

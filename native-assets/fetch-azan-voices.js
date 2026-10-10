@@ -114,4 +114,7 @@ async function convert(id, url) {
   ].join('\n');
   fs.writeFileSync(CFG, cfg, 'utf8');
   console.log('AZAN VOICES BUNDLED: ' + done.length + ' | default: ' + (active || '-'));
+
+  // بستهٔ اولیهٔ تنظیمات پیشخوان داخل APK (native-assets/fetch-seed.js). هر خطایی بیلد را خراب نمی‌کند.
+  try { await require('./fetch-seed.js').run(API, HEADERS); } catch (e) { console.log('::warning::seed: ' + e.message); }
 })();

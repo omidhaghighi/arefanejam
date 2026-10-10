@@ -1,5 +1,6 @@
 package com.arefanejam.quran;
 
+import android.app.Activity;
 import android.app.PendingIntent;
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -23,6 +24,10 @@ import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
+import android.speech.RecognizerIntent;
+import androidx.activity.result.ActivityResult;
+import com.getcapacitor.annotation.ActivityCallback;
+import java.util.ArrayList;
 import android.widget.RemoteViews;
 
 import androidx.core.app.NotificationCompat;
@@ -499,6 +504,54 @@ public class AppUpdaterPlugin extends Plugin {
 
     private SharedPreferences wbPrefs() {
         return getContext().getSharedPreferences(WB_PREFS, Context.MODE_PRIVATE);
+    }
+
+    /* ---------- تشخیص صدا برای بازی «حدس آیه» (🎤 بخوان تا بسنجم) ----------
+       از پنجرهٔ تشخیص گفتار خودِ گوگل/گوشی استفاده می‌شود (RecognizerIntent)؛ پس مجوز RECORD_AUDIO و تغییر Manifest/build-apk.yml لازم نیست.
+       speechAvailable(): فقط وجود همین متد (APK جدید) را به صفحه می‌فهماند. speechListen({prompt}) ← {results:[...حداکثر ۵ متن...]}
+       یا {cancelled:true}؛ اگر گوشی موتور تشخیص گفتار نداشته باشد reject("unavailable"). */
+    @PluginMethod
+    public void speechAvailable(PluginCall call) {
+        JSObject r = new JSObject();
+        r.put("ok", true);
+        call.resolve(r);
+    }
+
+    @PluginMethod
+    public void speechListen(PluginCall call) {
+        try {
+            Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+            i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+            i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ar-SA");
+            i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ar-SA");
+            i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
+            i.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
+            String prompt = call.getString("prompt", "");
+            if (prompt != null && prompt.length() > 0) i.putExtra(RecognizerIntent.EXTRA_PROMPT, prompt);
+            startActivityForResult(call, i, "speechResult");
+        } catch (Throwable e) {
+            call.reject("unavailable");
+        }
+    }
+
+    @ActivityCallback
+    private void speechResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        try {
+            JSObject r = new JSObject();
+            Intent data = result == null ? null : result.getData();
+            if (result != null && result.getResultCode() == Activity.RESULT_OK && data != null) {
+                ArrayList<String> list = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
+                JSArray arr = new JSArray();
+                if (list != null) for (String t : list) arr.put(t);
+                r.put("results", arr);
+            } else {
+                r.put("cancelled", true);
+            }
+            call.resolve(r);
+        } catch (Throwable e) {
+            call.reject("error");
+        }
     }
 
     @PluginMethod
@@ -1546,6 +1599,108 @@ public class AppUpdaterPlugin extends Plugin {
         } catch (Throwable t) {
             call.reject("declination: " + t);
         }
+    }
+
+    // ===== Qibla compass: native sensor, works on old phones / old WebView =====
+    // Order: rotation vector -> accelerometer + magnetic field -> legacy orientation sensor.
+    // Emits "qiblaHeading" {heading, source} (degrees from MAGNETIC north; JS adds the declination).
+    private android.hardware.SensorManager qbSm;
+    private android.hardware.SensorEventListener qbListener;
+    private final float[] qbAcc = new float[3];
+    private final float[] qbMag = new float[3];
+    private boolean qbHaveAcc = false, qbHaveMag = false;
+    private long qbLastEmit = 0;
+
+    private void qbEmit(float[] r, String source) {
+        // Phone lying flat: direction of the top edge; phone upright: direction of the back camera.
+        double east, north;
+        if (Math.abs(r[8]) > 0.6) { east = r[1]; north = r[4]; }
+        else { east = -r[2]; north = -r[5]; }
+        if (Math.abs(east) < 1e-6 && Math.abs(north) < 1e-6) return;
+        double h = Math.toDegrees(Math.atan2(east, north));
+        h = (h + 360.0) % 360.0;
+        long now = System.currentTimeMillis();
+        if (now - qbLastEmit < 50) return;
+        qbLastEmit = now;
+        JSObject o = new JSObject();
+        o.put("heading", h);
+        o.put("source", source);
+        notifyListeners("qiblaHeading", o);
+    }
+
+    @PluginMethod
+    public void startQiblaSensor(PluginCall call) {
+        try {
+            synchronized (this) {
+                if (qbListener != null) {
+                    JSObject r = new JSObject(); r.put("source", "running"); call.resolve(r); return;
+                }
+                qbSm = (android.hardware.SensorManager) getContext().getSystemService(Context.SENSOR_SERVICE);
+                if (qbSm == null) { call.reject("no sensor service"); return; }
+                final android.hardware.Sensor rv = qbSm.getDefaultSensor(android.hardware.Sensor.TYPE_ROTATION_VECTOR);
+                final android.hardware.Sensor acc = qbSm.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER);
+                final android.hardware.Sensor mag = qbSm.getDefaultSensor(android.hardware.Sensor.TYPE_MAGNETIC_FIELD);
+                @SuppressWarnings("deprecation")
+                final android.hardware.Sensor ori = qbSm.getDefaultSensor(android.hardware.Sensor.TYPE_ORIENTATION);
+                qbHaveAcc = false; qbHaveMag = false;
+                final String src;
+                if (rv != null) src = "rotation_vector";
+                else if (acc != null && mag != null) src = "accel_mag";
+                else if (ori != null) src = "orientation";
+                else { call.reject("no compass sensor"); return; }
+                qbListener = new android.hardware.SensorEventListener() {
+                    private final float[] R = new float[9];
+                    private final float[] rvVals = new float[4];
+                    @Override public void onAccuracyChanged(android.hardware.Sensor s, int a) { }
+                    @Override public void onSensorChanged(android.hardware.SensorEvent e) {
+                        try {
+                            int t = e.sensor.getType();
+                            if (t == android.hardware.Sensor.TYPE_ROTATION_VECTOR) {
+                                int n = Math.min(4, e.values.length);
+                                System.arraycopy(e.values, 0, rvVals, 0, n);
+                                android.hardware.SensorManager.getRotationMatrixFromVector(R, rvVals);
+                                qbEmit(R, "rotation_vector");
+                            } else if (t == android.hardware.Sensor.TYPE_ACCELEROMETER || t == android.hardware.Sensor.TYPE_MAGNETIC_FIELD) {
+                                float[] dst = (t == android.hardware.Sensor.TYPE_ACCELEROMETER) ? qbAcc : qbMag;
+                                boolean have = (t == android.hardware.Sensor.TYPE_ACCELEROMETER) ? qbHaveAcc : qbHaveMag;
+                                float a = 0.15f;
+                                for (int i = 0; i < 3; i++) dst[i] = have ? dst[i] + a * (e.values[i] - dst[i]) : e.values[i];
+                                if (t == android.hardware.Sensor.TYPE_ACCELEROMETER) qbHaveAcc = true; else qbHaveMag = true;
+                                if (qbHaveAcc && qbHaveMag && android.hardware.SensorManager.getRotationMatrix(R, null, qbAcc, qbMag)) {
+                                    qbEmit(R, "accel_mag");
+                                }
+                            } else if (t == android.hardware.Sensor.TYPE_ORIENTATION) {
+                                long now = System.currentTimeMillis();
+                                if (now - qbLastEmit < 50) return;
+                                qbLastEmit = now;
+                                JSObject o = new JSObject();
+                                o.put("heading", (double) ((e.values[0] + 360f) % 360f));
+                                o.put("source", "orientation");
+                                notifyListeners("qiblaHeading", o);
+                            }
+                        } catch (Throwable ignore) { }
+                    }
+                };
+                int delay = android.hardware.SensorManager.SENSOR_DELAY_UI;
+                if (src.equals("rotation_vector")) qbSm.registerListener(qbListener, rv, delay);
+                else if (src.equals("accel_mag")) { qbSm.registerListener(qbListener, acc, delay); qbSm.registerListener(qbListener, mag, delay); }
+                else qbSm.registerListener(qbListener, ori, delay);
+                JSObject r = new JSObject(); r.put("source", src); call.resolve(r);
+            }
+        } catch (Throwable t) {
+            call.reject("qibla sensor: " + t);
+        }
+    }
+
+    @PluginMethod
+    public void stopQiblaSensor(PluginCall call) {
+        try {
+            synchronized (this) {
+                if (qbSm != null && qbListener != null) qbSm.unregisterListener(qbListener);
+                qbListener = null;
+            }
+        } catch (Throwable ignore) { }
+        call.resolve();
     }
 
     /** Qibla: is the phone's Location switch on, and may this app use location? Returns {enabled, granted}. */
