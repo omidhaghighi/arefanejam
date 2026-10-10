@@ -4724,6 +4724,7 @@ body.dark-mode #tab-ads .ad-card-title { color: #F0E6CC; }
 .amm-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .amm-txt b { font-size: 14.5px; line-height: 1.6; }
 .amm-txt small { font-size: 11.5px; opacity: .72; line-height: 1.7; }
+.amm-txt small.amm-extra { white-space: pre-line; opacity: .85; margin-top: 2px; }
 .amm-note { line-height: 1.9; margin: 4px 0 8px; }
 body.dark-mode #tab-azan .az-ico-btn, body.dark-mode #tab-azan .az-method-pill { background: linear-gradient(165deg, var(--card-bg), var(--paper-alt)); color: var(--gold-light); }
 body.dark-mode .amm-row.on { background: rgba(43,163,152,.16); border-color: #2BA398; }

@@ -48,9 +48,11 @@ CALC_METHODS.UmmAlQura.ishaIntervalRamadan = 120;
    'default' = پیش‌فرض عارفان جام (سریع): همان رفتار قبلی (جدول دقیق تربت‌جام + روش و اصلاحیه‌های پیشخوان).
    هر مقدار دیگر = محاسبهٔ نجومی خالص با همان روش برای هر شهر (بدون جدول و بدون اصلاحیه‌های پیشخوان). */
 const AZAN_METHOD_KEY = 'arefanejam_azan_calc_method';
+// روش «پیش‌فرض عارفان جام» همیشه بر پایهٔ زاویهٔ ۱۵ درجه است (فجر ۱۵° · عشاء ۱۵°)
+const AZAN_DEFAULT_CALC = 'NorthAmerica';
 const AZAN_DEFAULT_METHOD_NAME = 'پیش‌فرض عارفان جام (سریع)';
 const AZAN_METHOD_OPTIONS = [
-  { key: 'default',           name: AZAN_DEFAULT_METHOD_NAME,           desc: 'جدول دقیق تربت‌جام برای تربت‌جام و اطراف؛ برای بقیهٔ شهرها محاسبهٔ تنظیم‌شدهٔ عارفان جام' },
+  { key: 'default',           name: AZAN_DEFAULT_METHOD_NAME,           desc: '۱۵ درجه (فجر ۱۵° · عشاء ۱۵°)' },
   { key: 'Tehran',            name: 'مؤسسه ژئوفیزیک دانشگاه تهران',       desc: 'فجر ۱۷٫۷° · عشاء ۱۴° · مغرب ۴٫۵° (روش صدا و سیما)' },
   { key: 'Egyptian',          name: 'مرکز مطالعات مصر',                   desc: 'فجر ۱۹٫۵° · عشاء ۱۷٫۵°' },
   { key: 'UmmAlQura',         name: 'ام‌القری، مکه',                      desc: 'فجر ۱۸٫۵° · عشاء ۹۰ دقیقه بعد از مغرب (۱۲۰ دقیقه در رمضان)' },
@@ -2349,6 +2351,15 @@ function renderAzanMethodList() {
     row.innerHTML = '<span class="amm-dot" aria-hidden="true"></span><span class="amm-txt"><b></b><small></small></span>';
     row.querySelector('b').textContent = o.name;
     row.querySelector('small').textContent = o.desc;
+    if (o.key === 'default') {
+      const note = String((state.settings && state.settings.azan_default_note) || '').trim();
+      if (note) {
+        const extra = document.createElement('small');
+        extra.className = 'amm-extra';
+        extra.textContent = note;
+        row.querySelector('.amm-txt').appendChild(extra);
+      }
+    }
     row.addEventListener('click', () => {
       setUserCalcMethod(o.key);
       refreshAzanMethodUi();
@@ -3257,7 +3268,7 @@ function buildPrayerListForDate(date, includeHidden) {
   // روشی که کاربر خودش انتخاب کرده؛ 'default' = رفتار قبلی (جدول تربت‌جام + اصلاحیه‌های پیشخوان)
   const userMethod = getUserCalcMethod();
   const customMethod = userMethod !== 'default';
-  const times = computePrayerTimesLocal(state.coords.lat, state.coords.lng, date, customMethod ? userMethod : s.calc_method, asrFactor, customMethod ? {} : offsets);
+  const times = computePrayerTimesLocal(state.coords.lat, state.coords.lng, date, customMethod ? userMethod : AZAN_DEFAULT_CALC, asrFactor, customMethod ? {} : offsets);
 
   const fixedTz = isIranCoords(state.coords.lat, state.coords.lng);
   const [egy, egm, egd] = prayerDayParts(date, fixedTz);
