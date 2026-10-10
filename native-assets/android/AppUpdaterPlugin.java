@@ -1611,6 +1611,7 @@ public class AppUpdaterPlugin extends Plugin {
     private final float[] qbMag = new float[3];
     private boolean qbHaveAcc = false, qbHaveMag = false;
     private long qbLastEmit = 0;
+    private long qbLastEmit2 = 0;
     private volatile long qbStageStart = 0;
     private volatile int qbMagAccuracy = 3;
     private int qbStage = 0;
@@ -1636,6 +1637,24 @@ public class AppUpdaterPlugin extends Plugin {
         notifyListeners("qiblaHeading", o);
     }
 
+    /** Second, independent heading (accelerometer + magnetic field) sent as "qiblaHeading2" while another sensor is the main one.
+     *  Some phones report a rotation vector that never changes; JS then picks whichever source is actually moving. */
+    private void qbEmit2(float[] r) {
+        double east, north;
+        if (Math.abs(r[8]) > 0.6) { east = r[1]; north = r[4]; }
+        else { east = -r[2]; north = -r[5]; }
+        if (Math.abs(east) < 1e-6 && Math.abs(north) < 1e-6) return;
+        double h = (Math.toDegrees(Math.atan2(east, north)) + 360.0) % 360.0;
+        long now = System.currentTimeMillis();
+        if (now - qbLastEmit2 < 50) return;
+        qbLastEmit2 = now;
+        JSObject o = new JSObject();
+        o.put("heading", h);
+        o.put("source", "accel_mag2");
+        o.put("accuracy", qbMagAccuracy);
+        notifyListeners("qiblaHeading2", o);
+    }
+
     /** Registers the sensor(s) of one stage of the chain and arms the watchdog that moves to the next stage if nothing arrives. */
     private void qbRunStage() {
         try {
@@ -1656,6 +1675,14 @@ public class AppUpdaterPlugin extends Plugin {
                 @SuppressWarnings("deprecation")
                 android.hardware.Sensor ori = qbSm.getDefaultSensor(android.hardware.Sensor.TYPE_ORIENTATION);
                 qbSm.registerListener(qbListener, ori, delay);
+            }
+            if (!src.equals("accel_mag")) {
+                android.hardware.Sensor a2 = qbSm.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER);
+                android.hardware.Sensor m2 = qbSm.getDefaultSensor(android.hardware.Sensor.TYPE_MAGNETIC_FIELD);
+                if (a2 != null && m2 != null) {
+                    qbSm.registerListener(qbListener, a2, delay);
+                    qbSm.registerListener(qbListener, m2, delay);
+                }
             }
             // The last stage has nothing to fall back to, so no watchdog is needed there.
             if (qbStage < qbChain.size() - 1) {
@@ -1728,7 +1755,8 @@ public class AppUpdaterPlugin extends Plugin {
                                 for (int i = 0; i < 3; i++) dst[i] = have ? dst[i] + a * (e.values[i] - dst[i]) : e.values[i];
                                 if (t == android.hardware.Sensor.TYPE_ACCELEROMETER) qbHaveAcc = true; else qbHaveMag = true;
                                 if (qbHaveAcc && qbHaveMag && android.hardware.SensorManager.getRotationMatrix(R, null, qbAcc, qbMag)) {
-                                    qbEmit(R, "accel_mag", qbMagAccuracy);
+                                    boolean primary = qbStage < qbChain.size() && "accel_mag".equals(qbChain.get(qbStage));
+                                    if (primary) qbEmit(R, "accel_mag", qbMagAccuracy); else qbEmit2(R);
                                 }
                             } else if (t == android.hardware.Sensor.TYPE_ORIENTATION) {
                                 long now = System.currentTimeMillis();
