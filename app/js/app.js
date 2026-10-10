@@ -5179,12 +5179,123 @@ function qbRange(name) {
   }
   return m;
 }
+/* ----- داور گیروسکوپ (ترفند «قطب‌نمای ثابت») -----
+   بعضی گوشی‌ها سنسور جهت را «فعال» نشان می‌دهند ولی بعد از یک چرخش ریز دیگر عوض نمی‌شود. گیروسکوپ (devicemotion) مستقل از
+   آن‌ها می‌گوید گوشی واقعاً چند درجه چرخیده. هر منبعی که با چرخش واقعی جور نباشد «ناسالم» حساب می‌شود و کنار می‌رود؛
+   اگر هیچ منبعی سالم نبود، صفحه با خودِ گیروسکوپ (نسبت به آخرین جهت شناخته‌شده) می‌چرخد تا قطب‌نما هیچ‌وقت ثابت نماند. */
+const qbGy = { on: false, raw: 0, last: 0, sgn: 1, n: 0, ring: [], ux: 0, uy: 0, uz: 1, haveG: false, anchorH: null, anchorC: 0, hist: [], flipVotes: 0, lastDg: 0 };
+const qbTrust = {};          // qbTrust[منبع] = true (با چرخش واقعی جور بود) / false (ثابت یا ناجور) / undefined (هنوز معلوم نیست)
+let qbGyroMode = false;
+let qbDecT = 0, qbDecVal = null;
+
+function qbWrap(d) { return ((d % 360) + 540) % 360 - 180; }
+function qbGyroNow() { return qbGy.sgn * qbGy.raw; }
+function qbGyroDelta(ms) {
+  const r = qbGy.ring;
+  if (r.length < 5) return null;
+  const now = r[r.length - 1].t;
+  if (now - r[0].t < ms * 0.8) return null;
+  let i = 0;
+  while (i < r.length - 1 && r[i].t < now - ms) i++;
+  return qbGy.sgn * (r[r.length - 1].c - r[i].c);
+}
+function qbSrcDelta(name, ms) {
+  const a = qbSamples[name];
+  if (!a || a.length < 4) return null;
+  const last = a[a.length - 1];
+  if (Date.now() - last.t > 1500) return null;
+  let i = 0;
+  while (i < a.length - 1 && a[i].t < last.t - ms) i++;
+  if (last.t - a[i].t < ms * 0.7) return null;
+  let d = ((last.h - a[i].h) % 360 + 540) % 360 - 180;
+  return calibrationFlipped ? -d : d;
+}
+function qbOnMotion(ev) {
+  try {
+    const r = ev.rotationRate, g = ev.accelerationIncludingGravity;
+    if (!r || !g || g.x == null || g.y == null || g.z == null || r.alpha == null || r.beta == null || r.gamma == null) return;
+    const now = Date.now();
+    // جهت «بالا» از گرانش (نرم‌شده)
+    const m = Math.sqrt(g.x * g.x + g.y * g.y + g.z * g.z) || 1;
+    const k = qbGy.haveG ? 0.12 : 1;
+    qbGy.ux += k * (g.x / m - qbGy.ux); qbGy.uy += k * (g.y / m - qbGy.uy); qbGy.uz += k * (g.z / m - qbGy.uz);
+    qbGy.haveG = true;
+    const dt = qbGy.last ? Math.min(0.2, Math.max(0, (now - qbGy.last) / 1000)) : 0;
+    qbGy.last = now;
+    qbGy.n++;
+    // سرعت زاویه‌ای (درجه بر ثانیه) حول محور عمودی؛ جهت قطب‌نما در چرخش ساعت‌گرد زیاد می‌شود
+    const yawCcw = r.beta * qbGy.ux + r.gamma * qbGy.uy + r.alpha * qbGy.uz;
+    qbGy.raw += -yawCcw * dt;
+    qbGy.ring.push({ t: now, c: qbGy.raw });
+    while (qbGy.ring.length && now - qbGy.ring[0].t > 4500) qbGy.ring.shift();
+    qbChoose();
+    if (qbGyroMode && qbGy.anchorH !== null) {
+      qbSource = 'gyro';
+      applyHeading((qbGy.anchorH + (qbGyroNow() - qbGy.anchorC) + 3600) % 360);
+    }
+  } catch (e) {}
+}
+function qbStartGyro() {
+  if (qbGy.on) return;
+  qbGy.on = true; qbGy.last = 0; qbGy.ring = []; qbGy.haveG = false;
+  try { window.addEventListener('devicemotion', qbOnMotion, true); } catch (e) {}
+}
+function qbStopGyro() {
+  qbGy.on = false;
+  try { window.removeEventListener('devicemotion', qbOnMotion, true); } catch (e) {}
+  qbGy.ring = []; qbGy.anchorH = null; qbGy.hist = []; qbGy.flipVotes = 0;
+  QB_ORDER.forEach((n) => { delete qbTrust[n]; });
+  qbGyroMode = false; qbDecT = 0; qbDecVal = null;
+}
+// هر ~۰٫۳ ثانیه، وقتی گوشی واقعاً می‌چرخد، منبع‌ها با گیروسکوپ مقایسه می‌شوند
+function qbJudge(live) {
+  const W = 2000;
+  const dg = qbGyroDelta(W);
+  if (dg === null) return;
+  qbGy.lastDg = dg;
+  if (Math.abs(dg) < 15) return;
+  const tol = Math.max(15, Math.abs(dg) * 0.4);
+  let flipHit = 0, any = 0;
+  live.forEach((n) => {
+    const ds = qbSrcDelta(n, W);
+    if (ds === null) return;
+    any++;
+    qbTrust[n] = Math.abs(qbWrap(ds - dg)) <= tol;
+    // اگر منبعی درست و به‌اندازه ولی «برعکس» می‌چرخد، علامت گیروسکوپ اشتباه فرض شده است
+    if (!qbTrust[n] && Math.abs(dg) >= 25 && Math.abs(ds) >= 25 && Math.abs(qbWrap(ds + dg)) <= tol) flipHit++;
+  });
+  if (any && flipHit && !live.some((n) => qbTrust[n] === true)) {
+    if (++qbGy.flipVotes >= 3) { qbGy.sgn = -qbGy.sgn; qbGy.flipVotes = 0; qbGy.anchorC = qbGyroNow(); }
+  } else if (flipHit === 0) qbGy.flipVotes = 0;
+}
 function qbChoose() {
   const now = Date.now();
+  if (qbDecT && now - qbDecT < 250) return qbDecVal;
   const live = QB_ORDER.filter((n) => { const a = qbSamples[n]; return a && a.length && now - a[a.length - 1].t < 1500; });
-  if (!live.length) return null;
-  const moving = live.filter((n) => { const r = qbRange(n); return r === null || r >= 3; });
-  return moving.length ? moving[0] : live[0];
+  qbJudge(live);
+  let res;
+  const judged = QB_ORDER.some((n) => qbTrust[n] !== undefined);
+  if (judged) {
+    const good = live.filter((n) => qbTrust[n] === true);
+    const unknown = live.filter((n) => qbTrust[n] === undefined);
+    if (good.length) res = good[0];
+    else if (unknown.length) res = unknown[0];
+    else res = (qbGy.on && qbGy.n > 5 && qbGy.anchorH !== null) ? 'gyro' : (live[0] || null);
+  } else if (!live.length) {
+    res = (qbGy.on && qbGy.n > 5 && qbGy.anchorH !== null && now - qbLastHeadingTs > 2000) ? 'gyro' : null;
+  } else {
+    const moving = live.filter((n) => { const r = qbRange(n); return r === null || r >= 3; });
+    res = moving.length ? moving[0] : live[0];
+  }
+  if (res === 'gyro' && !qbGyroMode && qbGy.hist.length) {
+    // منبع ثابت از لحظهٔ شروع چرخش خراب بوده؛ مرجع را به قبل از چرخش (~۲ ثانیه پیش) برمی‌گردانیم
+    let e = qbGy.hist[0];
+    for (let i = 0; i < qbGy.hist.length; i++) { if (qbGy.hist[i].t <= now - 2000) e = qbGy.hist[i]; }
+    qbGy.anchorH = e.h; qbGy.anchorC = e.c;
+  }
+  qbGyroMode = (res === 'gyro');
+  qbDecT = now; qbDecVal = res;
+  return res;
 }
 function qbFeed(name, h) {
   if (typeof h !== 'number' || isNaN(h)) return;
@@ -5192,6 +5303,9 @@ function qbFeed(name, h) {
   if (qbChoose() !== name) return;
   qbSource = name;
   if (calibrationFlipped) h = (360 - h) % 360;
+  qbGy.anchorH = h; qbGy.anchorC = qbGyroNow();   // نقطهٔ مرجع برای حالت گیروسکوپ
+  qbGy.hist.push({ t: Date.now(), h: h, c: qbGy.anchorC });
+  while (qbGy.hist.length && Date.now() - qbGy.hist[0].t > 6000) qbGy.hist.shift();
   applyHeading(h);
 }
 
@@ -5234,7 +5348,7 @@ function applyHeading(magHeading) {
     qbHeading += k * diff;
   }
   const s = qbEl('qb-scene');
-  if (s && s.classList.contains('is-calib')) s.classList.remove('is-calib');
+  if (s && !qbGyroMode && s.classList.contains('is-calib')) s.classList.remove('is-calib');
   qbDraw();
 }
 
@@ -5252,9 +5366,11 @@ async function qbStartSensors() {
   if (qiblaListenerAttached) return;
   qiblaListenerAttached = true;
   qbLastHeadingTs = Date.now();
+  qbKickN = 0;
   window.addEventListener('deviceorientationabsolute', handleOrientationAbs, true);
   window.addEventListener('deviceorientation', handleOrientation, true);
   qbStartNativeCompass();
+  qbStartGyro();
   // ترفند ۲: اگر ~۲ ثانیه هیچ جهتی نرسید، سنسور استاندارد AbsoluteOrientationSensor (کروم ۶۷+) امتحان می‌شود
   clearTimeout(qbGenericTimer);
   qbGenericTimer = setTimeout(qbStartGenericSensor, 2000);
@@ -5324,12 +5440,28 @@ function qbStopNativeCompass() {
   } catch (e) {}
 }
 
+// اگر ~۲٫۵ ثانیه هیچ جهتی نرسید، سنسورها دوباره ثبت می‌شوند (حداکثر ۶ بار، با فاصلهٔ ۵ ثانیه)
+let qbKickT = 0, qbKickN = 0;
+function qbKick() {
+  const now = Date.now();
+  if (now - qbKickT < 5000 || qbKickN >= 6 || !qiblaListenerAttached) return;
+  qbKickT = now; qbKickN++;
+  try { qbStopNativeCompass(); setTimeout(() => { if (qiblaListenerAttached) qbStartNativeCompass(); }, 300); } catch (e) {}
+  try {
+    window.removeEventListener('deviceorientationabsolute', handleOrientationAbs, true);
+    window.removeEventListener('deviceorientation', handleOrientation, true);
+    window.addEventListener('deviceorientationabsolute', handleOrientationAbs, true);
+    window.addEventListener('deviceorientation', handleOrientation, true);
+  } catch (e) {}
+}
+
 function qbStopSensors() {
   if (!qiblaListenerAttached) return;
   qiblaListenerAttached = false;
   QB_ORDER.forEach((n) => { qbSamples[n] = []; });
   qbStopGenericSensor();
   qbStopNativeCompass();
+  qbStopGyro();
   try {
     window.removeEventListener('deviceorientationabsolute', handleOrientationAbs, true);
     window.removeEventListener('deviceorientation', handleOrientation, true);
@@ -5341,7 +5473,8 @@ setInterval(() => {
   try {
     const s = qbEl('qb-scene');
     if (!s || currentTab !== 'qibla') return;
-    s.classList.toggle('is-calib', qiblaListenerAttached && qbHasLocation() && (Date.now() - qbLastHeadingTs > 3500 || (gotNativeHeading && qbNativeAcc <= 0)));
+    s.classList.toggle('is-calib', qiblaListenerAttached && qbHasLocation() && (qbGyroMode || Date.now() - qbLastHeadingTs > 3500 || (gotNativeHeading && qbNativeAcc <= 0)));
+    if (qiblaListenerAttached && !qbGyroMode && Date.now() - qbLastHeadingTs > 2500) qbKick();
   } catch (e) {}
 }, 1000);
 
@@ -5485,6 +5618,8 @@ qbEl('qibla-gps-btn').addEventListener('click', () => { qbFetchGps(true); });
       'Android: ' + ((/Android ([\d.]+)/.exec(navigator.userAgent || '') || [])[1] || '?'),
       'منبع جهت: ' + (qbSource || 'هیچ') + (qbNativeSrc ? ' (بومی: ' + qbNativeSrc + ')' : ''),
       QB_ORDER.map((n) => { const a = qbSamples[n] || [], r = qbRange(n); return n + ': ' + (qbCounts[n] || 0) + ' نمونه' + (a.length ? '، آخرین ' + Math.round(a[a.length - 1].h) + '°' : '') + (r === null ? '' : '، حرکت ' + Math.round(r) + '°'); }).join('\n'),
+      'گیروسکوپ: ' + (qbGy.n ? qbGy.n + ' نمونه، چرخش ۲ ثانیهٔ اخیر ' + Math.round(qbGy.lastDg) + '°' + (qbGy.sgn < 0 ? '، علامت برعکس' : '') : 'نمونه‌ای نرسید'),
+      'داوری منبع‌ها: ' + (QB_ORDER.filter((n) => qbTrust[n] !== undefined).map((n) => n + (qbTrust[n] ? ' ✓' : ' ✗')).join('، ') || 'هنوز چرخش کافی نبوده') + (qbGyroMode ? ' ← حالت گیروسکوپ' : ''),
       'سنسور بومی: ' + (A && A.startQiblaSensor ? 'هست' : 'نیست (APK قدیمی)'),
       'AbsoluteOrientationSensor: ' + (typeof window.AbsoluteOrientationSensor === 'function' ? 'هست' : 'نیست'),
       'DeviceOrientationEvent: ' + (typeof window.DeviceOrientationEvent !== 'undefined' ? 'هست' : 'نیست'),
