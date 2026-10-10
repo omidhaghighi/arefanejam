@@ -5281,9 +5281,9 @@ function qbChoose() {
     const unknown = live.filter((n) => qbTrust[n] === undefined);
     if (good.length) res = good[0];
     else if (unknown.length) res = unknown[0];
-    else res = (qbGy.on && qbGy.n > 5 && qbGy.anchorH !== null) ? 'gyro' : (live[0] || null);
+    else res = (qbGy.on && qbGy.n > 5 && qbGy.anchorH !== null) ? 'gyro' : (qbGpsFresh() ? 'gps' : (live[0] || null));
   } else if (!live.length) {
-    res = (qbGy.on && qbGy.n > 5 && qbGy.anchorH !== null && now - qbLastHeadingTs > 2000) ? 'gyro' : null;
+    res = (qbGy.on && qbGy.n > 5 && qbGy.anchorH !== null && now - qbLastHeadingTs > 2000) ? 'gyro' : (qbGpsFresh() ? 'gps' : null);
   } else {
     const moving = live.filter((n) => { const r = qbRange(n); return r === null || r >= 3; });
     res = moving.length ? moving[0] : live[0];
@@ -5464,6 +5464,7 @@ function qbStopSensors() {
   qbStopGenericSensor();
   qbStopNativeCompass();
   qbStopGyro();
+  qbGpsStop();
   try {
     window.removeEventListener('deviceorientationabsolute', handleOrientationAbs, true);
     window.removeEventListener('deviceorientation', handleOrientation, true);
@@ -5490,6 +5491,73 @@ function qbSunPos(lat, lng, date) {
   const az = (Math.atan2(Math.sin(ha), Math.cos(ha) * Math.sin(la) - Math.tan(dec) * Math.cos(la)) / R + 180 + 360) % 360;
   return { az: az, el: el };
 }
+
+/* ----- جهت از روی GPS (راه رفتن) -----
+   GPS فقط وقتی جهت می‌دهد که گوشی حرکت کند (جهت حرکت). کاربر گوشی را رو به جلو می‌گیرد و چند قدم راه می‌رود؛ جهت حرکت = شمال حقیقی.
+   این جهت (۱) نقطهٔ مرجع گیروسکوپ می‌شود تا بعد از ایستادن هم با چرخش گوشی ادامه بدهد، (۲) سنسورهای جهت را راستی‌آزمایی می‌کند
+   (ثابت یا ناجور ← ناسالم)، (۳) در گوشی بدون گیروسکوپ و بدون سنسور، تا ۱۰ ثانیه بعد از هر راه رفتن خودش جهت می‌دهد. */
+const qbGps = { on: false, id: null, ref: null, last: null, acc: null, msg: '', bad: {} };
+function qbGpsFresh() { return !!(qbGps.last && Date.now() - qbGps.last.t < 10000); }
+function qbBearing(lat1, lng1, lat2, lng2) {
+  const R = Math.PI / 180, p1 = lat1 * R, p2 = lat2 * R, dl = (lng2 - lng1) * R;
+  const y = Math.sin(dl) * Math.cos(p2), x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl);
+  return (Math.atan2(y, x) / R + 360) % 360;
+}
+function qbGpsFix(trueH) {
+  const now = Date.now();
+  qbGps.last = { t: now, h: trueH };
+  const magH = (((trueH - qiblaDeclination) % 360) + 360) % 360;
+  // راستی‌آزمایی سنسورها با جهت حرکت (فرض: گوشی رو به جلو گرفته شده)
+  QB_ORDER.forEach((n) => {
+    const a = qbSamples[n];
+    if (!a || !a.length || now - a[a.length - 1].t > 1500) return;
+    let h = a[a.length - 1].h; if (calibrationFlipped) h = (360 - h) % 360;
+    const err = Math.abs(qbWrap(((h + qiblaDeclination) % 360) - trueH));
+    if (err <= 25) { qbTrust[n] = true; qbGps.bad[n] = 0; }
+    else if (err > 40 && (qbGps.bad[n] = (qbGps.bad[n] || 0) + 1) >= 2) qbTrust[n] = false;
+  });
+  qbGy.anchorH = magH; qbGy.anchorC = qbGyroNow();
+  qbGy.hist.push({ t: now, h: magH, c: qbGy.anchorC });
+  qbDecT = 0;
+  const res = qbChoose();
+  if (res === 'gyro' || res === 'gps') { qbSource = res; for (let i = 0; i < 10; i++) applyHeading(magH); }
+}
+function qbGpsOnPos(pos) {
+  try {
+    const c = pos.coords, now = Date.now();
+    qbGps.acc = c.accuracy;
+    let h = null;
+    if (typeof c.heading === 'number' && !isNaN(c.heading) && typeof c.speed === 'number' && c.speed >= 0.7 && c.accuracy <= 40) h = c.heading;
+    else if (c.accuracy <= 30) {
+      const p = { lat: c.latitude, lng: c.longitude, t: now };
+      if (!qbGps.ref) qbGps.ref = p;
+      else {
+        const d = qbDistanceKm(qbGps.ref.lat, qbGps.ref.lng, p.lat, p.lng) * 1000;
+        if (d >= Math.max(8, 1.5 * c.accuracy)) { h = qbBearing(qbGps.ref.lat, qbGps.ref.lng, p.lat, p.lng); qbGps.ref = p; }
+        else if (now - qbGps.ref.t > 20000) qbGps.ref = p;
+      }
+    }
+    if (h !== null) qbGpsFix(h);
+    qbNoSensorUpdate();
+  } catch (e) {}
+}
+function qbGpsStart() {
+  if (qbGps.on) return;
+  if (!navigator.geolocation) { qbGps.msg = 'این گوشی GPS را در اپ در دسترس نمی‌گذارد.'; qbNoSensorUpdate(); return; }
+  qbGps.on = true; qbGps.ref = null; qbGps.bad = {}; qbGps.msg = '';
+  try {
+    qbGps.id = navigator.geolocation.watchPosition(qbGpsOnPos, (err) => {
+      qbGps.msg = (err && err.code === 1) ? 'اجازهٔ مکان داده نشده است؛ مکان گوشی را برای اپ روشن کنید.' : 'GPS در دسترس نیست؛ بیرون از ساختمان امتحان کنید.';
+      qbNoSensorUpdate();
+    }, { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 });
+  } catch (e) { qbGps.on = false; }
+  qbNoSensorUpdate();
+}
+function qbGpsStop() {
+  try { if (qbGps.id !== null) navigator.geolocation.clearWatch(qbGps.id); } catch (e) {}
+  qbGps.id = null; qbGps.on = false; qbGps.ref = null;
+}
+
 let qbNsOpen = false, qbNsAutoDone = false, qbStartedAt = 0, qbGyroSince = 0;
 function qbNoSensorUpdate() {
   try {
@@ -5511,13 +5579,27 @@ function qbNoSensorUpdate() {
       if (note) note.textContent = north ? 'ستارهٔ قطب با دو ستارهٔ آخر «ملاقه» (صورت فلکی دب اکبر) پیدا می‌شود. زاویهٔ قبله از شمال: ' + P(qiblaBearing) + ' درجه.' : 'زاویهٔ قبله از شمال: ' + P(qiblaBearing) + ' درجه.';
     }
     txt.textContent = msg;
+    const gb = qbEl('qb-gps-btn'), gs = qbEl('qb-gps-status');
+    if (gb) gb.textContent = qbGps.on ? '⏹ توقف GPS' : '📡 پیدا کردن جهت با GPS (چند قدم راه بروید)';
+    if (gs) {
+      let st = '';
+      if (qbGps.on) {
+        const g = qbGps.last;
+        if (g) st = 'جهت از GPS: ' + P(g.h) + '° (' + P((Date.now() - g.t) / 1000) + ' ثانیه پیش). ' + ((qbGy.on && qbGy.n > 5) ? 'حالا می‌توانید بایستید و بچرخید؛ صفحه با گیروسکوپ ادامه می‌دهد. اگر بعد از چند دقیقه کج شد، دوباره چند قدم راه بروید.' : 'این گوشی گیروسکوپ ندارد؛ جهت فقط هنگام راه رفتن به‌روز می‌شود.');
+        else st = 'GPS روشن است' + (qbGps.acc ? ' (دقت ' + P(qbGps.acc) + ' متر)' : '') + '. گوشی را رو به جلو بگیرید و بیرون از ساختمان حدود ۱۰ تا ۲۰ قدم در یک مسیر مستقیم راه بروید.';
+      }
+      if (qbGps.msg) st = qbGps.msg + ' ' + st;
+      gs.textContent = st;
+    }
     card.classList.remove('hidden');
   } catch (e) {}
 }
 (function () {
   const b = qbEl('qb-nosensor-btn'), x = qbEl('qb-nosensor-x');
-  if (b) b.addEventListener('click', () => { qbNsOpen = !qbNsOpen; qbNoSensorUpdate(); });
-  if (x) x.addEventListener('click', () => { qbNsOpen = false; qbNoSensorUpdate(); });
+  if (b) b.addEventListener('click', () => { qbNsOpen = !qbNsOpen; if (!qbNsOpen) qbGpsStop(); qbNoSensorUpdate(); });
+  if (x) x.addEventListener('click', () => { qbNsOpen = false; qbGpsStop(); qbNoSensorUpdate(); });
+  const gb = qbEl('qb-gps-btn');
+  if (gb) gb.addEventListener('click', () => { if (qbGps.on) qbGpsStop(); else { qbGps.msg = ''; qbGps.last = null; qbGpsStart(); } qbNoSensorUpdate(); });
 })();
 
 // اگر چند ثانیه هیچ جهتی نرسید (سنسور نیاز به کالیبره دارد)، نشانهٔ ∞ نمایش داده می‌شود
@@ -5676,6 +5758,7 @@ qbEl('qibla-gps-btn').addEventListener('click', () => { qbFetchGps(true); });
       QB_ORDER.map((n) => { const a = qbSamples[n] || [], r = qbRange(n); return n + ': ' + (qbCounts[n] || 0) + ' نمونه' + (a.length ? '، آخرین ' + Math.round(a[a.length - 1].h) + '°' : '') + (r === null ? '' : '، حرکت ' + Math.round(r) + '°'); }).join('\n'),
       'گیروسکوپ: ' + (qbGy.n ? qbGy.n + ' نمونه، چرخش ۲ ثانیهٔ اخیر ' + Math.round(qbGy.lastDg) + '°' + (qbGy.sgn < 0 ? '، علامت برعکس' : '') : 'نمونه‌ای نرسید'),
       'داوری منبع‌ها: ' + (QB_ORDER.filter((n) => qbTrust[n] !== undefined).map((n) => n + (qbTrust[n] ? ' ✓' : ' ✗')).join('، ') || 'هنوز چرخش کافی نبوده') + (qbGyroMode ? ' ← حالت گیروسکوپ' : ''),
+      'GPS: ' + (qbGps.on ? 'روشن' + (qbGps.acc ? '، دقت ' + Math.round(qbGps.acc) + ' متر' : '') : 'خاموش') + (qbGps.last ? '، آخرین جهت ' + Math.round(qbGps.last.h) + '°' : ''),
       'سنسور بومی: ' + (A && A.startQiblaSensor ? 'هست' : 'نیست (APK قدیمی)'),
       'AbsoluteOrientationSensor: ' + (typeof window.AbsoluteOrientationSensor === 'function' ? 'هست' : 'نیست'),
       'DeviceOrientationEvent: ' + (typeof window.DeviceOrientationEvent !== 'undefined' ? 'هست' : 'نیست'),
