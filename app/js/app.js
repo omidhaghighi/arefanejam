@@ -4852,6 +4852,7 @@ function refreshQiblaCompassIfReady() {
   qiblaBearing = bearingToQibla(state.coords.lat, state.coords.lng);
   updateQiblaDeclination();
   qbRender();
+  qbNoSensorUpdate();
 }
 
 /* ----- نام شهر زیر قبله‌نما ----- */
@@ -5367,6 +5368,7 @@ async function qbStartSensors() {
   qiblaListenerAttached = true;
   qbLastHeadingTs = Date.now();
   qbKickN = 0;
+  qbNsAutoDone = false; qbStartedAt = Date.now();
   window.addEventListener('deviceorientationabsolute', handleOrientationAbs, true);
   window.addEventListener('deviceorientation', handleOrientation, true);
   qbStartNativeCompass();
@@ -5468,6 +5470,56 @@ function qbStopSensors() {
   } catch (e) {}
 }
 
+
+/* ----- قبله‌یابی بدون قطب‌نما (برای گوشی‌های بدون سنسور جهت یا با سنسور خراب) -----
+   موقعیت خورشید از روی مکان و ساعت گوشی حساب می‌شود (بدون هیچ سنسوری)؛ شب هم ستارهٔ قطب (شمال) مرجع است.
+   زاویهٔ قبله از شمال حقیقی است و موقعیت خورشید هم نسبت به شمال حقیقی؛ پس انحراف مغناطیسی لازم نیست. */
+function qbSunPos(lat, lng, date) {
+  const R = Math.PI / 180;
+  const n = date.getTime() / 86400000 + 2440587.5 - 2451545.0;
+  const L = (280.460 + 0.9856474 * n) % 360;
+  const g = ((357.528 + 0.9856003 * n) % 360) * R;
+  const lam = (L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * R;
+  const eps = (23.439 - 0.0000004 * n) * R;
+  const ra = Math.atan2(Math.cos(eps) * Math.sin(lam), Math.cos(lam));
+  const dec = Math.asin(Math.sin(eps) * Math.sin(lam));
+  const gmst = ((18.697374558 + 24.06570982441908 * n) % 24 + 24) % 24;
+  const ha = (gmst * 15 + lng) * R - ra;
+  const la = lat * R;
+  const el = Math.asin(Math.sin(la) * Math.sin(dec) + Math.cos(la) * Math.cos(dec) * Math.cos(ha)) / R;
+  const az = (Math.atan2(Math.sin(ha), Math.cos(ha) * Math.sin(la) - Math.tan(dec) * Math.cos(la)) / R + 180 + 360) % 360;
+  return { az: az, el: el };
+}
+let qbNsOpen = false, qbNsAutoDone = false, qbStartedAt = 0, qbGyroSince = 0;
+function qbNoSensorUpdate() {
+  try {
+    const card = qbEl('qb-nosensor'), txt = qbEl('qb-nosensor-text'), note = qbEl('qb-nosensor-note');
+    if (!card || !txt) return;
+    if (!qbNsOpen || qiblaBearing === null || !state.coords) { card.classList.add('hidden'); return; }
+    const sp = qbSunPos(state.coords.lat, state.coords.lng, new Date());
+    const P = (v) => toPersianDigits(String(Math.round(v)));
+    const turn = (refAz) => { const rel = (((qiblaBearing - refAz) % 360) + 360) % 360; return rel <= 180 ? { d: rel, dir: 'راست' } : { d: 360 - rel, dir: 'چپ' }; };
+    let t, msg;
+    if (sp.el >= 5) {
+      t = turn(sp.az);
+      msg = 'الان خورشید بالای افق است. رو به خورشید بایستید، سپس حدود ' + P(t.d) + ' درجه به سمت ' + t.dir + ' بچرخید؛ همان‌جا قبله است.';
+      if (note) note.textContent = 'ارتفاع خورشید حدود ' + P(sp.el) + ' درجه است. ۹۰ درجه مثل گوشهٔ یک کتاب است. ساعت و تاریخ گوشی باید درست باشد.' + (sp.el > 75 ? ' (خورشید تقریباً بالای سر است؛ دقت کم می‌شود.)' : '');
+    } else {
+      const north = state.coords.lat >= 0;
+      t = turn(north ? 0 : 180);
+      msg = 'الان خورشید پایین است. ' + (north ? 'ستارهٔ قطب (شمال) را پیدا کنید' : 'رو به جنوب بایستید') + ' و رو به آن بایستید، سپس حدود ' + P(t.d) + ' درجه به سمت ' + t.dir + ' بچرخید؛ همان‌جا قبله است.';
+      if (note) note.textContent = north ? 'ستارهٔ قطب با دو ستارهٔ آخر «ملاقه» (صورت فلکی دب اکبر) پیدا می‌شود. زاویهٔ قبله از شمال: ' + P(qiblaBearing) + ' درجه.' : 'زاویهٔ قبله از شمال: ' + P(qiblaBearing) + ' درجه.';
+    }
+    txt.textContent = msg;
+    card.classList.remove('hidden');
+  } catch (e) {}
+}
+(function () {
+  const b = qbEl('qb-nosensor-btn'), x = qbEl('qb-nosensor-x');
+  if (b) b.addEventListener('click', () => { qbNsOpen = !qbNsOpen; qbNoSensorUpdate(); });
+  if (x) x.addEventListener('click', () => { qbNsOpen = false; qbNoSensorUpdate(); });
+})();
+
 // اگر چند ثانیه هیچ جهتی نرسید (سنسور نیاز به کالیبره دارد)، نشانهٔ ∞ نمایش داده می‌شود
 setInterval(() => {
   try {
@@ -5475,6 +5527,10 @@ setInterval(() => {
     if (!s || currentTab !== 'qibla') return;
     s.classList.toggle('is-calib', qiblaListenerAttached && qbHasLocation() && (qbGyroMode || Date.now() - qbLastHeadingTs > 3500 || (gotNativeHeading && qbNativeAcc <= 0)));
     if (qiblaListenerAttached && !qbGyroMode && Date.now() - qbLastHeadingTs > 2500) qbKick();
+    const nowT = Date.now();
+    if (qbGyroMode) { if (!qbGyroSince) qbGyroSince = nowT; } else qbGyroSince = 0;
+    if (qiblaListenerAttached && qbHasLocation() && !qbNsAutoDone && ((nowT - qbLastHeadingTs > 5000) || (qbGyroSince && nowT - qbGyroSince > 8000))) { qbNsAutoDone = true; qbNsOpen = true; }
+    if (qbNsOpen) qbNoSensorUpdate();
   } catch (e) {}
 }, 1000);
 

@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
-<link rel="stylesheet" href="css/style.css?v=116">
+<link rel="stylesheet" href="css/style.css?v=117">
 </head>
 <body>
 
@@ -400,6 +400,14 @@
           </button>
           <button id="qibla-gps-btn" class="qb-btn qb-btn--accent" type="button" aria-label="موقعیت دقیق من"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="6.3"/><circle cx="12" cy="12" r="2.1" fill="currentColor" stroke="none"/><path d="M12 2.2v3.4M12 18.4v3.4M2.2 12h3.4M18.4 12h3.4"/></svg></button>
         </div>
+      </div>
+
+      <!-- قبله‌یابی بدون قطب‌نما (خورشید / ستارهٔ قطب): برای گوشی‌هایی که سنسور جهت ندارند یا ثابت می‌ماند -->
+      <button id="qb-nosensor-btn" class="qb-ns-link" type="button">🧭 قطب‌نما کار نمی‌کند؟ قبله‌یابی با خورشید یا ستارهٔ قطب</button>
+      <div class="qb-ns-card hidden" id="qb-nosensor">
+        <div class="qb-ns-head"><b id="qb-nosensor-title">قبله‌یابی بدون قطب‌نما</b><button id="qb-nosensor-x" class="qb-ns-x" type="button" aria-label="بستن">✕</button></div>
+        <p id="qb-nosensor-text">—</p>
+        <small id="qb-nosensor-note"></small>
       </div>
 
       <!-- نقشه: خط مستقیم از موقعیت کاربر تا مکه -->
@@ -1766,7 +1774,7 @@
 /* native-bridge.js و app.js (به‌همین ترتیب) فقط بعد از پایان صفحهٔ شروع (ویدیو/عکس/گیف) بارگذاری می‌شوند.
    اگر صفحهٔ شروعی نباشد یا تمام شده باشد، بی‌درنگ بارگذاری می‌شوند. */
 (function () {
-  var list = ['js/native-bridge.js?v=26', 'js/app.js?v=175'], i = 0;
+  var list = ['js/native-bridge.js?v=26', 'js/app.js?v=176'], i = 0;
   function next() {
     if (i >= list.length) return;
     var el = document.createElement('script'); el.src = list[i++];

@@ -4730,3 +4730,15 @@ body.dark-mode .amm-row.on { background: rgba(43,163,152,.16); border-color: #2B
 body.dark-mode .amm-row.on .amm-dot { border-color: #2BA398; }
 body.dark-mode .amm-row.on .amm-dot::after { background: #2BA398; }
 @media (prefers-reduced-motion: reduce) { #tab-azan .az-ico-btn.is-busy span { animation: none; } }
+
+/* قبله‌یابی بدون قطب‌نما (خورشید / ستارهٔ قطب) */
+.qb-ns-link { display: block; width: calc(100% - 28px); margin: 6px 14px 4px; padding: 10px 12px; border: 1px dashed rgba(176,141,78,.7); border-radius: 14px; background: transparent; color: var(--emerald); font: inherit; font-size: 12.5px; font-weight: 700; text-align: center; cursor: pointer; }
+body.dark-mode .qb-ns-link { color: var(--gold-light); }
+.qb-ns-link:active { transform: scale(.98); }
+.qb-ns-card { margin: 6px 14px 10px; padding: 12px 14px; border-radius: 18px; border: 1.5px solid rgba(176,141,78,.55); background: var(--card-bg); box-shadow: var(--raised-md); }
+.qb-ns-card.hidden { display: none; }
+.qb-ns-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; color: var(--emerald); font-size: 14px; }
+body.dark-mode .qb-ns-head { color: var(--gold-light); }
+.qb-ns-x { border: 0; background: transparent; color: inherit; font-size: 16px; padding: 2px 6px; cursor: pointer; }
+.qb-ns-card p { margin: 0 0 6px; font-size: 13.5px; line-height: 1.9; }
+.qb-ns-card small { display: block; font-size: 11.5px; line-height: 1.8; opacity: .75; }
