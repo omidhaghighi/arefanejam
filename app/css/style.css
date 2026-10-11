@@ -1549,15 +1549,6 @@ body.dark-mode .qb-prompt-link { color: var(--gold-light); }
 @keyframes azdNext { from { opacity: 0; transform: translateX(-26px); } to { opacity: 1; transform: none; } }
 @keyframes azdPrev { from { opacity: 0; transform: translateX(26px); } to { opacity: 1; transform: none; } }
 
-.azr-card { margin-top: 14px; padding: 14px; border-radius: 16px; border: 1px solid color-mix(in srgb, var(--gold) 45%, transparent); background: color-mix(in srgb, var(--gold) 8%, var(--card-bg)); }
-.azr-note { margin: 0 0 10px; font-size: 13px; line-height: 2; color: var(--text, inherit); }
-.azr-form { display: flex; flex-direction: column; gap: 6px; }
-.azr-lbl { font-size: 12.5px; font-weight: 700; opacity: .8; margin-top: 4px; }
-.azr-in { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--gold) 55%, transparent); background: var(--card-bg); color: inherit; font: inherit; }
-#azr-send { margin-top: 10px; }
-.azr-msg { margin: 6px 0 0; min-height: 20px; font-size: 12.5px; line-height: 1.9; }
-.azr-msg.is-ok { color: var(--emerald); }
-.azr-msg.is-err { color: #a5473c; }
 
 .azan-share-btn {
   display: block; width: 100%; margin-top: 10px;
@@ -1570,6 +1561,7 @@ body.dark-mode .qb-prompt-link { color: var(--gold-light); }
   animation: mokatibPublicBtnPulse 1.8s ease-in-out infinite;
 }
 .mokatib-public-btn-row .secondary-btn#mokatib-public-btn2 { animation-delay: .3s; }
+.mokatib-public-btn-row .secondary-btn#mokatib-public-btn3 { animation-delay: .6s; }
 @keyframes mokatibPublicBtnPulse {
   0%, 100% { transform: scale(1); box-shadow: 0 2px 8px rgba(0,0,0,.15); }
   50% { transform: scale(1.06); box-shadow: 0 5px 14px rgba(0,0,0,.28); }
@@ -4229,6 +4221,8 @@ body.dark-mode .myev-time { color: #CDB9FF; background: rgba(169,139,232,.2); }
   flex: 0 0 auto; width: 38px; height: 38px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center;
   font-size: 19px; background: color-mix(in srgb, var(--turq, #2A9D8F) 16%, var(--card-bg, #fff));
 }
+.hb-item-ic.has-img { background: transparent; overflow: hidden; }
+.hb-item-ic.has-img img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 12px; }
 .hb-item-tx { flex: 1; min-width: 0; font-size: 14.5px; font-weight: 700; line-height: 1.7; overflow-wrap: anywhere; }
 .hb-item-ch { flex: 0 0 auto; font-size: 18px; opacity: .45; }
 .hb-heading { margin: 12px 6px 6px; font-size: 12.5px; font-weight: 800; color: var(--gold, #B08D4E); letter-spacing: .2px; }
@@ -4732,16 +4726,3 @@ body.dark-mode .amm-row.on .amm-dot { border-color: #2BA398; }
 body.dark-mode .amm-row.on .amm-dot::after { background: #2BA398; }
 @media (prefers-reduced-motion: reduce) { #tab-azan .az-ico-btn.is-busy span { animation: none; } }
 
-/* قبله‌یابی بدون قطب‌نما (خورشید / ستارهٔ قطب) */
-.qb-ns-link { display: block; width: calc(100% - 28px); margin: 6px 14px 4px; padding: 10px 12px; border: 1px dashed rgba(176,141,78,.7); border-radius: 14px; background: transparent; color: var(--emerald); font: inherit; font-size: 12.5px; font-weight: 700; text-align: center; cursor: pointer; }
-body.dark-mode .qb-ns-link { color: var(--gold-light); }
-.qb-ns-link:active { transform: scale(.98); }
-.qb-ns-card { margin: 6px 14px 10px; padding: 12px 14px; border-radius: 18px; border: 1.5px solid rgba(176,141,78,.55); background: var(--card-bg); box-shadow: var(--raised-md); }
-.qb-ns-card.hidden { display: none; }
-.qb-ns-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; color: var(--emerald); font-size: 14px; }
-body.dark-mode .qb-ns-head { color: var(--gold-light); }
-.qb-ns-x { border: 0; background: transparent; color: inherit; font-size: 16px; padding: 2px 6px; cursor: pointer; }
-.qb-ns-card p { margin: 0 0 6px; font-size: 13.5px; line-height: 1.9; }
-.qb-ns-card small { display: block; font-size: 11.5px; line-height: 1.8; opacity: .75; }
-.qb-ns-gpsbtn { display: block; width: 100%; margin: 4px 0 8px; padding: 9px 10px; border: 1.5px solid rgba(176,141,78,.7); border-radius: 12px; background: rgba(176,141,78,.12); color: var(--emerald); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
-body.dark-mode .qb-ns-gpsbtn { color: var(--gold-light); }

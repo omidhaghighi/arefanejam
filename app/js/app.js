@@ -2379,52 +2379,6 @@ function renderAzanMethodList() {
   if (cancel) cancel.addEventListener('click', () => document.getElementById('azan-method-modal').classList.add('hidden'));
 })();
 
-/* ---------- گزارش اختلاف ساعت اذان (زیر اوقات اذان) ---------- */
-function azrFillCities() {
-  const sel = document.getElementById('azr-city');
-  if (!sel) return;
-  const cur = (typeof effectiveCityName === 'function' ? effectiveCityName() : '') || state.activeCityName || '';
-  const names = (window.IRAN_CITIES || []).map((c) => c.name).sort((a, b) => a.localeCompare(b, 'fa'));
-  if (cur && names.indexOf(cur) < 0) names.unshift(cur);
-  const prev = sel.value;
-  sel.innerHTML = '';
-  names.forEach((n) => { const o = document.createElement('option'); o.value = n; o.textContent = n; sel.appendChild(o); });
-  sel.value = prev && names.indexOf(prev) >= 0 ? prev : (cur && names.indexOf(cur) >= 0 ? cur : names[0] || '');
-}
-(function setupAzanReport() {
-  const btn = document.getElementById('azr-send');
-  if (!btn) return;
-  const msg = (t, ok) => { const m = document.getElementById('azr-msg'); m.textContent = t || ''; m.className = 'azr-msg' + (t ? (ok ? ' is-ok' : ' is-err') : ''); };
-  azrFillCities();
-  const card = document.getElementById('azan-report-card');
-  if (card) card.addEventListener('focusin', azrFillCities, { once: true });
-  btn.addEventListener('click', async () => {
-    const city = document.getElementById('azr-city').value;
-    const prayer = document.getElementById('azr-prayer').value;
-    const time = document.getElementById('azr-time').value;
-    if (!city) { msg('شهر را انتخاب کنید.'); return; }
-    if (!/^\d{2}:\d{2}$/.test(time)) { msg('ساعت صحیح را وارد کنید.'); return; }
-    if (navigator.onLine === false) { msg('برای ارسال به اینترنت نیاز است.'); return; }
-    let appTime = '';
-    try {
-      const p = (lastPrayerList || []).find((x) => x.key === prayer);
-      if (p && p.time) appTime = formatTime(p.time);
-    } catch (e) {}
-    const now = new Date();
-    const j = gregorianToJalali(now.getFullYear(), now.getMonth() + 1, now.getDate());
-    btn.disabled = true; msg('در حال ارسال...', true);
-    try {
-      const device_id = await ensureDeviceId();
-      await apiFetch('/azan-report', { method: 'POST', body: JSON.stringify({ device_id, city, prayer, time, app_time: appTime, jy: j[0], jm: j[1], jd: j[2], app_version: String(window.NATIVE_APP_VERSION || '') }) });
-      msg('ممنون! گزارش شما ارسال شد و پس از بررسی، ساعت اصلاح می‌شود.', true);
-      document.getElementById('azr-time').value = '';
-    } catch (e) {
-      msg((e && e.message) ? String(e.message).slice(0, 120) : 'ارسال نشد. دوباره تلاش کنید.');
-    }
-    btn.disabled = false;
-  });
-})();
-
 function findNearestCity(lat, lng) {
   let nearest = null, minDist = Infinity;
   (window.IRAN_CITIES || []).forEach((c) => {
@@ -5622,7 +5576,7 @@ setInterval(() => {
     if (qiblaListenerAttached && !qbGyroMode && Date.now() - qbLastHeadingTs > 2500) qbKick();
     const nowT = Date.now();
     if (qbGyroMode) { if (!qbGyroSince) qbGyroSince = nowT; } else qbGyroSince = 0;
-    if (qiblaListenerAttached && qbHasLocation() && !qbNsAutoDone && ((nowT - qbLastHeadingTs > 5000) || (qbGyroSince && nowT - qbGyroSince > 8000))) { qbNsAutoDone = true; qbNsOpen = true; }
+    if (qiblaListenerAttached && qbHasLocation() && !qbNsAutoDone && ((nowT - qbLastHeadingTs > 5000) || (qbGyroSince && nowT - qbGyroSince > 8000))) { qbNsAutoDone = true; }
     if (qbNsOpen) qbNoSensorUpdate();
   } catch (e) {}
 }, 1000);
@@ -10982,6 +10936,32 @@ document.getElementById('mokatib-public-btn1-popup-close').addEventListener('cli
   overlayGo('btn1', 0, closeMokatibBtn1Popup);
 });
 
+document.getElementById('mokatib-public-btn3').addEventListener('click', () => {
+  const popup = (mokatibState.publicBtn3Popup) || { image: '', text: '' };
+  if (!popup.image && !popup.text) return; // چیزی برای نمایش تنظیم نشده
+  const imgEl = document.getElementById('mokatib-public-btn3-popup-img');
+  const wrapEl = document.getElementById('mokatib-public-btn3-popup-imgwrap');
+  const textEl = document.getElementById('mokatib-public-btn3-popup-text');
+  if (popup.image) {
+    imgEl.src = secureUrl(popup.image);
+    wrapEl.style.display = 'block';
+    if (mokatibBtn3ImageViewer) mokatibBtn3ImageViewer.reset();
+  } else {
+    wrapEl.style.display = 'none';
+    imgEl.removeAttribute('src');
+  }
+  applyMokatibPopupText(textEl, popup);
+  document.getElementById('mokatib-public-btn3-popup').classList.remove('hidden');
+  pushOverlay('btn3', closeMokatibBtn3Popup);
+});
+function closeMokatibBtn3Popup() {
+  exitImageViewerFullscreen(document.getElementById('mokatib-public-btn3-popup-imgwrap'));
+  document.getElementById('mokatib-public-btn3-popup').classList.add('hidden');
+}
+document.getElementById('mokatib-public-btn3-popup-close').addEventListener('click', () => {
+  overlayGo('btn3', 0, closeMokatibBtn3Popup);
+});
+
 const MOKATIB_POPUP_FONT_CLASSES = ['mokatib-popup-font-default', 'mokatib-popup-font-lalezar', 'mokatib-popup-font-aref-ruqaa', 'mokatib-popup-font-amiri-quran'];
 const MOKATIB_POPUP_FX_CLASSES = ['mokatib-popup-fx-fade', 'mokatib-popup-fx-slide-up', 'mokatib-popup-fx-zoom-in', 'mokatib-popup-fx-bounce', 'mokatib-popup-fx-typewriter'];
 let mokatibTypewriterTimer = null;
@@ -11116,6 +11096,7 @@ function exitImageViewerFullscreen(wrapEl) {
 }
 
 const mokatibBtn1ImageViewer = setupImageViewer(document.getElementById('mokatib-public-btn1-popup-imgwrap'));
+const mokatibBtn3ImageViewer = setupImageViewer(document.getElementById('mokatib-public-btn3-popup-imgwrap'));
 
 /* ===== دکمهٔ دوم صفحهٔ عمومی مکاتب: پنجرهٔ چارت دکمه‌ای (متن بالا + دکمهٔ هر مورد ثبت‌شده) ===== */
 const mokatibBtn2ImageViewer = setupImageViewer(document.getElementById('mokatib-btn2-detail-imgwrap'));
@@ -11355,10 +11336,13 @@ function applyMokatibPublicData(data) {
   btn2.textContent = btns.btn2 || '';
   btn1.style.background = btns.btn1_color || '';
   btn2.style.background = btns.btn2_color || '';
-  const hasBtn1 = !!btns.btn1, hasBtn2 = !!btns.btn2;
+  const btn3 = document.getElementById('mokatib-public-btn3');
+  if (btn3) { btn3.textContent = btns.btn3 || ''; btn3.style.background = btns.btn3_color || ''; }
+  const hasBtn1 = !!btns.btn1, hasBtn2 = !!btns.btn2, hasBtn3 = !!btns.btn3;
   btn1.classList.toggle('hidden', !hasBtn1);
   btn2.classList.toggle('hidden', !hasBtn2);
-  if (btnRow) btnRow.classList.toggle('hidden', !hasBtn1 && !hasBtn2);
+  if (btn3) btn3.classList.toggle('hidden', !hasBtn3);
+  if (btnRow) btnRow.classList.toggle('hidden', !hasBtn1 && !hasBtn2 && !hasBtn3);
 
   mokatibState.publicBtn1Popup = {
     image: btns.btn1_popup_image || '',
@@ -11366,6 +11350,13 @@ function applyMokatibPublicData(data) {
     textColor: btns.btn1_popup_text_color || '',
     font: btns.btn1_popup_font || 'default',
     effect: btns.btn1_popup_effect || 'fade',
+  };
+  mokatibState.publicBtn3Popup = {
+    image: btns.btn3_popup_image || '',
+    text: btns.btn3_popup_text || '',
+    textColor: btns.btn3_popup_text_color || '',
+    font: btns.btn3_popup_font || 'default',
+    effect: btns.btn3_popup_effect || 'fade',
   };
   mokatibState.publicBtn2Popup = {
     text: btns.btn2_popup_text || '',
@@ -12616,13 +12607,19 @@ function hbRender() {
     if (it.type === 'divider') { const hr = document.createElement('div'); hr.className = 'hb-divider'; list.appendChild(hr); return; }
     if (it.type === 'heading') {
       const h = document.createElement('div'); h.className = 'hb-heading';
-      h.textContent = ((it.icon ? it.icon + ' ' : '') + (it.title || '')).trim(); list.appendChild(h); return;
+      h.textContent = (it.title || '').trim(); list.appendChild(h); return;
     }
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'hb-item' + ((it.type === 'tab' && it.target === currentTab) || (it.type === 'home' && currentTab === 'home') ? ' is-current' : '');
     b.style.setProperty('--i', i);
-    const ic = document.createElement('span'); ic.className = 'hb-item-ic'; ic.textContent = it.icon || '•';
+    const ic = document.createElement('span'); ic.className = 'hb-item-ic';
+    if (it.img) {
+      ic.classList.add('has-img');
+      const im = document.createElement('img'); im.alt = ''; im.loading = 'lazy'; im.decoding = 'async'; im.src = secureUrl(it.img);
+      im.addEventListener('error', () => { im.remove(); ic.classList.remove('has-img'); ic.textContent = '•'; });
+      ic.appendChild(im);
+    } else ic.textContent = '•';
     const tx = document.createElement('span'); tx.className = 'hb-item-tx'; tx.textContent = it.title || '';
     const ch = document.createElement('span'); ch.className = 'hb-item-ch'; ch.textContent = it.type === 'link' ? '↗' : '‹';
     b.append(ic, tx, ch);
