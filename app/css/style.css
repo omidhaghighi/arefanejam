@@ -1561,7 +1561,6 @@ body.dark-mode .qb-prompt-link { color: var(--gold-light); }
   animation: mokatibPublicBtnPulse 1.8s ease-in-out infinite;
 }
 .mokatib-public-btn-row .secondary-btn#mokatib-public-btn2 { animation-delay: .3s; }
-.mokatib-public-btn-row .secondary-btn#mokatib-public-btn3 { animation-delay: .6s; }
 @keyframes mokatibPublicBtnPulse {
   0%, 100% { transform: scale(1); box-shadow: 0 2px 8px rgba(0,0,0,.15); }
   50% { transform: scale(1.06); box-shadow: 0 5px 14px rgba(0,0,0,.28); }
@@ -4726,3 +4725,10 @@ body.dark-mode .amm-row.on .amm-dot { border-color: #2BA398; }
 body.dark-mode .amm-row.on .amm-dot::after { background: #2BA398; }
 @media (prefers-reduced-motion: reduce) { #tab-azan .az-ico-btn.is-busy span { animation: none; } }
 
+
+/* ===== چارت زیرمجموعه‌ها داخل پنجرهٔ دکمهٔ اول مکاتب (مستقل از چارت مساجد) ===== */
+#mokatib-public-btn1-popup .modal-box { max-height: 92vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.mokatib-sub-wrap { margin-top: 4px; text-align: center; }
+.mokatib-sub-heading { margin: 6px 0 2px; font-size: 14px; font-weight: 800; color: var(--emerald); }
+body.dark-mode .mokatib-sub-heading { color: var(--gold-light); }
+#mokatib-sub-detail-person, #mokatib-sub-detail-info { white-space: pre-line; }

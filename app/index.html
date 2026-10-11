@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
-<link rel="stylesheet" href="css/style.css?v=123">
+<link rel="stylesheet" href="css/style.css?v=124">
 </head>
 <body>
 
@@ -737,7 +737,6 @@
         <div class="mokatib-public-btn-row">
           <button type="button" id="mokatib-public-btn1" class="secondary-btn small-btn"></button>
           <button type="button" id="mokatib-public-btn2" class="secondary-btn small-btn"></button>
-          <button type="button" id="mokatib-public-btn3" class="secondary-btn small-btn hidden"></button>
         </div>
         <div id="mokatib-public-tree" class="family-tree"></div>
       </div>
@@ -762,30 +761,31 @@
           </div>
         </div>
         <p id="mokatib-public-btn1-popup-text" class="muted-text" style="margin-bottom:18px"></p>
+        <!-- چارت زیرمجموعه‌ها (مستقل از چارت مساجد؛ از پیشخوان ← «مکاتب: چارت زیرمجموعه») -->
+        <div id="mokatib-sub-wrap" class="mokatib-sub-wrap hidden">
+          <p id="mokatib-sub-heading" class="mokatib-sub-heading hidden"></p>
+          <div id="mokatib-sub-detail" class="mokatib-btn2-detail hidden">
+            <button type="button" id="mokatib-sub-back" class="secondary-btn small-btn">‹ بازگشت</button>
+            <h3 id="mokatib-sub-detail-name"></h3>
+            <div id="mokatib-sub-detail-imgwrap" class="img-viewer-wrap" style="display:none">
+              <div class="img-viewer-stage">
+                <img id="mokatib-sub-detail-img" class="img-viewer-img" draggable="false" alt="">
+              </div>
+              <div class="img-viewer-toolbar">
+                <button type="button" class="img-viewer-btn" data-action="zoomout" title="کوچک‌نمایی">−</button>
+                <button type="button" class="img-viewer-btn" data-action="zoomin" title="بزرگ‌نمایی">+</button>
+                <button type="button" class="img-viewer-btn" data-action="rotate" title="چرخش">⟳</button>
+                <button type="button" class="img-viewer-btn" data-action="reset" title="بازنشانی">⤾</button>
+                <button type="button" class="img-viewer-btn" data-action="fullscreen" title="تمام‌صفحه">⛶</button>
+              </div>
+            </div>
+            <p id="mokatib-sub-detail-person" class="muted-text small"></p>
+            <p id="mokatib-sub-detail-info" class="muted-text small"></p>
+          </div>
+          <div id="mokatib-sub-buttons" class="mokatib-btn2-btn-grid"></div>
+        </div>
         <div class="modal-actions" style="justify-content:center">
           <button id="mokatib-public-btn1-popup-close" class="secondary-btn small-btn">بستن</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- مکاتب: نمایش عکس/متن دلخواه دکمهٔ سوم (چارت مستقل) در صفحهٔ عمومی -->
-    <div id="mokatib-public-btn3-popup" class="modal hidden">
-      <div class="modal-box" style="text-align:center">
-        <div id="mokatib-public-btn3-popup-imgwrap" class="img-viewer-wrap" style="display:none">
-          <div class="img-viewer-stage">
-            <img id="mokatib-public-btn3-popup-img" class="img-viewer-img" draggable="false" alt="">
-          </div>
-          <div class="img-viewer-toolbar">
-            <button type="button" class="img-viewer-btn" data-action="zoomout" title="کوچک‌نمایی">−</button>
-            <button type="button" class="img-viewer-btn" data-action="zoomin" title="بزرگ‌نمایی">+</button>
-            <button type="button" class="img-viewer-btn" data-action="rotate" title="چرخش">⟳</button>
-            <button type="button" class="img-viewer-btn" data-action="reset" title="بازنشانی">⤾</button>
-            <button type="button" class="img-viewer-btn" data-action="fullscreen" title="تمام‌صفحه">⛶</button>
-          </div>
-        </div>
-        <p id="mokatib-public-btn3-popup-text" class="muted-text" style="margin-bottom:18px"></p>
-        <div class="modal-actions" style="justify-content:center">
-          <button id="mokatib-public-btn3-popup-close" class="secondary-btn small-btn">بستن</button>
         </div>
       </div>
     </div>
@@ -1770,7 +1770,7 @@
 /* native-bridge.js و app.js (به‌همین ترتیب) فقط بعد از پایان صفحهٔ شروع (ویدیو/عکس/گیف) بارگذاری می‌شوند.
    اگر صفحهٔ شروعی نباشد یا تمام شده باشد، بی‌درنگ بارگذاری می‌شوند. */
 (function () {
-  var list = ['js/native-bridge.js?v=26', 'js/app.js?v=182'], i = 0;
+  var list = ['js/native-bridge.js?v=26', 'js/app.js?v=183'], i = 0;
   function next() {
     if (i >= list.length) return;
     var el = document.createElement('script'); el.src = list[i++];

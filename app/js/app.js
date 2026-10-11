@@ -10912,7 +10912,8 @@ document.getElementById('mokatib-public-login-link').addEventListener('click', (
 
 document.getElementById('mokatib-public-btn1').addEventListener('click', () => {
   const popup = (mokatibState.publicBtn1Popup) || { image: '', text: '' };
-  if (!popup.image && !popup.text) return; // چیزی برای نمایش تنظیم نشده
+  const subItems = (mokatibState.publicSub && mokatibState.publicSub.items) || [];
+  if (!popup.image && !popup.text && !subItems.length) return; // چیزی برای نمایش تنظیم نشده
   const imgEl = document.getElementById('mokatib-public-btn1-popup-img');
   const wrapEl = document.getElementById('mokatib-public-btn1-popup-imgwrap');
   const textEl = document.getElementById('mokatib-public-btn1-popup-text');
@@ -10925,41 +10926,99 @@ document.getElementById('mokatib-public-btn1').addEventListener('click', () => {
     imgEl.removeAttribute('src');
   }
   applyMokatibPopupText(textEl, popup);
+  textEl.style.display = popup.text ? '' : 'none';
+  mokatibSubPath = [];
+  renderMokatibSub();
   document.getElementById('mokatib-public-btn1-popup').classList.remove('hidden');
   pushOverlay('btn1', closeMokatibBtn1Popup);
 });
 function closeMokatibBtn1Popup() {
   exitImageViewerFullscreen(document.getElementById('mokatib-public-btn1-popup-imgwrap'));
+  exitImageViewerFullscreen(document.getElementById('mokatib-sub-detail-imgwrap'));
+  mokatibSubPath = [];
   document.getElementById('mokatib-public-btn1-popup').classList.add('hidden');
 }
 document.getElementById('mokatib-public-btn1-popup-close').addEventListener('click', () => {
   overlayGo('btn1', 0, closeMokatibBtn1Popup);
 });
 
-document.getElementById('mokatib-public-btn3').addEventListener('click', () => {
-  const popup = (mokatibState.publicBtn3Popup) || { image: '', text: '' };
-  if (!popup.image && !popup.text) return; // چیزی برای نمایش تنظیم نشده
-  const imgEl = document.getElementById('mokatib-public-btn3-popup-img');
-  const wrapEl = document.getElementById('mokatib-public-btn3-popup-imgwrap');
-  const textEl = document.getElementById('mokatib-public-btn3-popup-text');
-  if (popup.image) {
-    imgEl.src = secureUrl(popup.image);
-    wrapEl.style.display = 'block';
-    if (mokatibBtn3ImageViewer) mokatibBtn3ImageViewer.reset();
+/* ===== چارت زیرمجموعه‌ها داخل پنجرهٔ دکمهٔ اول (کاملاً جدا از چارت مساجد) =====
+   دادهٔ آن از پیشخوان ← «مکاتب: چارت زیرمجموعه» می‌آید (data.subchart در /mokatib/public-tree).
+   هر مورد: name، person (مسئول/توضیح کوتاه زیر نام)، info، image، color، parent (۰ = سطح اول). */
+let mokatibSubPath = [];
+function renderMokatibSub() {
+  const sub = mokatibState.publicSub || { items: [], columns: 3, heading: '' };
+  const items = sub.items || [];
+  const wrap = document.getElementById('mokatib-sub-wrap');
+  const popup = mokatibState.publicBtn1Popup || { image: '' };
+  const mainImgWrap = document.getElementById('mokatib-public-btn1-popup-imgwrap');
+  const mainText = document.getElementById('mokatib-public-btn1-popup-text');
+  if (!wrap) return;
+  const parentId = mokatibSubPath.length ? mokatibSubPath[mokatibSubPath.length - 1] : 0;
+  const node = parentId ? items.find((x) => Number(x.id) === Number(parentId)) : null;
+  if (parentId && !node) { mokatibSubPath = []; return renderMokatibSub(); }
+  wrap.classList.toggle('hidden', !items.length);
+  // داخل یک مورد، عکس و متن اصلیِ بالای پنجره پنهان می‌شود تا جا برای زیرمجموعه‌ها باشد
+  mainImgWrap.style.display = (!node && popup.image) ? 'block' : 'none';
+  if (mainText) mainText.style.display = (!node && mainText.textContent) ? '' : 'none';
+  const headEl = document.getElementById('mokatib-sub-heading');
+  headEl.textContent = sub.heading || '';
+  headEl.classList.toggle('hidden', !sub.heading || !!node);
+  const detail = document.getElementById('mokatib-sub-detail');
+  if (node) {
+    detail.classList.remove('hidden');
+    const nEl = document.getElementById('mokatib-sub-detail-name');
+    nEl.textContent = mkTidyLines(node.name); nEl.style.whiteSpace = 'pre-line';
+    const pEl = document.getElementById('mokatib-sub-detail-person');
+    pEl.textContent = node.person ? mkTidyLines(node.person) : ''; pEl.classList.toggle('hidden', !node.person);
+    const iEl = document.getElementById('mokatib-sub-detail-info');
+    iEl.textContent = node.info || ''; iEl.classList.toggle('hidden', !node.info);
+    const imgEl = document.getElementById('mokatib-sub-detail-img');
+    const wEl = document.getElementById('mokatib-sub-detail-imgwrap');
+    if (node.image) {
+      imgEl.src = secureUrl(node.image); wEl.style.display = 'block';
+      if (mokatibSubImageViewer) mokatibSubImageViewer.reset();
+    } else { wEl.style.display = 'none'; imgEl.removeAttribute('src'); }
   } else {
-    wrapEl.style.display = 'none';
-    imgEl.removeAttribute('src');
+    detail.classList.add('hidden');
+    exitImageViewerFullscreen(document.getElementById('mokatib-sub-detail-imgwrap'));
   }
-  applyMokatibPopupText(textEl, popup);
-  document.getElementById('mokatib-public-btn3-popup').classList.remove('hidden');
-  pushOverlay('btn3', closeMokatibBtn3Popup);
-});
-function closeMokatibBtn3Popup() {
-  exitImageViewerFullscreen(document.getElementById('mokatib-public-btn3-popup-imgwrap'));
-  document.getElementById('mokatib-public-btn3-popup').classList.add('hidden');
+  const grid = document.getElementById('mokatib-sub-buttons');
+  grid.innerHTML = '';
+  grid.style.setProperty('--btn2-cols', sub.columns || 3);
+  items.filter((x) => Number(x.parent || 0) === Number(parentId)).forEach((m) => {
+    const hasKids = items.some((x) => Number(x.parent || 0) === Number(m.id));
+    const clickable = hasKids || !!m.image || !!m.info;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'secondary-btn' + (m.person ? '' : ' mk-no-imam');
+    const manual = mkHasBreak(m.name);
+    const nameEl = document.createElement('span');
+    nameEl.className = 'mokatib-btn2-name' + (manual ? ' mk-multiline' : '');
+    nameEl.textContent = manual ? mkTidyLines(m.name) : mkTidy(m.name);
+    btn.appendChild(nameEl);
+    if (m.person) {
+      const pe = document.createElement('span');
+      const pm = mkHasBreak(m.person);
+      pe.className = 'mokatib-btn2-imam' + (pm ? ' mk-multiline' : '');
+      pe.textContent = pm ? mkTidyLines(m.person) : mkTidy(m.person);
+      btn.appendChild(pe);
+    }
+    if (m.color) btn.style.background = m.color;
+    if (clickable) {
+      btn.addEventListener('click', () => {
+        mokatibSubPath.push(m.id);
+        renderMokatibSub();
+        pushOverlay('btn1', undoMokatibSubStep);
+        try { document.querySelector('#mokatib-public-btn1-popup .modal-box').scrollTop = 0; } catch (e) {}
+      });
+    } else { btn.style.cursor = 'default'; }
+    grid.appendChild(btn);
+  });
 }
-document.getElementById('mokatib-public-btn3-popup-close').addEventListener('click', () => {
-  overlayGo('btn3', 0, closeMokatibBtn3Popup);
+function undoMokatibSubStep() { mokatibSubPath.pop(); renderMokatibSub(); }
+document.getElementById('mokatib-sub-back').addEventListener('click', () => {
+  overlayGo('btn1', 1, undoMokatibSubStep);
 });
 
 const MOKATIB_POPUP_FONT_CLASSES = ['mokatib-popup-font-default', 'mokatib-popup-font-lalezar', 'mokatib-popup-font-aref-ruqaa', 'mokatib-popup-font-amiri-quran'];
@@ -11096,7 +11155,7 @@ function exitImageViewerFullscreen(wrapEl) {
 }
 
 const mokatibBtn1ImageViewer = setupImageViewer(document.getElementById('mokatib-public-btn1-popup-imgwrap'));
-const mokatibBtn3ImageViewer = setupImageViewer(document.getElementById('mokatib-public-btn3-popup-imgwrap'));
+const mokatibSubImageViewer = setupImageViewer(document.getElementById('mokatib-sub-detail-imgwrap'));
 
 /* ===== دکمهٔ دوم صفحهٔ عمومی مکاتب: پنجرهٔ چارت دکمه‌ای (متن بالا + دکمهٔ هر مورد ثبت‌شده) ===== */
 const mokatibBtn2ImageViewer = setupImageViewer(document.getElementById('mokatib-btn2-detail-imgwrap'));
@@ -11336,13 +11395,10 @@ function applyMokatibPublicData(data) {
   btn2.textContent = btns.btn2 || '';
   btn1.style.background = btns.btn1_color || '';
   btn2.style.background = btns.btn2_color || '';
-  const btn3 = document.getElementById('mokatib-public-btn3');
-  if (btn3) { btn3.textContent = btns.btn3 || ''; btn3.style.background = btns.btn3_color || ''; }
-  const hasBtn1 = !!btns.btn1, hasBtn2 = !!btns.btn2, hasBtn3 = !!btns.btn3;
+  const hasBtn1 = !!btns.btn1, hasBtn2 = !!btns.btn2;
   btn1.classList.toggle('hidden', !hasBtn1);
   btn2.classList.toggle('hidden', !hasBtn2);
-  if (btn3) btn3.classList.toggle('hidden', !hasBtn3);
-  if (btnRow) btnRow.classList.toggle('hidden', !hasBtn1 && !hasBtn2 && !hasBtn3);
+  if (btnRow) btnRow.classList.toggle('hidden', !hasBtn1 && !hasBtn2);
 
   mokatibState.publicBtn1Popup = {
     image: btns.btn1_popup_image || '',
@@ -11351,12 +11407,11 @@ function applyMokatibPublicData(data) {
     font: btns.btn1_popup_font || 'default',
     effect: btns.btn1_popup_effect || 'fade',
   };
-  mokatibState.publicBtn3Popup = {
-    image: btns.btn3_popup_image || '',
-    text: btns.btn3_popup_text || '',
-    textColor: btns.btn3_popup_text_color || '',
-    font: btns.btn3_popup_font || 'default',
-    effect: btns.btn3_popup_effect || 'fade',
+  const sc = data.subchart || {};
+  mokatibState.publicSub = {
+    heading: sc.heading || '',
+    columns: Math.max(1, Math.min(6, parseInt(sc.columns, 10) || 3)),
+    items: Array.isArray(sc.items) ? sc.items : [],
   };
   mokatibState.publicBtn2Popup = {
     text: btns.btn2_popup_text || '',
