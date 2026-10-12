@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
-<link rel="stylesheet" href="css/style.css?v=129">
+<link rel="stylesheet" href="css/style.css?v=130">
 </head>
 <body>
 
@@ -1170,6 +1170,7 @@
         <div class="shariq-top-actions">
           <button class="secondary-btn small-btn" id="shariq-ask-btn">✍️ پرسیدن سوال جدید</button>
           <button class="ghost-btn small-btn" id="shariq-mine-btn">سوالات من</button>
+          <button class="secondary-btn small-btn hidden" id="shariq-scholar-enter-btn" type="button">🎓 ورود به حساب من (پنل عالم)</button>
         </div>
       </div>
       <div class="shariq-views" id="shariq-views">
@@ -1608,7 +1609,7 @@
   </div>
 </div>
 
-<!-- پنل مخفی عالم (با ۵ ضربه روی صفحهٔ «سوالات شرعی» باز می‌شود) -->
+<!-- پنل مخفی عالم (با ۱۰ ضربه روی صفحهٔ «سوالات شرعی» باز می‌شود؛ بعد از ورود، دکمهٔ «ورود به حساب من» همان‌جا دیده می‌شود) -->
 <div id="shariq-scholar-modal" class="modal hidden">
   <div class="modal-box sch-box">
     <div id="sch-login" class="hidden">
@@ -1829,7 +1830,7 @@
 /* native-bridge.js و app.js (به‌همین ترتیب) فقط بعد از پایان صفحهٔ شروع (ویدیو/عکس/گیف) بارگذاری می‌شوند.
    اگر صفحهٔ شروعی نباشد یا تمام شده باشد، بی‌درنگ بارگذاری می‌شوند. */
 (function () {
-  var list = ['js/native-bridge.js?v=26', 'js/app.js?v=188'], i = 0;
+  var list = ['js/native-bridge.js?v=26', 'js/app.js?v=189'], i = 0;
   function next() {
     if (i >= list.length) return;
     var el = document.createElement('script'); el.src = list[i++];

@@ -10263,13 +10263,15 @@ document.getElementById('shariq-view-qa').addEventListener('click', () => shariq
 document.getElementById('shariq-view-fatwa').addEventListener('click', () => shariqSetView('fatwa'));
 
 /* ---------- پنل مخفی عالم پاسخ‌دهنده ----------
-   ورود: ۵ ضربهٔ پشت‌سرهم (در ۳٫۵ ثانیه) روی خودِ صفحهٔ «سوالات شرعی» (نه روی دکمه‌ها و کارت‌ها). هیچ دکمه‌ای در اپ برای آن نیست.
+   ورود اولیه: ۱۰ ضربهٔ پشت‌سرهم (در ۸ ثانیه) روی خودِ صفحهٔ «سوالات شرعی» (نه روی دکمه‌ها و کارت‌ها). بعد از ورود موفق، دکمهٔ «ورود به حساب من» فقط برای همان عالم داخل صفحهٔ «سوالات شرعی» دیده می‌شود (تا وقتی توکن ورود هست)؛ با «خروج از حساب» دکمه هم محو می‌شود.
    حساب عالم را فقط مدیر از پیشخوان می‌سازد. توکن ورود در localStorage می‌ماند و مثل «دانش‌آموزان» همه درخواست‌ها POST هستند. */
 const SCH_TOKEN_KEY = 'arefanejam_shariq_sch_token';
 const SCH = { token: '', name: '', cats: [], fcats: [], fatwas: [], pending: [], mine: [], tab: 'pending' };
 function schEl(id) { return document.getElementById(id); }
 function schTokenLoad() { try { return localStorage.getItem(SCH_TOKEN_KEY) || ''; } catch (e) { return ''; } }
-function schTokenSave(t) { try { if (t) localStorage.setItem(SCH_TOKEN_KEY, t); else localStorage.removeItem(SCH_TOKEN_KEY); } catch (e) {} }
+function schTokenSave(t) { try { if (t) localStorage.setItem(SCH_TOKEN_KEY, t); else localStorage.removeItem(SCH_TOKEN_KEY); } catch (e) {} schSyncEnterBtn(); }
+// دکمهٔ «ورود به حساب من» فقط وقتی عالم وارد شده (توکن دارد) دیده می‌شود
+function schSyncEnterBtn() { const b = document.getElementById('shariq-scholar-enter-btn'); if (b) b.classList.toggle('hidden', !schTokenLoad()); }
 async function schApi(path, body) {
   const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
   const timer = ctrl ? setTimeout(() => ctrl.abort(), 25000) : null;
@@ -10295,8 +10297,9 @@ async function schApi(path, body) {
 function schShow(which) {
   schEl('sch-login').classList.toggle('hidden', which !== 'login');
   schEl('sch-panel').classList.toggle('hidden', which !== 'panel');
+  schEl('shariq-scholar-modal').classList.toggle('sch-full', which === 'panel');   // پنل عالم تمام‌صفحه؛ پنجرهٔ ورود کوچک
 }
-function schClose() { schEl('shariq-scholar-modal').classList.add('hidden'); }
+function schClose() { const m = schEl('shariq-scholar-modal'); m.classList.add('hidden'); m.classList.remove('sch-full'); }
 function schMsg(t, bad) {
   const m = schEl('sch-msg');
   if (!t) { m.classList.add('hidden'); m.textContent = ''; return; }
@@ -10503,7 +10506,7 @@ async function schDoLogin() {
 }
 schEl('sch-login-btn').addEventListener('click', schDoLogin);
 schEl('sch-password').addEventListener('keydown', (e) => { if (e.key === 'Enter') schDoLogin(); });
-// ۵ ضربه روی صفحه (نه روی دکمه، کارت، فیلد و ...)
+// ۱۰ ضربه روی صفحه (نه روی دکمه، کارت، فیلد و ...)
 (function schSecretTaps() {
   const tab = document.getElementById('tab-shariq');
   if (!tab) return;
@@ -10511,9 +10514,13 @@ schEl('sch-password').addEventListener('keydown', (e) => { if (e.key === 'Enter'
   tab.addEventListener('click', (e) => {
     if (e.target.closest && e.target.closest('button, a, input, textarea, select, .shariq-item')) { taps = []; return; }
     const now = Date.now();
-    taps = taps.filter((t) => now - t < 3500); taps.push(now);
-    if (taps.length >= 5) { taps = []; schOpen(); }
+    taps = taps.filter((t) => now - t < 8000); taps.push(now);
+    if (taps.length >= 10) { taps = []; schOpen(); }
   });
+  // دکمهٔ ورود دوباره به حساب (فقط برای عالمِ واردشده دیده می‌شود)
+  const enter = document.getElementById('shariq-scholar-enter-btn');
+  if (enter) enter.addEventListener('click', () => { schOpen(); });
+  schSyncEnterBtn();
 })();
 
 /* ---------- ختم قرآن (تقسیم قرآن به بخش‌ها و برداشتن بخش با تیک) ----------

@@ -4860,3 +4860,9 @@ body.dark-mode .shariq-view-btn.active { color: #fff; }
 .sch-fatwa-card input.sch-f-title { margin-bottom: 8px; }
 
 .shariq-by-line { padding: 0 16px 10px; margin-top: -4px; font-size: 11.5px; font-weight: 700; color: var(--gold); }
+
+/* پنل عالم: بعد از ورود تمام‌صفحه؛ دکمهٔ ورود دوباره داخل «سوالات شرعی» */
+#shariq-scholar-modal.sch-full { align-items: stretch; justify-content: stretch; background: var(--card-bg); backdrop-filter: none; }
+#shariq-scholar-modal.sch-full .sch-box { max-width: none; width: 100%; max-height: none; border-radius: 0; box-shadow: none; animation: none; padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); }
+#shariq-scholar-modal.sch-full .sch-box::before { display: none; }
+#shariq-scholar-enter-btn { flex: 1 1 100%; justify-content: center; }
