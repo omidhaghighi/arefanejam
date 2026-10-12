@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
-<link rel="stylesheet" href="css/style.css?v=124">
+<link rel="stylesheet" href="css/style.css?v=129">
 </head>
 <body>
 
@@ -480,6 +480,10 @@
         <button data-ikey="main:activities" class="menu-tile tile-activities hidden" id="activities-more-tile" data-goto="activities">
           <span class="menu-tile-badge" id="activities-tile-badge">🏛️</span>
           <span class="menu-tile-label" id="activities-tile-label">فعالیت‌های حوزه</span>
+        </button>
+        <button data-ikey="main:students" class="menu-tile tile-students" id="students-more-tile" data-goto="students">
+          <span class="menu-tile-badge" id="students-tile-badge">🎓</span>
+          <span class="menu-tile-label" id="students-tile-label">دانش‌آموزان</span>
         </button>
         <button data-ikey="main:update" class="menu-tile tile-update hidden" id="app-update-tile">
           <span class="menu-tile-badge">🔄</span>
@@ -1168,8 +1172,14 @@
           <button class="ghost-btn small-btn" id="shariq-mine-btn">سوالات من</button>
         </div>
       </div>
+      <div class="shariq-views" id="shariq-views">
+        <button type="button" class="shariq-view-btn active" id="shariq-view-qa">❓ پرسش و پاسخ</button>
+        <button type="button" class="shariq-view-btn" id="shariq-view-fatwa">📜 فتوا</button>
+      </div>
       <div id="shariq-cats-row" class="shariq-cats"></div>
       <div id="shariq-list-content" class="shariq-list"></div>
+      <div id="shariq-fatwa-cats" class="shariq-cats hidden"></div>
+      <div id="shariq-fatwa-content" class="shariq-list hidden"></div>
     </section>
 
     <!-- سوالات من -->
@@ -1192,6 +1202,23 @@
       <div class="menu-grid act-grid hidden" id="act-grid"></div>
       <div class="act-blocks" id="act-blocks"></div>
       <p class="muted-text small act-empty hidden" id="act-empty"></p>
+    </section>
+
+    <!-- دانش‌آموزان: ورود با نام کاربری/رمز، پروفایل و مدیریت زیرمجموعه‌ها (محتوای #stu-main را app.js می‌سازد) -->
+    <section id="tab-students" class="tab-panel">
+      <div class="section-block">
+        <h3 id="stu-title">دانش‌آموزان</h3>
+        <p class="muted-text small hidden" id="stu-intro"></p>
+      </div>
+      <div id="stu-login" class="section-block center-block">
+        <div class="stu-login-ic">🎓</div>
+        <p class="muted-text small">برای ورود، نام کاربری و رمزی را که مسئول به شما داده وارد کنید.</p>
+        <input type="text" id="stu-username" dir="ltr" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="نام کاربری" style="margin-bottom:8px">
+        <input type="password" id="stu-password" dir="ltr" autocomplete="current-password" placeholder="رمز عبور" style="margin-bottom:12px">
+        <p class="error-text" id="stu-login-error"></p>
+        <button id="stu-login-btn" class="secondary-btn" style="width:100%">ورود</button>
+      </div>
+      <div id="stu-main" class="hidden"></div>
     </section>
 
     <!-- تبلیغات: متن + شمارهٔ تماس (لمس = شماره‌گیر گوشی) + تعرفه‌ها
@@ -1429,8 +1456,8 @@
   }
   /* منوی پایین اپ: از پیشخوان ← «🧭 منوی پایین اپ» (مسیر /bottom-nav). اگر مدیر چیزی ذخیره نکرده باشد، همان شش دکمهٔ پیش‌فرض می‌ماند.
      کلیک دکمه‌ها در app.js (یک شنوندهٔ مشترک روی .bottom-nav) انجام می‌شود، پس بازسازی دکمه‌ها نیازی به اتصال دوباره ندارد. */
-  var BN_NAMES = { 'home':'خانه','quran-list':'قرآن','azan':'اذان','qibla':'قبله','shariq':'سوالات شرعی','more':'بیشتر','mokatib-public':'مکاتب','khatm':'ختم قرآن','feedback':'پشتیبانی','fun':'سرگرمی','ads':'تبلیغات','game-ayah':'حدس آیه','activities':'فعالیت‌ها','ramadan-countdown':'رمضان','charity':'خیرین','notes':'یادداشت‌ها','about':'درباره ما','news-list':'اخبار','social':'فضای مجازی','gallery':'گالری','books':'کتاب‌ها','lesson':'درس امروز','quran-search':'جست‌وجو','quran-bookmarks':'نشان‌شده‌ها','hifz-progress':'حفظ من','sajdah-list':'آیات سجده','prayer-checklist':'نماز','prayer-stats':'آمار نماز','daily-deeds':'اعمال','quran-report':'گزارش قرآن','tasbih':'تسبیح','zakat-calc':'زکات','date-converter':'مبدل تاریخ','group:quran':'قرآن و مطالعه','group:deeds':'اعمال','group:ibadah':'عبادت','group:personal':'شخصی','group:media':'اطلاع‌رسانی' };
-  var BN_ICONS = { 'home':'🏠','quran-list':'📗','azan':'🕌','qibla':'🧭','shariq':'❓','more':'☰','mokatib-public':'🏛️','khatm':'📿','feedback':'💬','fun':'🎮','ads':'📢','game-ayah':'🎯','activities':'🌟','ramadan-countdown':'🌙','charity':'🤲','notes':'📝','about':'ℹ️','news-list':'📰','social':'🌐','gallery':'🖼️','books':'📚','lesson':'📖','quran-search':'🔍','quran-bookmarks':'🔖','hifz-progress':'📊','sajdah-list':'🕋','prayer-checklist':'✅','prayer-stats':'📈','daily-deeds':'🧮','quran-report':'📑','tasbih':'📿','zakat-calc':'💰','date-converter':'📅' };
+  var BN_NAMES = { 'home':'خانه','quran-list':'قرآن','azan':'اذان','qibla':'قبله','shariq':'سوالات شرعی','more':'بیشتر','mokatib-public':'مکاتب','khatm':'ختم قرآن','feedback':'پشتیبانی','fun':'سرگرمی','ads':'تبلیغات','game-ayah':'حدس آیه','activities':'فعالیت‌ها','ramadan-countdown':'رمضان','charity':'خیرین','notes':'یادداشت‌ها','about':'درباره ما','news-list':'اخبار','social':'فضای مجازی','gallery':'گالری','books':'کتاب‌ها','lesson':'درس امروز','quran-search':'جست‌وجو','quran-bookmarks':'نشان‌شده‌ها','hifz-progress':'حفظ من','sajdah-list':'آیات سجده','prayer-checklist':'نماز','prayer-stats':'آمار نماز','daily-deeds':'اعمال','quran-report':'گزارش قرآن','tasbih':'تسبیح','zakat-calc':'زکات','date-converter':'مبدل تاریخ','group:quran':'قرآن و مطالعه','group:deeds':'اعمال','group:ibadah':'عبادت','group:personal':'شخصی','group:media':'اطلاع‌رسانی','students':'دانش‌آموزان' };
+  var BN_ICONS = { 'home':'🏠','quran-list':'📗','azan':'🕌','qibla':'🧭','shariq':'❓','more':'☰','mokatib-public':'🏛️','khatm':'📿','feedback':'💬','fun':'🎮','ads':'📢','game-ayah':'🎯','activities':'🌟','ramadan-countdown':'🌙','charity':'🤲','notes':'📝','about':'ℹ️','news-list':'📰','social':'🌐','gallery':'🖼️','books':'📚','lesson':'📖','quran-search':'🔍','quran-bookmarks':'🔖','hifz-progress':'📊','sajdah-list':'🕋','prayer-checklist':'✅','prayer-stats':'📈','daily-deeds':'🧮','quran-report':'📑','tasbih':'📿','zakat-calc':'💰','date-converter':'📅','students':'🎓' };
   var BN_DEFAULT = [ { tab:'home' }, { tab:'quran-list' }, { tab:'azan' }, { tab:'qibla' }, { tab:'shariq', inherit:true }, { tab:'more' } ];
   window.__bnavBuild = function (d) {
     try {
@@ -1577,6 +1604,38 @@
     <div class="modal-actions">
       <button id="shariq-ask-cancel-btn" class="ghost-btn small-btn">انصراف</button>
       <button id="shariq-ask-submit-btn" class="secondary-btn small-btn">ارسال سوال</button>
+    </div>
+  </div>
+</div>
+
+<!-- پنل مخفی عالم (با ۵ ضربه روی صفحهٔ «سوالات شرعی» باز می‌شود) -->
+<div id="shariq-scholar-modal" class="modal hidden">
+  <div class="modal-box sch-box">
+    <div id="sch-login" class="hidden">
+      <h3>ورود</h3>
+      <input id="sch-username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="نام کاربری" style="direction:ltr;text-align:left">
+      <input id="sch-password" type="password" autocomplete="current-password" placeholder="رمز عبور" style="direction:ltr;text-align:left">
+      <p class="muted-text small hidden" id="sch-login-error"></p>
+      <div class="modal-actions">
+        <button type="button" id="sch-login-cancel" class="ghost-btn small-btn">انصراف</button>
+        <button type="button" id="sch-login-btn" class="secondary-btn small-btn">ورود</button>
+      </div>
+    </div>
+    <div id="sch-panel" class="hidden">
+      <div class="sch-head">
+        <h3 id="sch-title">پاسخ به سوالات</h3>
+        <div class="sch-head-btns">
+          <button type="button" id="sch-logout-btn" class="ghost-btn small-btn">خروج از حساب</button>
+          <button type="button" id="sch-close-btn" class="ghost-btn small-btn">✕ بستن</button>
+        </div>
+      </div>
+      <div class="sch-tabs">
+        <button type="button" class="shariq-view-btn active" id="sch-tab-pending">در انتظار پاسخ</button>
+        <button type="button" class="shariq-view-btn" id="sch-tab-mine">پاسخ‌های من</button>
+        <button type="button" class="shariq-view-btn" id="sch-tab-fatwa">فتواهای من</button>
+      </div>
+      <p class="muted-text small hidden" id="sch-msg"></p>
+      <div id="sch-list"></div>
     </div>
   </div>
 </div>
@@ -1770,7 +1829,7 @@
 /* native-bridge.js و app.js (به‌همین ترتیب) فقط بعد از پایان صفحهٔ شروع (ویدیو/عکس/گیف) بارگذاری می‌شوند.
    اگر صفحهٔ شروعی نباشد یا تمام شده باشد، بی‌درنگ بارگذاری می‌شوند. */
 (function () {
-  var list = ['js/native-bridge.js?v=26', 'js/app.js?v=183'], i = 0;
+  var list = ['js/native-bridge.js?v=26', 'js/app.js?v=188'], i = 0;
   function next() {
     if (i >= list.length) return;
     var el = document.createElement('script'); el.src = list[i++];

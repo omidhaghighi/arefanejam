@@ -361,7 +361,7 @@ function apiFetch(path, options = {}) {
  * (یا سرور خطا داد) همان آخرین نسخه نمایش داده می‌شود. فقط مسیرهای عمومیِ زیر؛ مسیرهای شخصی/ورود نه. */
 var moreIconsData = { shape: 'round', icons: {} }; // بیشتر: تصویر دلخواه آیکون‌ها (بالای فایل تعریف شده تا هر کدی بتواند هر زمان صدایش کند)
 var moreIconsLastLoad = 0;
-const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|hamburger-menu|more-icons|social-links|theme|shariq\/settings|khatm\/settings|feedback\/settings|zakat|activities|ads-page|ad-banners|bottom-nav)$/;
+const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|hamburger-menu|more-icons|social-links|theme|shariq\/settings|khatm\/settings|feedback\/settings|zakat|activities|ads-page|ad-banners|bottom-nav|students\/settings)$/;
 function apiCacheKey(basePath) {
   return API_OFFLINE_CACHE_RE.test(basePath) ? ('arefanejam_api_cache:' + basePath) : '';
 }
@@ -481,7 +481,7 @@ function switchToTab(tabName, opts) {
   if (tabName === 'social') loadSocialLinks();
   if (tabName === 'gallery') loadGallery();
   if (tabName === 'books') loadBooks();
-  if (tabName === 'shariq') loadShariqCategories();
+  if (tabName === 'shariq') { if (typeof shariqSetView === 'function') shariqSetView('qa'); loadShariqCategories(); }
   if (tabName === 'shariq-mine') loadShariqMine();
   if (tabName === 'khatm') loadKhatmList();
   if (tabName === 'khatm-mine') loadKhatmMine();
@@ -490,6 +490,7 @@ function switchToTab(tabName, opts) {
   if (tabName === 'feedback-view') loadFbView();
   if (tabName === 'activities') actOnTabOpen(); else actLeaveTab();
   if (tabName === 'ads') adsOnTabOpen();
+  if (tabName === 'students') { try { window.stuOnTabOpen(); } catch (e) {} }
   // مکاتب: بارگذاری داده همین‌جا انجام می‌شود (نه فقط با کلیک کاشی «بیشتر»)، تا از منوی پایین هم کامل باز شود
   if (tabName === 'mokatib-public') { try { loadMokatibPublicTree(); } catch (e) {} }
   if (tabName === 'mokatib-home') { try { loadMokatibHome(); } catch (e) {} }
@@ -552,6 +553,7 @@ let hwBackActive = false;
 const HW_MODAL_CLOSERS = {
   'note-modal': 'note-cancel-btn',
   'shariq-ask-modal': 'shariq-ask-cancel-btn',
+  'shariq-scholar-modal': 'sch-close-btn',
   'khatm-new-modal': 'khatm-new-cancel-btn',
   'fb-new-modal': 'fb-new-cancel-btn',
   'quran-invite-modal': 'quran-invite-btn2',
@@ -10102,7 +10104,8 @@ async function loadShariqList(categoryId) {
     card.style.animationDelay = `${Math.min(i, 8) * 0.06}s`;
     card.innerHTML = `
       <button type="button" class="shariq-q">${shariqText(item.question_text)}</button>
-      <div class="shariq-a-wrap"><div class="shariq-a">${shariqText(item.answer_text)}</div></div>`;
+      ${item.answered_by ? '<div class="shariq-by-line">✍️ پاسخ‌دهنده: ' + shariqEsc(item.answered_by) + '</div>' : ''}
+      <div class="shariq-a-wrap"><div class="shariq-a">${shariqText(item.answer_text)}${item.answered_by ? '<span class="shariq-by">پاسخ‌دهنده: ' + shariqEsc(item.answered_by) + '</span>' : ''}</div></div>`;
     const qBtn = card.querySelector('.shariq-q');
     const wrap = card.querySelector('.shariq-a-wrap');
     qBtn.addEventListener('click', () => {
@@ -10163,7 +10166,7 @@ async function loadShariqMine() {
       card.innerHTML = `
         <div class="shariq-q">${shariqText(r.question_text)}</div>
         <span class="shariq-status ${r.status === 'answered' ? 'is-answered' : 'is-pending'}">${statusLabel}${r.category_name ? ' — ' + shariqEsc(r.category_name) : ''}</span>
-        ${r.answer_text ? `<div class="shariq-a">${shariqText(r.answer_text)}</div>` : ''}`;
+        ${r.answer_text ? `<div class="shariq-a">${shariqText(r.answer_text)}${r.answered_by_name ? '<span class="shariq-by">پاسخ‌دهنده: ' + shariqEsc(r.answered_by_name) + '</span>' : ''}</div>` : ''}`;
       el.appendChild(card);
     });
   } catch (e) {
@@ -10172,6 +10175,346 @@ async function loadShariqMine() {
     if (b) b.addEventListener('click', loadShariqMine);
   }
 }
+
+/* ---------- فتوا (تب کنار «پرسش و پاسخ») ---------- */
+function shariqSetView(v) {
+  const fatwa = v === 'fatwa';
+  shariqState.view = fatwa ? 'fatwa' : 'qa';
+  const b1 = document.getElementById('shariq-view-qa'), b2 = document.getElementById('shariq-view-fatwa');
+  if (b1) b1.classList.toggle('active', !fatwa);
+  if (b2) b2.classList.toggle('active', fatwa);
+  const cats = document.getElementById('shariq-cats-row'), list = document.getElementById('shariq-list-content'), fat = document.getElementById('shariq-fatwa-content');
+  if (cats) cats.classList.toggle('hidden', fatwa);
+  if (list) list.classList.toggle('hidden', fatwa);
+  if (fat) fat.classList.toggle('hidden', !fatwa);
+  const fcats = document.getElementById('shariq-fatwa-cats'); if (fcats) fcats.classList.toggle('hidden', !fatwa);
+  if (fatwa) loadShariqFatwas();
+}
+async function loadShariqFatwas() {
+  const el = document.getElementById('shariq-fatwa-content');
+  el.innerHTML = '<p class="muted-text small" style="padding:0 18px">در حال بارگذاری...</p>';
+  let list, fromCache = false;
+  try {
+    list = shariqAsArray(await shariqGet('/shariq/fatwas'));
+    shariqCacheSet('fatwas', list);
+  } catch (e) {
+    list = shariqAsArray(shariqCacheGet('fatwas'));
+    if (!list.length) {
+      el.innerHTML = shariqErrorBox(e, 'shariq-fatwa-retry-btn');
+      const b = document.getElementById('shariq-fatwa-retry-btn');
+      if (b) b.addEventListener('click', loadShariqFatwas);
+      return;
+    }
+    fromCache = true;
+  }
+  shariqState.fatwas = list; shariqState.fatwaFromCache = fromCache; shariqState.fatwaCat = null;
+  shariqRenderFatwas();
+}
+function shariqRenderFatwas() {
+  const el = document.getElementById('shariq-fatwa-content');
+  const row = document.getElementById('shariq-fatwa-cats');
+  const all = shariqState.fatwas || [];
+  // چیپ‌های دسته‌بندی فتوا (فقط دسته‌هایی که فتوا دارند)
+  const cats = [];
+  all.forEach((f) => { if (f.category_id && f.category_name && !cats.some((c) => c.id === f.category_id)) cats.push({ id: f.category_id, name: f.category_name }); });
+  row.innerHTML = '';
+  if (cats.length) {
+    const mk = (label, id) => {
+      const chip = document.createElement('button');
+      chip.className = 'shariq-chip' + (shariqState.fatwaCat === id ? ' active' : '');
+      chip.textContent = label;
+      chip.addEventListener('click', () => { shariqState.fatwaCat = id; shariqRenderFatwas(); });
+      row.appendChild(chip);
+    };
+    mk('همه', null);
+    cats.forEach((c) => mk(c.name, c.id));
+  }
+  const list = shariqState.fatwaCat ? all.filter((f) => f.category_id === shariqState.fatwaCat) : all;
+  el.innerHTML = '';
+  if (!list.length) {
+    el.innerHTML = '<div class="shariq-empty"><span class="shariq-empty-icon">📜</span>هنوز فتوایی درج نشده است.</div>';
+    return;
+  }
+  if (shariqState.fatwaFromCache) {
+    const note = document.createElement('p');
+    note.className = 'muted-text small'; note.style.padding = '0 18px';
+    note.textContent = 'اتصال به سایت برقرار نشد؛ آخرین نسخهٔ ذخیره‌شده نمایش داده می‌شود.';
+    el.appendChild(note);
+  }
+  list.forEach((item, i) => {
+    const card = document.createElement('div');
+    card.className = 'shariq-item shariq-fatwa-item';
+    card.style.animationDelay = `${Math.min(i, 8) * 0.06}s`;
+    card.innerHTML = `
+      <button type="button" class="shariq-q">${shariqText(item.title)}</button>
+      ${item.teacher ? '<div class="shariq-by-line">✍️ نویسنده: ' + shariqEsc(item.teacher) + '</div>' : ''}
+      <div class="shariq-a-wrap"><div class="shariq-a">${shariqText(item.body)}${item.teacher ? '<span class="shariq-by">نویسندهٔ فتوا: ' + shariqEsc(item.teacher) + '</span>' : ''}</div></div>`;
+    const qBtn = card.querySelector('.shariq-q'), wrap = card.querySelector('.shariq-a-wrap');
+    qBtn.addEventListener('click', () => {
+      const opening = !wrap.classList.contains('is-open');
+      el.querySelectorAll('.shariq-a-wrap').forEach((w) => w.classList.remove('is-open'));
+      el.querySelectorAll('.shariq-q').forEach((q) => q.classList.remove('is-open'));
+      if (opening) { wrap.classList.add('is-open'); qBtn.classList.add('is-open'); }
+    });
+    el.appendChild(card);
+  });
+}
+document.getElementById('shariq-view-qa').addEventListener('click', () => shariqSetView('qa'));
+document.getElementById('shariq-view-fatwa').addEventListener('click', () => shariqSetView('fatwa'));
+
+/* ---------- پنل مخفی عالم پاسخ‌دهنده ----------
+   ورود: ۵ ضربهٔ پشت‌سرهم (در ۳٫۵ ثانیه) روی خودِ صفحهٔ «سوالات شرعی» (نه روی دکمه‌ها و کارت‌ها). هیچ دکمه‌ای در اپ برای آن نیست.
+   حساب عالم را فقط مدیر از پیشخوان می‌سازد. توکن ورود در localStorage می‌ماند و مثل «دانش‌آموزان» همه درخواست‌ها POST هستند. */
+const SCH_TOKEN_KEY = 'arefanejam_shariq_sch_token';
+const SCH = { token: '', name: '', cats: [], fcats: [], fatwas: [], pending: [], mine: [], tab: 'pending' };
+function schEl(id) { return document.getElementById(id); }
+function schTokenLoad() { try { return localStorage.getItem(SCH_TOKEN_KEY) || ''; } catch (e) { return ''; } }
+function schTokenSave(t) { try { if (t) localStorage.setItem(SCH_TOKEN_KEY, t); else localStorage.removeItem(SCH_TOKEN_KEY); } catch (e) {} }
+async function schApi(path, body) {
+  const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), 25000) : null;
+  let res;
+  try {
+    res = await fetch(state.apiUrl.replace(/\/$/, '') + path, {
+      method: 'POST', cache: 'no-store', signal: ctrl ? ctrl.signal : undefined,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.assign({}, body || {}, SCH.token ? { token: SCH.token } : {}))
+    });
+  } catch (e) { const er = new Error('اتصال به سایت برقرار نشد؛ اینترنت را بررسی کنید.'); er.network = true; throw er; }
+  finally { if (timer) clearTimeout(timer); }
+  const text = await res.text();
+  let data = null;
+  try { data = JSON.parse(text); } catch (e) { const i = text.search(/[\[{]/); if (i > 0) { try { data = JSON.parse(text.slice(i)); } catch (e2) {} } }
+  if (!res.ok || !data) {
+    const er = new Error((data && data.message) || 'خطا در ارتباط با سرور');
+    er.status = res.status;
+    throw er;
+  }
+  return data;
+}
+function schShow(which) {
+  schEl('sch-login').classList.toggle('hidden', which !== 'login');
+  schEl('sch-panel').classList.toggle('hidden', which !== 'panel');
+}
+function schClose() { schEl('shariq-scholar-modal').classList.add('hidden'); }
+function schMsg(t, bad) {
+  const m = schEl('sch-msg');
+  if (!t) { m.classList.add('hidden'); m.textContent = ''; return; }
+  m.textContent = t; m.style.color = bad ? '#a5473c' : ''; m.classList.remove('hidden');
+}
+async function schOpen() {
+  schEl('shariq-scholar-modal').classList.remove('hidden');
+  schEl('sch-login-error').classList.add('hidden');
+  SCH.token = schTokenLoad();
+  if (!SCH.token) { schShow('login'); return; }
+  schShow('panel'); schEl('sch-list').innerHTML = '<p class="muted-text small">در حال بارگذاری...</p>';
+  await schReload(true);
+}
+async function schReload(silentLoginOnFail) {
+  try {
+    const d = await schApi('/shariq/scholar/data', {});
+    SCH.name = d.name || ''; SCH.cats = d.categories || []; SCH.pending = d.pending || []; SCH.mine = d.mine || []; SCH.fatwas = d.fatwas || []; SCH.fcats = d.fcats || [];
+    schEl('sch-title').textContent = SCH.name ? 'خوش آمدید، ' + SCH.name : 'پاسخ به سوالات';
+    schMsg('');
+    schRender();
+  } catch (e) {
+    if (e.status === 401) { SCH.token = ''; schTokenSave(''); schShow('login'); return; }
+    schEl('sch-list').innerHTML = '';
+    schMsg(e.message, true);
+  }
+}
+function schCatOptions(selId) {
+  let h = '<option value="">— بدون دسته‌بندی —</option>';
+  SCH.cats.forEach((c) => { h += '<option value="' + c.id + '"' + (String(selId) === String(c.id) ? ' selected' : '') + '>' + shariqEsc(c.name) + '</option>'; });
+  h += '<option value="__new">➕ دسته‌بندی جدید...</option>';
+  return h;
+}
+// بعد از ساخت دسته‌بندی تازه، فهرست کشویی همهٔ کارت‌ها به‌روز می‌شود (بدون پاک شدن پاسخ‌های نیمه‌نوشته)
+function schRefreshSelects() {
+  schEl('sch-list').querySelectorAll('select.sch-cat').forEach((sel) => {
+    const cur = sel.value;
+    sel.innerHTML = schCatOptions(cur === '__new' ? '' : cur);
+    if (cur === '__new') sel.value = '__new';
+  });
+}
+function schFatwaCatOptions(selId) {
+  let h = '<option value="">— بدون دسته‌بندی —</option>';
+  SCH.fcats.forEach((c) => { h += '<option value="' + c.id + '"' + (String(selId) === String(c.id) ? ' selected' : '') + '>' + shariqEsc(c.name) + '</option>'; });
+  h += '<option value="__new">➕ دسته‌بندی جدید...</option>';
+  return h;
+}
+// کارت فرم فتوا: f = null یعنی فتوای جدید
+function schFatwaCard(f) {
+  const card = document.createElement('div');
+  card.className = 'sch-q sch-fatwa-card';
+  card.innerHTML =
+    (f ? '' : '<p class="sch-q-text">➕ فتوای جدید</p>') +
+    '<input type="text" class="sch-f-title" maxlength="250" placeholder="موضوع / عنوان فتوا">' +
+    '<textarea class="sch-f-body" rows="6" placeholder="متن فتوا..." maxlength="8000"></textarea>' +
+    '<select class="sch-cat">' + schFatwaCatOptions(f ? f.category_id : '') + '</select>' +
+    '<input type="text" class="sch-newcat hidden" maxlength="80" placeholder="نام دسته‌بندی جدید">' +
+    '<p class="muted-text small hidden sch-err" style="color:#a5473c"></p>' +
+    '<div class="sch-row"><button type="button" class="secondary-btn small-btn sch-save">' + (f ? 'به‌روزرسانی فتوا' : 'ثبت فتوا') + '</button>' +
+    (f ? '<button type="button" class="ghost-btn small-btn sch-del" style="color:#a5473c">حذف</button>' : '') + '</div>';
+  const ti = card.querySelector('.sch-f-title'), bo = card.querySelector('.sch-f-body'), sel = card.querySelector('.sch-cat'), nc = card.querySelector('.sch-newcat'), er = card.querySelector('.sch-err'), btn = card.querySelector('.sch-save');
+  if (f) { ti.value = f.title; bo.value = f.body; }
+  sel.addEventListener('change', () => { nc.classList.toggle('hidden', sel.value !== '__new'); if (sel.value === '__new') nc.focus(); });
+  btn.addEventListener('click', async () => {
+    er.classList.add('hidden');
+    const body = { title: ti.value.trim(), body: bo.value.trim() };
+    if (f) body.id = f.id;
+    if (body.title.length < 2 || body.body.length < 3) { er.textContent = 'موضوع و متن فتوا را بنویسید.'; er.classList.remove('hidden'); return; }
+    if (sel.value === '__new') {
+      if (!nc.value.trim()) { er.textContent = 'نام دسته‌بندی جدید را بنویسید.'; er.classList.remove('hidden'); return; }
+      body.new_category = nc.value.trim();
+    } else if (sel.value) body.category_id = Number(sel.value);
+    btn.disabled = true; const old = btn.textContent; btn.textContent = 'در حال ثبت...';
+    try {
+      const d = await schApi('/shariq/scholar/fatwa-save', body);
+      SCH.fatwas = d.fatwas || []; SCH.fcats = d.fcats || [];
+      shariqCacheSet('fatwas', null);
+      schRender();
+    } catch (e) {
+      btn.disabled = false; btn.textContent = old;
+      if (e.status === 401) { SCH.token = ''; schTokenSave(''); schShow('login'); return; }
+      er.textContent = e.message; er.classList.remove('hidden');
+    }
+  });
+  const del = card.querySelector('.sch-del');
+  if (del) del.addEventListener('click', async () => {
+    if (!window.confirm('این فتوا حذف شود؟')) return;
+    del.disabled = true;
+    try {
+      const d = await schApi('/shariq/scholar/fatwa-delete', { id: f.id });
+      SCH.fatwas = d.fatwas || []; SCH.fcats = d.fcats || [];
+      shariqCacheSet('fatwas', null);
+      schRender();
+    } catch (e) { del.disabled = false; er.textContent = e.message; er.classList.remove('hidden'); }
+  });
+  return card;
+}
+function schRender() {
+  const box = schEl('sch-list');
+  const isFatwa = SCH.tab === 'fatwa';
+  const pend = SCH.tab === 'pending';
+  schEl('sch-tab-pending').classList.toggle('active', pend);
+  schEl('sch-tab-mine').classList.toggle('active', SCH.tab === 'mine');
+  schEl('sch-tab-fatwa').classList.toggle('active', isFatwa);
+  schEl('sch-tab-fatwa').textContent = 'فتواهای من (' + toPersianDigits(SCH.fatwas.length) + ')';
+  if (isFatwa) {
+    box.innerHTML = '';
+    box.appendChild(schFatwaCard(null));
+    SCH.fatwas.forEach((f) => box.appendChild(schFatwaCard(f)));
+    return;
+  }
+  schEl('sch-tab-pending').textContent = 'در انتظار پاسخ (' + toPersianDigits(SCH.pending.length) + ')';
+  schEl('sch-tab-mine').textContent = 'پاسخ‌های من (' + toPersianDigits(SCH.mine.length) + ')';
+  const list = pend ? SCH.pending : SCH.mine;
+  box.innerHTML = '';
+  if (!list.length) {
+    box.innerHTML = '<div class="shariq-empty"><span class="shariq-empty-icon">' + (pend ? '🕊️' : '✍️') + '</span>' + (pend ? 'سوال بی‌پاسخی نیست.' : 'هنوز پاسخی ثبت نکرده‌اید.') + '</div>';
+    return;
+  }
+  list.forEach((q) => {
+    const card = document.createElement('div');
+    card.className = 'sch-q';
+    card.innerHTML =
+      '<p class="sch-q-text">' + shariqEsc(q.question_text) + '</p>' +
+      '<p class="sch-q-meta">' + shariqEsc(pend ? (q.created_at || '') : (q.answered_at || '')) + '</p>' +
+      '<textarea class="sch-answer" rows="5" placeholder="پاسخ را بنویسید..." maxlength="6000"></textarea>' +
+      '<select class="sch-cat">' + schCatOptions(pend ? '' : q.category_id) + '</select>' +
+      '<input type="text" class="sch-newcat hidden" maxlength="80" placeholder="نام دسته‌بندی جدید (مثلاً: احکام نماز)">' +
+      '<p class="muted-text small hidden sch-err" style="color:#a5473c"></p>' +
+      '<button type="button" class="secondary-btn small-btn sch-save">' + (pend ? 'ثبت پاسخ' : 'به‌روزرسانی پاسخ') + '</button>';
+    const ta = card.querySelector('.sch-answer'), sel = card.querySelector('.sch-cat'), nc = card.querySelector('.sch-newcat'), er = card.querySelector('.sch-err'), btn = card.querySelector('.sch-save');
+    if (!pend) ta.value = q.answer_text || '';
+    sel.addEventListener('change', () => { nc.classList.toggle('hidden', sel.value !== '__new'); if (sel.value === '__new') nc.focus(); });
+    btn.addEventListener('click', async () => {
+      const txt = ta.value.trim();
+      er.classList.add('hidden');
+      if (txt.length < 3) { er.textContent = 'متن پاسخ را بنویسید.'; er.classList.remove('hidden'); return; }
+      const body = { question_id: q.id, answer_text: txt };
+      if (sel.value === '__new') {
+        const nm = nc.value.trim();
+        if (!nm) { er.textContent = 'نام دسته‌بندی جدید را بنویسید.'; er.classList.remove('hidden'); return; }
+        body.new_category = nm;
+      } else if (sel.value) body.category_id = Number(sel.value);
+      btn.disabled = true; const old = btn.textContent; btn.textContent = 'در حال ثبت...';
+      try {
+        const d = await schApi('/shariq/scholar/answer', body);
+        if (d && Array.isArray(d.categories)) SCH.cats = d.categories;
+        shariqCacheSet('cats', null); // فهرست دسته‌های عمومی دفعهٔ بعد تازه گرفته شود
+        await schReloadKeepDrafts();
+      } catch (e) {
+        btn.disabled = false; btn.textContent = old;
+        if (e.status === 401) { SCH.token = ''; schTokenSave(''); schShow('login'); return; }
+        er.textContent = e.message; er.classList.remove('hidden');
+        if (e.status === 409 || e.status === 404) schReloadKeepDrafts();
+      }
+    });
+    box.appendChild(card);
+  });
+}
+// بعد از ثبت پاسخ: فهرست‌ها تازه می‌شود (سوال پاسخ‌داده‌شده از «در انتظار» می‌رود) و دسته‌بندی‌های تازه در کشویی می‌نشینند
+async function schReloadKeepDrafts() {
+  if (SCH.tab === 'fatwa') { await schReload(); return; }
+  const drafts = {};
+  schEl('sch-list').querySelectorAll('.sch-q').forEach((c, i) => {
+    const t = c.querySelector('.sch-answer').value, s = c.querySelector('.sch-cat').value, n = c.querySelector('.sch-newcat').value;
+    const key = (SCH.tab === 'pending' ? SCH.pending : SCH.mine)[i];
+    if (key) drafts[key.id] = { t, s, n };
+  });
+  await schReload();
+  schEl('sch-list').querySelectorAll('.sch-q').forEach((c, i) => {
+    const q = (SCH.tab === 'pending' ? SCH.pending : SCH.mine)[i];
+    const d = q && drafts[q.id];
+    if (!d) return;
+    c.querySelector('.sch-answer').value = d.t;
+    const sel = c.querySelector('.sch-cat'); sel.value = d.s;
+    if (d.s === '__new') { const nc = c.querySelector('.sch-newcat'); nc.classList.remove('hidden'); nc.value = d.n; }
+  });
+}
+schEl('sch-tab-pending').addEventListener('click', () => { SCH.tab = 'pending'; schRender(); });
+schEl('sch-tab-mine').addEventListener('click', () => { SCH.tab = 'mine'; schRender(); });
+schEl('sch-tab-fatwa').addEventListener('click', () => { SCH.tab = 'fatwa'; schRender(); });
+schEl('sch-close-btn').addEventListener('click', schClose);
+schEl('sch-login-cancel').addEventListener('click', schClose);
+schEl('sch-logout-btn').addEventListener('click', async () => {
+  try { await schApi('/shariq/scholar/logout', {}); } catch (e) {}
+  SCH.token = ''; schTokenSave(''); SCH.pending = []; SCH.mine = [];
+  schClose();
+});
+async function schDoLogin() {
+  const un = schEl('sch-username').value.trim(), pw = schEl('sch-password').value;
+  const er = schEl('sch-login-error');
+  er.classList.add('hidden');
+  if (!un || !pw) { er.textContent = 'نام کاربری و رمز عبور را وارد کنید.'; er.classList.remove('hidden'); return; }
+  const btn = schEl('sch-login-btn'); btn.disabled = true;
+  SCH.token = '';
+  try {
+    const d = await schApi('/shariq/scholar/login', { username: un, password: pw });
+    SCH.token = d.token; schTokenSave(d.token);
+    schEl('sch-password').value = '';
+    SCH.tab = 'pending';
+    schShow('panel'); schEl('sch-list').innerHTML = '<p class="muted-text small">در حال بارگذاری...</p>';
+    await schReload();
+  } catch (e) { er.textContent = e.message; er.classList.remove('hidden'); }
+  finally { btn.disabled = false; }
+}
+schEl('sch-login-btn').addEventListener('click', schDoLogin);
+schEl('sch-password').addEventListener('keydown', (e) => { if (e.key === 'Enter') schDoLogin(); });
+// ۵ ضربه روی صفحه (نه روی دکمه، کارت، فیلد و ...)
+(function schSecretTaps() {
+  const tab = document.getElementById('tab-shariq');
+  if (!tab) return;
+  let taps = [];
+  tab.addEventListener('click', (e) => {
+    if (e.target.closest && e.target.closest('button, a, input, textarea, select, .shariq-item')) { taps = []; return; }
+    const now = Date.now();
+    taps = taps.filter((t) => now - t < 3500); taps.push(now);
+    if (taps.length >= 5) { taps = []; schOpen(); }
+  });
+})();
 
 /* ---------- ختم قرآن (تقسیم قرآن به بخش‌ها و برداشتن بخش با تیک) ----------
    بدون نام کاربری و رمز: فقط از «شناسهٔ پنهان دستگاه» (ensureDeviceId) برای تشخیص درخواست‌ها و بخش‌های خودِ کاربر
@@ -13865,5 +14208,435 @@ function bnrLoad() {
   } catch (e) { try { console.error('banners', e); } catch (e2) {} }
 })();
 bnrLoad();
+
+/* ============================================================
+   دانش‌آموزان (مرحلهٔ ۱: ورود + سلسله‌مراتب؛ مرحلهٔ ۲: ولی/سرپرست + حضور و غیاب + اعلان به والدین)
+   پیشخوان: عارفان جام ← 🎓 دانش‌آموزان. همهٔ درخواست‌ها POST و توکن داخل بدنه است (/students/*).
+   اطلاعات شخصی هیچ‌جا در کش آفلاین نمی‌ماند؛ فقط توکن ورود در localStorage.
+   برای افزودن امکان تازه (نمره/حضور و غیاب/آزمون): بخش جدید در stuRenderView و مسیر جدید در class-students.php.
+   ============================================================ */
+(function () {
+  try {
+    const TOKEN_KEY = 'arefanejam_stu_token';
+    const LEVEL = { head: 1, manager: 2, teacher: 3, student: 4, parent: 5 };
+    const LABEL = { head: 'رئیس سازمان', manager: 'مدیر', teacher: 'معلم', student: 'دانش‌آموز', parent: 'ولی / سرپرست' };
+    const ICON = { head: '👑', manager: '🏫', teacher: '👨‍🏫', student: '🎓', parent: '👪' };
+    const REL = { father: 'پدر', mother: 'مادر', guardian: 'سرپرست', other: 'ولی دیگر' };
+    const ATT = { present: ['حاضر', '✅', 'ح'], absent: ['غایب', '❌', 'غ'], late: ['تأخیر', '⏰', 'ت'], excused: ['غیبت موجه', '📝', 'م'] };
+    const S = { token: '', me: null, users: [], viewId: null, busy: false, sheet: null };
+    try { S.token = localStorage.getItem(TOKEN_KEY) || ''; } catch (e) {}
+
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => zkAttr(s);
+    const fa = (n) => toPersianDigits(String(n));
+
+    function setToken(t) {
+      S.token = t || '';
+      try { if (t) localStorage.setItem(TOKEN_KEY, t); else localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+    }
+
+    function stuFetch(path, body) {
+      const payload = Object.assign({}, body || {}, S.token ? { token: S.token } : {});
+      return fetch(state.apiUrl.replace(/\/$/, '') + path, {
+        method: 'POST', cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }).then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const err = new Error(data.message || 'خطا در ارتباط با سرور');
+          err.status = res.status; err.httpError = true;
+          if (res.status === 401 && S.token && path !== '/students/login') stuForceLogout('نشست شما تمام شده؛ دوباره وارد شوید.');
+          throw err;
+        }
+        return data;
+      }).catch((e) => {
+        if (e && e.httpError) throw e;
+        const err = new Error('اتصال اینترنت لازم است؛ اینترنت را بررسی کنید.');
+        err.offline = true; throw err;
+      });
+    }
+
+    /* ----- تنظیمات عمومی (عنوان/روشن بودن) ----- */
+    function applySettings(d) {
+      try {
+        const tile = $('students-more-tile');
+        const on = !d || d.enabled !== false;
+        if (tile) {
+          tile.classList.toggle('hidden', !on);
+          const l = $('students-tile-label'); if (l && d && d.title) l.textContent = d.title;
+        }
+        const t = $('stu-title'); if (t && d && d.title) t.textContent = d.title;
+        const intro = $('stu-intro');
+        if (intro) { const txt = (d && d.intro) || ''; intro.textContent = txt; intro.classList.toggle('hidden', !txt); }
+      } catch (e) {}
+    }
+    function loadSettings() { return apiSWR('/students/settings', applySettings).catch(() => {}); }
+
+    /* ----- ورود / خروج ----- */
+    function showOnly(which) {
+      $('stu-login').classList.toggle('hidden', which !== 'login');
+      $('stu-main').classList.toggle('hidden', which !== 'main');
+    }
+    function stuForceLogout(msg) {
+      setToken(''); S.me = null; S.users = []; S.viewId = null;
+      const e = $('stu-login-error'); if (e) e.textContent = msg || '';
+      showOnly('login');
+    }
+    async function doLogin() {
+      const un = $('stu-username').value.trim();
+      const pw = $('stu-password').value;
+      const err = $('stu-login-error'); err.textContent = '';
+      if (!un || !pw) { err.textContent = 'نام کاربری و رمز عبور را وارد کنید.'; return; }
+      const btn = $('stu-login-btn'); btn.disabled = true;
+      try {
+        const d = await stuFetch('/students/login', { username: un, password: pw });
+        setToken(d.token); S.me = d.me; S.viewId = null;
+        $('stu-password').value = '';
+        await stuRefreshUsers();
+        showOnly('main'); stuRender();
+      } catch (e) { err.textContent = e.message || 'ورود انجام نشد.'; }
+      btn.disabled = false;
+    }
+    async function doLogout() {
+      try { await stuFetch('/students/logout', {}); } catch (e) {}
+      stuForceLogout('');
+      $('stu-username').value = ''; $('stu-password').value = '';
+    }
+
+    async function stuRefreshUsers() {
+      if (!S.me || !S.me.can_add && S.me.children === 0) { S.users = []; return; }
+      const d = await stuFetch('/students/list', {});
+      S.users = d.users || [];
+    }
+    async function stuRefreshAll() {
+      const d = await stuFetch('/students/me', {});
+      S.me = d.me;
+      await stuRefreshUsers();
+    }
+
+    window.stuOnTabOpen = async function () {
+      loadSettings();
+      if (!S.token) { showOnly('login'); return; }
+      showOnly('main');
+      if (S.me) stuRender(); else $('stu-main').innerHTML = '<p class="muted-text small center-block">در حال بارگذاری…</p>';
+      try {
+        await stuRefreshAll();
+        if (S.viewId && !findUser(S.viewId)) S.viewId = null;
+        stuRender();
+      } catch (e) {
+        if (!S.token) return;
+        if (!S.me) { $('stu-main').innerHTML = '<p class="error-text center-block">' + esc(e.message) + '</p><div class="center-block"><button class="ghost-btn" id="stu-retry">تلاش دوباره</button></div>'; const r = $('stu-retry'); if (r) r.onclick = window.stuOnTabOpen; }
+      }
+    };
+
+    /* ----- نمایش ----- */
+    function findUser(id) {
+      if (S.me && S.me.id === id) return S.me;
+      return S.users.find((u) => u.id === id) || null;
+    }
+    function childrenOf(id) { return S.users.filter((u) => u.parent_id === id); }
+    function pathTo(u) { // مافوق‌ها از رئیس تا پدر مستقیم (فقط تا جایی که کاربر واردشده می‌بیند)
+      const out = []; let cur = u; let guard = 0;
+      while (cur && cur.parent_id && guard++ < 12) {
+        const p = findUser(cur.parent_id);
+        if (!p) break;
+        out.unshift(p); cur = p;
+      }
+      return out;
+    }
+    function row(label, val) {
+      if (!val) return '';
+      return '<div class="stu-row"><span class="stu-row-l">' + esc(label) + '</span><span class="stu-row-v">' + esc(val).replace(/\n/g, '<br>') + '</span></div>';
+    }
+    function chip(u) { return '<span class="stu-chip stu-chip-' + esc(u.role) + '">' + (ICON[u.role] || '') + ' ' + esc((u.role === 'parent' && u.relation_label) ? u.relation_label : (u.role_label || LABEL[u.role] || '')) + '</span>'; }
+    /* ----- تاریخ شمسی ----- */
+    function parseD(str) { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str || ''); return m ? new Date(+m[1], +m[2] - 1, +m[3], 12, 0, 0) : null; }
+    function fmtD(dt) { return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0'); }
+    function jal(str, withDay) {
+      const dt = parseD(str); if (!dt) return str || '';
+      const j = gregorianToJalali(dt.getFullYear(), dt.getMonth() + 1, dt.getDate());
+      return (withDay ? WEEKDAYS_FA[dt.getDay()] + ' ' : '') + toPersianDigits(j[2]) + ' ' + JALALI_MONTHS[j[1] - 1] + (withDay ? ' ' + toPersianDigits(j[0]) : '');
+    }
+    function attBadge(st) { const a = ATT[st]; return a ? '<span class="stu-att stu-att-' + st + '">' + a[1] + ' ' + a[0] + '</span>' : ''; }
+
+    function stuRender() {
+      const box = $('stu-main');
+      if (!S.me) return;
+      const isMe = (S.viewId == null) || S.viewId === S.me.id;
+      const u = isMe ? S.me : (findUser(S.viewId) || S.me);
+      const meView = u.id === S.me.id;
+      let h = '';
+      if (!meView) {
+        const par = findUser(u.parent_id);
+        h += '<div class="stu-topbar"><button type="button" class="ghost-btn small-btn" data-stu="up">‹ ' + esc(par ? par.full_name : 'بازگشت') + '</button></div>';
+      }
+      // کارت اطلاعات
+      h += '<div class="stu-card">';
+      h += '<div class="stu-avatar stu-av-' + esc(u.role) + '">' + esc((u.full_name || '؟').trim().charAt(0)) + '</div>';
+      h += '<h3 class="stu-name">' + esc(u.full_name) + '</h3>';
+      h += '<div class="stu-chips">' + chip(u) + (u.active ? '' : '<span class="stu-chip stu-chip-off">⛔ غیرفعال</span>') + '</div>';
+      h += '<div class="stu-rows">';
+      h += row('نام کاربری', u.username);
+      h += row('تلفن', u.phone);
+      if (meView) {
+        const ch = (S.me.chain || []).map((c) => c.full_name + ' (' + c.role_label + ')').join(' ‹ ');
+        h += row('زیر نظر', ch);
+      } else {
+        const p = pathTo(u).map((c) => c.full_name).join(' ‹ ');
+        h += row('زیر نظر', p);
+      }
+      h += row('توضیحات', u.info);
+      h += '</div>';
+      h += '<div class="stu-actions">';
+      if (meView) {
+        h += '<button type="button" class="ghost-btn small-btn" data-stu="profile">✏️ ویرایش نام و تلفن</button>';
+        h += '<button type="button" class="ghost-btn small-btn" data-stu="password">🔑 تغییر رمز</button>';
+        h += '<button type="button" class="ghost-btn small-btn" data-stu="logout">🚪 خروج</button>';
+      } else {
+        h += '<button type="button" class="ghost-btn small-btn" data-stu="edit">✏️ ویرایش</button>';
+        if (u.children > 0) h += '<button type="button" class="ghost-btn small-btn" disabled title="ابتدا زیرمجموعه‌ها را حذف کنید">🗑️ حذف</button>';
+        else h += '<button type="button" class="danger-btn small-btn" data-stu="delete">🗑️ حذف</button>';
+      }
+      h += '</div></div>';
+
+      const myRole = S.me.role;
+      const viewerIsStaff = (LEVEL[myRole] || 9) < 4;
+      // ولی: فرزند + اعلان‌ها
+      if (meView && u.role === 'parent') {
+        h += '<div class="section-block"><h3>اعلان‌ها</h3><div id="stu-notif-box"><p class="muted-text small">در حال بارگذاری…</p></div></div>';
+        if (u.linked) h += '<div class="section-block"><h3>حضور و غیاب ' + esc(u.linked.full_name) + '</h3><div id="stu-att-box" data-sid="' + u.linked.id + '"></div></div>';
+      }
+      // دانش‌آموز: حضور و غیاب
+      if (u.role === 'student') h += '<div class="section-block"><h3>حضور و غیاب</h3><div id="stu-att-box" data-sid="' + u.id + '"></div></div>';
+      // ثبت حضور و غیاب (مسئولان)
+      if (viewerIsStaff && (LEVEL[u.role] || 9) < 4) {
+        h += '<div class="section-block stu-sheet-open"><button type="button" class="secondary-btn" style="width:100%" data-stu="sheet">📋 ثبت حضور و غیاب' + (u.id === S.me.id ? '' : ' (زیر نظر ' + esc(u.full_name) + ')') + '</button><p class="muted-text small">پس از ثبت، ولی/سرپرست دانش‌آموز در اپ مطلع می‌شود.</p></div>';
+      }
+      // زیرمجموعه‌ها / اولیا
+      const isStu = u.role === 'student';
+      const canHaveKids = (LEVEL[u.role] || 9) < 5 && !(isStu && !viewerIsStaff);
+      if (canHaveKids) {
+        const kids = childrenOf(u.id);
+        h += '<div class="section-block"><h3>' + (isStu ? 'اولیا (پدر، مادر، سرپرست)' : 'زیرمجموعه‌ها') + (kids.length ? ' (' + fa(kids.length) + ')' : '') + '</h3>';
+        if (!kids.length) h += '<p class="muted-text small">' + (isStu ? 'هنوز ولی یا سرپرستی تعریف نشده؛ تا تعریف نشود اعلان حضور و غیاب به کسی نمی‌رسد.' : 'هنوز کسی اضافه نشده است.') + '</p>';
+        else {
+          h += '<div class="stu-list">';
+          kids.forEach((k) => {
+            const lab = (k.role === 'parent' && k.relation_label) ? k.relation_label : (k.role_label || LABEL[k.role]);
+            h += '<button type="button" class="stu-item' + (k.active ? '' : ' is-off') + '" data-stu="open" data-id="' + k.id + '">' +
+              '<span class="stu-avatar stu-av-sm stu-av-' + esc(k.role) + '">' + esc((k.full_name || '؟').trim().charAt(0)) + '</span>' +
+              '<span class="stu-item-main"><b>' + esc(k.full_name) + '</b><small>' + esc(lab) + (k.children && k.role !== 'student' ? ' · ' + fa(k.children) + ' زیرمجموعه' : '') + (k.role === 'student' && k.children ? ' · ' + fa(k.children) + ' ولی' : '') + '</small></span>' +
+              '<span class="stu-item-go">‹</span></button>';
+          });
+          h += '</div>';
+        }
+        h += '<button type="button" class="secondary-btn stu-add-btn" data-stu="add">' + (isStu ? '➕ افزودن ولی / سرپرست' : '➕ افزودن کاربر جدید') + '</button></div>';
+      }
+      box.innerHTML = h;
+      try { window.scrollTo(0, 0); } catch (e) {}
+      loadAttBox(); if (meView && u.role === 'parent') loadNotifs();
+    }
+
+    /* ----- حضور و غیابِ یک دانش‌آموز (خلاصه + فهرست) ----- */
+    async function loadAttBox() {
+      const el = $('stu-att-box'); if (!el) return;
+      const sid = parseInt(el.getAttribute('data-sid'), 10);
+      el.innerHTML = '<p class="muted-text small">در حال بارگذاری…</p>';
+      try {
+        const d = await stuFetch('/students/att/history', { student_id: sid, limit: 30 });
+        const cur = $('stu-att-box'); if (!cur || cur.getAttribute('data-sid') !== String(sid)) return;
+        let h = '<div class="stu-att-sum">';
+        Object.keys(ATT).forEach((k) => { h += '<div class="stu-att-cnt stu-att-' + k + '"><b>' + fa(d.summary[k] || 0) + '</b><small>' + ATT[k][0] + '</small></div>'; });
+        h += '</div>';
+        if (!d.records.length) h += '<p class="muted-text small">هنوز حضور و غیابی ثبت نشده است.</p>';
+        else {
+          h += '<div class="stu-att-list">';
+          d.records.forEach((r) => { h += '<div class="stu-att-row"><span>' + esc(jal(r.att_date, true)) + '</span>' + attBadge(r.status) + (r.note ? '<small>' + esc(r.note) + '</small>' : '') + '</div>'; });
+          h += '</div>';
+        }
+        cur.innerHTML = h;
+      } catch (e) { const c = $('stu-att-box'); if (c) c.innerHTML = '<p class="error-text">' + esc(e.message) + '</p>'; }
+    }
+
+    /* ----- اعلان‌های ولی ----- */
+    function notifText(n) {
+      const st = ATT[n.status] ? ATT[n.status][0] : n.status_label;
+      return 'فرزند شما «' + n.student + '» در ' + jal(n.date, true) + ' «' + st + '» ثبت شد.' + (n.note ? ' (' + n.note + ')' : '');
+    }
+    async function loadNotifs() {
+      const box = $('stu-notif-box'); if (!box) return;
+      try {
+        const d = await stuFetch('/students/notifs', {});
+        const el = $('stu-notif-box'); if (!el) return;
+        let h = '<div class="stu-notif-head"><button type="button" class="ghost-btn small-btn" data-stu="refresh">🔄 تازه‌سازی</button></div>';
+        if (!d.items.length) h += '<p class="muted-text small">اعلانی وجود ندارد. هر وقت حضور و غیاب فرزندتان ثبت شود اینجا خبر می‌دهیم.</p>';
+        else {
+          if (d.unread) h += '<p class="stu-notif-new">🔔 ' + fa(d.unread) + ' اعلان جدید</p>';
+          h += '<div class="stu-notif-list">';
+          d.items.forEach((n) => { h += '<div class="stu-notif stu-att-' + esc(n.status) + (n.read ? '' : ' is-new') + '">' + (ATT[n.status] ? ATT[n.status][1] : '🔔') + '<span>' + esc(notifText(n)) + '</span></div>'; });
+          h += '</div>';
+        }
+        el.innerHTML = h;
+        if (d.unread) { stuFetch('/students/notifs/read', {}).then(() => { if (S.me) S.me.unread = 0; }).catch(() => {}); }
+      } catch (e) { const c = $('stu-notif-box'); if (c) c.innerHTML = '<p class="error-text">' + esc(e.message) + '</p>'; }
+    }
+
+    /* ----- برگهٔ ثبت حضور و غیاب ----- */
+    async function openSheet(scopeId, date) {
+      const box = $('stu-main');
+      box.innerHTML = '<p class="muted-text small center-block">در حال بارگذاری…</p>';
+      try {
+        const d = await stuFetch('/students/att/sheet', { scope_id: scopeId, date: date || '' });
+        S.sheet = { scope: scopeId, date: d.date, today: d.today, name: d.scope_name, students: d.students, draft: {} };
+        d.students.forEach((x) => { S.sheet.draft[x.id] = { status: x.status || '', note: x.note || '' }; });
+        renderSheet();
+      } catch (e) { box.innerHTML = '<div class="stu-topbar"><button type="button" class="ghost-btn small-btn" data-stu="cancel">‹ بازگشت</button></div><p class="error-text center-block">' + esc(e.message) + '</p>'; }
+    }
+    function renderSheet() {
+      const sh = S.sheet; if (!sh) return;
+      const box = $('stu-main');
+      const atToday = sh.date >= sh.today;
+      let h = '<div class="stu-topbar"><button type="button" class="ghost-btn small-btn" data-stu="cancel">‹ بازگشت</button></div><div class="stu-card stu-sheet">';
+      h += '<h3>حضور و غیاب' + (sh.name ? ' — ' + esc(sh.name) : '') + '</h3>';
+      h += '<div class="stu-datebar"><button type="button" class="ghost-btn small-btn" data-stu="sheet-prev">›</button><b>' + esc(jal(sh.date, true)) + '</b><button type="button" class="ghost-btn small-btn" data-stu="sheet-next"' + (atToday ? ' disabled' : '') + '>‹</button></div>';
+      if (!sh.students.length) h += '<p class="muted-text small">دانش‌آموزی زیر نظر این بخش تعریف نشده است.</p>';
+      else {
+        h += '<div class="stu-sheet-tools"><button type="button" class="ghost-btn small-btn" data-stu="sheet-all">✅ همه حاضر</button></div><div class="stu-sheet-list">';
+        sh.students.forEach((x) => {
+          const dr = sh.draft[x.id] || { status: '', note: '' };
+          h += '<div class="stu-sheet-row"><div class="stu-sheet-name">' + esc(x.full_name) + '</div><div class="stu-sheet-btns">';
+          Object.keys(ATT).forEach((k) => { h += '<button type="button" class="stu-st stu-att-' + k + (dr.status === k ? ' on' : '') + '" data-stu="sheet-set" data-id="' + x.id + '" data-s="' + k + '" title="' + ATT[k][0] + '">' + ATT[k][1] + '<small>' + ATT[k][0] + '</small></button>'; });
+          h += '</div>' + ((dr.status && dr.status !== 'present') ? '<input type="text" class="stu-note" data-id="' + x.id + '" maxlength="120" placeholder="توضیح (اختیاری)" value="' + esc(dr.note) + '">' : '') + '</div>';
+        });
+        h += '</div><p class="error-text" id="stu-sheet-err"></p><button type="button" class="secondary-btn" id="stu-sheet-save" style="width:100%" data-stu="sheet-save">ذخیره و اطلاع به اولیا</button>';
+      }
+      h += '</div>';
+      box.innerHTML = h;
+      box.querySelectorAll('.stu-note').forEach((inp) => inp.addEventListener('input', () => { const dr = sh.draft[inp.getAttribute('data-id')]; if (dr) dr.note = inp.value; }));
+    }
+    async function saveSheet() {
+      const sh = S.sheet; if (!sh) return;
+      const err = $('stu-sheet-err'); err.textContent = '';
+      const items = sh.students.map((x) => ({ student_id: x.id, status: (sh.draft[x.id] || {}).status || '', note: (sh.draft[x.id] || {}).note || '' })).filter((i) => i.status);
+      if (!items.length) { err.textContent = 'وضعیتی انتخاب نشده است.'; return; }
+      const btn = $('stu-sheet-save'); btn.disabled = true;
+      try {
+        const d = await stuFetch('/students/att/save', { date: sh.date, items });
+        const msg = d.saved ? ('حضور و غیاب ' + fa(d.saved) + ' نفر ذخیره شد' + (d.notified ? ' و برای ' + fa(d.notified) + ' ولی/سرپرست اعلان رفت.' : '؛ اما برای این دانش‌آموزان ولی/سرپرستی تعریف نشده است.')) : 'تغییری نسبت به قبل نبود.';
+        try { await appAlert('stu_done', null, { text: msg, title: 'انجام شد', icon: '✅', tone: 'success' }); } catch (e) {}
+      } catch (e) { err.textContent = e.message || 'ذخیره نشد.'; }
+      const b2 = $('stu-sheet-save'); if (b2) b2.disabled = false;
+    }
+
+    /* ----- فرم‌ها ----- */
+    function field(label, inner) { return '<label class="stu-f"><span>' + esc(label) + '</span>' + inner + '</label>'; }
+    function renderForm(kind, u) {
+      const box = $('stu-main');
+      let h = '<div class="stu-topbar"><button type="button" class="ghost-btn small-btn" data-stu="cancel">‹ انصراف</button></div><div class="stu-card stu-form">';
+      if (kind === 'add') {
+        const parent = u;
+        const roles = parent.role === 'student' ? ['parent'] : Object.keys(LEVEL).filter((r) => LEVEL[r] > LEVEL[parent.role] && r !== 'parent');
+        h += '<h3>' + (parent.role === 'student' ? 'افزودن ولی / سرپرست برای «' : 'افزودن کاربر زیر نظر «') + esc(parent.full_name) + '»</h3>';
+        h += field('نقش', '<select id="stu-f-role">' + roles.map((r) => '<option value="' + r + '">' + esc(LABEL[r]) + '</option>').join('') + '</select>');
+        if (parent.role === 'student') h += field('نسبت', '<select id="stu-f-rel">' + Object.keys(REL).map((k) => '<option value="' + k + '">' + esc(REL[k]) + '</option>').join('') + '</select>');
+        h += field('نام و نام خانوادگی', '<input type="text" id="stu-f-name" maxlength="80">');
+        h += field('نام کاربری (انگلیسی)', '<input type="text" id="stu-f-user" dir="ltr" maxlength="32" autocapitalize="none" autocomplete="off" placeholder="مثلاً ali.rezaei">');
+        h += field('رمز عبور (حداقل ۶ نویسه)', '<input type="text" id="stu-f-pass" dir="ltr" maxlength="100" autocomplete="off">');
+        h += field('تلفن (اختیاری)', '<input type="tel" id="stu-f-phone" dir="ltr" maxlength="20">');
+        h += field('توضیحات (اختیاری)', '<textarea id="stu-f-info" rows="3" maxlength="1000"></textarea>');
+      } else if (kind === 'edit') {
+        h += '<h3>ویرایش «' + esc(u.full_name) + '»</h3>';
+        h += field('نام و نام خانوادگی', '<input type="text" id="stu-f-name" maxlength="80" value="' + esc(u.full_name) + '">');
+        h += field('تلفن', '<input type="tel" id="stu-f-phone" dir="ltr" maxlength="20" value="' + esc(u.phone) + '">');
+        if (u.role === 'parent') h += field('نسبت', '<select id="stu-f-rel">' + Object.keys(REL).map((k) => '<option value="' + k + '"' + (u.relation === k ? ' selected' : '') + '>' + esc(REL[k]) + '</option>').join('') + '</select>');
+        h += field('توضیحات', '<textarea id="stu-f-info" rows="3" maxlength="1000">' + esc(u.info) + '</textarea>');
+        h += field('رمز جدید (اگر نمی‌خواهید عوض شود خالی بگذارید)', '<input type="text" id="stu-f-pass" dir="ltr" maxlength="100" autocomplete="off">');
+        h += '<label class="stu-f stu-f-check"><input type="checkbox" id="stu-f-active"' + (u.active ? ' checked' : '') + '> <span>حساب فعال است</span></label>';
+      } else if (kind === 'profile') {
+        h += '<h3>ویرایش اطلاعات من</h3>';
+        h += field('نام و نام خانوادگی', '<input type="text" id="stu-f-name" maxlength="80" value="' + esc(u.full_name) + '">');
+        h += field('تلفن', '<input type="tel" id="stu-f-phone" dir="ltr" maxlength="20" value="' + esc(u.phone) + '">');
+      } else if (kind === 'password') {
+        h += '<h3>تغییر رمز عبور</h3>';
+        h += field('رمز فعلی', '<input type="password" id="stu-f-old" dir="ltr" autocomplete="current-password">');
+        h += field('رمز جدید (حداقل ۶ نویسه)', '<input type="password" id="stu-f-new" dir="ltr" autocomplete="new-password">');
+      }
+      h += '<p class="error-text" id="stu-f-err"></p><button type="button" class="secondary-btn" id="stu-f-save" style="width:100%">ذخیره</button></div>';
+      box.innerHTML = h;
+      try { window.scrollTo(0, 0); } catch (e) {}
+      $('stu-f-save').onclick = () => submitForm(kind, u);
+    }
+    async function submitForm(kind, u) {
+      const err = $('stu-f-err'); err.textContent = '';
+      const val = (id) => { const e = $(id); return e ? e.value : ''; };
+      const btn = $('stu-f-save'); btn.disabled = true;
+      try {
+        if (kind === 'add') {
+          await stuFetch('/students/save', { role: val('stu-f-role'), parent_id: u.id, full_name: val('stu-f-name'), username: val('stu-f-user'), password: val('stu-f-pass'), phone: val('stu-f-phone'), info: val('stu-f-info'), relation: val('stu-f-rel') });
+        } else if (kind === 'edit') {
+          await stuFetch('/students/save', { id: u.id, full_name: val('stu-f-name'), phone: val('stu-f-phone'), info: val('stu-f-info'), relation: val('stu-f-rel'), password: val('stu-f-pass'), active: $('stu-f-active').checked ? 1 : 0 });
+        } else if (kind === 'profile') {
+          await stuFetch('/students/profile', { full_name: val('stu-f-name'), phone: val('stu-f-phone') });
+        } else if (kind === 'password') {
+          const d = await stuFetch('/students/password', { old_password: val('stu-f-old'), new_password: val('stu-f-new') });
+          if (d && d.token) setToken(d.token);
+        }
+        await stuRefreshAll();
+        stuRender();
+        if (kind === 'password') { try { await appAlert('stu_done', null, { text: 'رمز عبور شما تغییر کرد.', title: 'انجام شد', icon: '✅', tone: 'success' }); } catch (e) {} }
+      } catch (e) { err.textContent = e.message || 'ذخیره نشد.'; btn.disabled = false; }
+    }
+
+    async function doDelete(u) {
+      let ok = false;
+      try { ok = await appConfirm('stu_delete_confirm', { name: u.full_name }, { text: 'کاربر {name} برای همیشه حذف شود؟', title: 'حذف کاربر', icon: '🗑️', tone: 'danger' }); } catch (e) { ok = false; }
+      if (!ok) return;
+      try {
+        await stuFetch('/students/delete', { id: u.id });
+        S.viewId = u.parent_id;
+        await stuRefreshAll();
+        stuRender();
+      } catch (e) { try { await appAlert('stu_err', null, { text: e.message || 'حذف نشد.', title: 'خطا', icon: '⚠️', tone: 'warn' }); } catch (e2) {} }
+    }
+
+    /* ----- رویدادها ----- */
+    document.addEventListener('click', (ev) => {
+      const t = ev.target && ev.target.closest ? ev.target.closest('#tab-students [data-stu]') : null;
+      if (!t || !S.me) return;
+      const act = t.getAttribute('data-stu');
+      const cur = (S.viewId == null) ? S.me : (findUser(S.viewId) || S.me);
+      if (act === 'logout') doLogout();
+      else if (act === 'profile') renderForm('profile', S.me);
+      else if (act === 'password') renderForm('password', S.me);
+      else if (act === 'add') renderForm('add', cur);
+      else if (act === 'edit') renderForm('edit', cur);
+      else if (act === 'delete') doDelete(cur);
+      else if (act === 'cancel') { S.sheet = null; stuRender(); }
+      else if (act === 'sheet') openSheet(cur.id, '');
+      else if (act === 'sheet-prev' || act === 'sheet-next') {
+        if (!S.sheet) return;
+        const dt = parseD(S.sheet.date); dt.setDate(dt.getDate() + (act === 'sheet-prev' ? -1 : 1));
+        const nd = fmtD(dt); if (nd > S.sheet.today) return;
+        openSheet(S.sheet.scope, nd);
+      }
+      else if (act === 'sheet-all') { if (S.sheet) { S.sheet.students.forEach((x) => { S.sheet.draft[x.id] = { status: 'present', note: '' }; }); renderSheet(); } }
+      else if (act === 'sheet-set') {
+        if (!S.sheet) return; const id = parseInt(t.getAttribute('data-id'), 10); const st = t.getAttribute('data-s');
+        const dr = S.sheet.draft[id] || (S.sheet.draft[id] = { status: '', note: '' });
+        dr.status = (dr.status === st) ? '' : st; if (dr.status === 'present') dr.note = '';
+        renderSheet();
+      }
+      else if (act === 'sheet-save') saveSheet();
+      else if (act === 'refresh') { loadNotifs(); }
+      else if (act === 'open') { S.viewId = parseInt(t.getAttribute('data-id'), 10) || null; stuRender(); }
+      else if (act === 'up') { S.viewId = (cur.parent_id && cur.parent_id !== S.me.id && findUser(cur.parent_id)) ? cur.parent_id : null; stuRender(); }
+    });
+    const lb = $('stu-login-btn'); if (lb) lb.addEventListener('click', doLogin);
+    ['stu-username', 'stu-password'].forEach((id) => { const e = $(id); if (e) e.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') doLogin(); }); });
+
+    loadSettings();
+  } catch (e) { try { console.error('students', e); } catch (e2) {} }
+})();
 
 window.__arefBooted = true;
