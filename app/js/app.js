@@ -12097,11 +12097,15 @@ async function loadMokatibMeetings(mosqueId, month) {
   const baseLabel = label ? label.textContent : '';
   const flash = (msg) => { if (!label) return; label.textContent = msg; setTimeout(() => { label.textContent = baseLabel; }, 2200); };
   async function getShareInfo() {
+    // لینک گیت‌هاب هرگز به دوستان فرستاده نمی‌شود (صفحهٔ Releases نباید دیده شود)؛ به‌جایش لینک دانلود مستقیمِ خود سایت
+    const SITE_GET_APP = String(DEFAULT_API_URL).replace(/\/+$/, '') + '/get-app';
+    const okLink = (i) => !!(i && i.link) && !/^https?:\/\/([a-z0-9-]+\.)*github(usercontent)?\.com\//i.test(String(i.link));
+    const fix = (i) => ({ text: String((i && i.text) || '').trim() || 'اپ «عارفان جام» را نصب کن:', link: okLink(i) ? String(i.link) : SITE_GET_APP });
     let info = null;
     try { info = await apiFetch('/app-share'); } catch (e) { info = null; }
-    if (info && info.link) { try { localStorage.setItem(KEY, JSON.stringify(info)); } catch (e) {} return info; }
-    try { const c = JSON.parse(localStorage.getItem(KEY) || 'null'); if (c && c.link) return c; } catch (e) {}
-    return { text: 'اپ «عارفان جام» را نصب کن:', link: 'https://arefanejam.com' };
+    if (info && info.link) { info = fix(info); try { localStorage.setItem(KEY, JSON.stringify(info)); } catch (e) {} return info; }
+    try { const c = JSON.parse(localStorage.getItem(KEY) || 'null'); if (c && c.link) return fix(c); } catch (e) {}
+    return { text: 'اپ «عارفان جام» را نصب کن:', link: SITE_GET_APP };
   }
   tile.addEventListener('click', async () => {
     const info = await getShareInfo();
