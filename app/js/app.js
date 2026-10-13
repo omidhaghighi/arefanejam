@@ -8468,14 +8468,15 @@ function renderRamadanGallery(r) {
   else if (align === 'right') { frame.style.marginLeft = 'auto'; frame.style.marginRight = '0'; }
   else { frame.style.marginLeft = 'auto'; frame.style.marginRight = 'auto'; }
   frame.innerHTML =
-    '<div class="rmz-gal-square">' +
+    '<div class="rmz-gal-square rmz-natural">' +
       '<div class="rmz-gal-scroller" dir="ltr"></div>' +
       '<button type="button" class="rmz-gal-arrow rmz-gal-prev" aria-label="قبلی">‹</button>' +
       '<button type="button" class="rmz-gal-arrow rmz-gal-next" aria-label="بعدی">›</button>' +
       '<span class="rmz-gal-count"></span>' +
     '</div>' +
     '<div class="rmz-gal-dots"></div>' +
-    '<p class="rmz-gal-caption"></p>';
+    '<p class="rmz-gal-caption"></p>' +
+    '<p class="rmz-gal-tip">برای بزرگ‌نمایی و زوم، یک بار روی عکس بزنید</p>';
   wrap.appendChild(frame);
   const empty = document.createElement('p');
   empty.className = 'rmz-gal-empty hidden';
@@ -8502,6 +8503,9 @@ function renderRamadanGallery(r) {
     countEl.textContent = n > 1 ? toPersianDigits(cur + 1) + ' / ' + toPersianDigits(n) : '';
     countEl.style.display = n > 1 ? '' : 'none';
     dotsEl.querySelectorAll('.rmz-gal-dot').forEach((d, i) => d.classList.toggle('active', i === cur));
+    // ارتفاع قاب = ارتفاع کامل عکس فعلی (نسبت اصلی عکس حفظ می‌شود)
+    const curImg = scroller.children[cur] && scroller.children[cur].querySelector('img');
+    scroller.style.height = (n > 1 && curImg && curImg.offsetHeight > 0) ? curImg.offsetHeight + 'px' : '';
     prevBtn.style.display = n > 1 ? '' : 'none';
     nextBtn.style.display = n > 1 ? '' : 'none';
   }
@@ -8518,8 +8522,8 @@ function renderRamadanGallery(r) {
       img.src = secureUrl(it.url);
       img.alt = it.name || '';
       img.draggable = false;
-      img.style.objectFit = fit;
       img.loading = 'lazy';
+      img.addEventListener('load', () => updateInfo());
       slide.appendChild(img);
       slide.addEventListener('click', () => openRmzZoom(it.url, it.name || ''));
       scroller.appendChild(slide);
@@ -8534,6 +8538,8 @@ function renderRamadanGallery(r) {
     cur = 0;
     updateInfo();
   }
+  window.__rmzGalUpdate = updateInfo;
+  if (!window.__rmzGalResizeBound) { window.__rmzGalResizeBound = true; window.addEventListener('resize', () => { try { if (window.__rmzGalUpdate) window.__rmzGalUpdate(); } catch (e) {} }); }
   let raf = 0;
   scroller.addEventListener('scroll', () => {
     if (raf) return;

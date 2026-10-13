@@ -3244,6 +3244,12 @@ body.dark-mode .khatm-ask-note { background: #5A4513; color: #FFE7B0; }
 }
 
 /* عکس مربع مستقل صفحهٔ رمضان */
+/* گالری رمضان: عکس با ابعاد کامل (بدون قاب مربع و بدون برش) */
+.rmz-gal-square.rmz-natural { padding-top: 0; }
+.rmz-natural .rmz-gal-scroller { position: relative; top: auto; right: auto; bottom: auto; left: auto; align-items: flex-start; transition: height .2s ease; }
+.rmz-natural .rmz-slide { height: auto; }
+.rmz-natural .rmz-slide img { width: 100%; height: auto; object-fit: contain; }
+.rmz-gal-tip { margin: 6px 0 0; text-align: center; font-size: 12px; opacity: .65; color: var(--ink); }
 .rmz-sq { position: relative; padding-top: 0; max-width: 100%; }
 .rmz-sq::before { content: ''; display: block; padding-top: 100%; }
 .rmz-sq img { position: absolute; top: 0; right: 0; bottom: 0; left: 0; width: 100%; height: 100%; border-radius: 12px; cursor: zoom-in; display: block; background: var(--paper-alt); }
