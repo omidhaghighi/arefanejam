@@ -8793,6 +8793,12 @@ function renderRamadanContent(r) {
     card.style.setProperty('--ramadan-header-bg', cardBg);
     card.style.setProperty('--ramadan-font-size', fontSize + 'px');
     card.style.setProperty('--ramadan-font-color', fontColor);
+    /* رنگ ردیف‌های یکی‌درمیان (از پیشخوان ← رمضان ویژه)؛ اگر فعال نباشد رنگ‌بندی خودکار CSS استفاده می‌شود */
+    const rmHex = (v) => (/^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(String(v || '')) ? v : '');
+    if (r.row_custom === '1' && rmHex(r.row_color_a) && rmHex(r.row_color_b)) {
+      card.style.setProperty('--ramadan-row-a', r.row_color_a);
+      card.style.setProperty('--ramadan-row-b', r.row_color_b);
+    }
     card.innerHTML = `
       <h4>${dayLabel}</h4>
       <div class="ramadan-schedule-wrap">
@@ -12079,6 +12085,39 @@ async function loadMokatibMeetings(mosqueId, month) {
     });
   } catch (e) { el.innerHTML = '<p class="note-empty">خطا در دریافت اطلاعات.</p>'; }
 }
+
+/* ---------- «معرفی اپ به دوستان» (صفحهٔ بیشتر) ----------
+ * متن و لینک از GET /app-share می‌آید (پیشخوان ← تنظیمات ← بروزرسانی داخل اپ)؛ آخرین مقدار برای حالت آفلاین ذخیره می‌شود.
+ * اشتراک: افزونهٔ بومی (shareText، در APK فعلی هست) ← navigator.share ← کپی در کلیپ‌بورد. */
+(function setupShareAppTile() {
+  const tile = document.getElementById('app-share-tile');
+  if (!tile) return;
+  const KEY = 'arefanejam_app_share_v1';
+  const label = document.getElementById('app-share-label');
+  const baseLabel = label ? label.textContent : '';
+  const flash = (msg) => { if (!label) return; label.textContent = msg; setTimeout(() => { label.textContent = baseLabel; }, 2200); };
+  async function getShareInfo() {
+    let info = null;
+    try { info = await apiFetch('/app-share'); } catch (e) { info = null; }
+    if (info && info.link) { try { localStorage.setItem(KEY, JSON.stringify(info)); } catch (e) {} return info; }
+    try { const c = JSON.parse(localStorage.getItem(KEY) || 'null'); if (c && c.link) return c; } catch (e) {}
+    return { text: 'اپ «عارفان جام» را نصب کن:', link: 'https://arefanejam.com' };
+  }
+  tile.addEventListener('click', async () => {
+    const info = await getShareInfo();
+    const title = 'عارفان جام';
+    const text = String(info.text || '').trim() + '\n' + String(info.link || '').trim();
+    try { trackClick('app_share'); } catch (e) {}
+    const nat = azanNativeShare();
+    if (nat && typeof nat.shareText === 'function') {
+      try { await nat.shareText({ title, text }); return; } catch (e) { /* ادامه با روش بعدی */ }
+    }
+    if (navigator.share) {
+      try { await navigator.share({ title, text }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+    }
+    try { await navigator.clipboard.writeText(text); flash('✓ لینک کپی شد'); } catch (e) { flash('اشتراک‌گذاری ممکن نشد'); }
+  });
+})();
 
 (function setupDevPanelToggle() {
   let tapCount = 0, tapTimer = null;

@@ -441,6 +441,7 @@ button:active, .nav-btn:active, .note-card:active, .menu-row:active {
 .tile-tasbih   { --tile-c: #E8745A; --tile-cd: #B84C34; }
 .tile-about    { --tile-c: #3E8FD9; --tile-cd: #1F5E9A; }
 .tile-update   { --tile-c: #2FA36B; --tile-cd: #1B7346; }
+.tile-share    { --tile-c: #2E8FD0; --tile-cd: #1B5F8F; }
 .tile-quran    { --tile-c: #4CC26B; --tile-cd: #1F8F49; }
 .tile-checklist{ --tile-c: #B159D8; --tile-cd: #7B32A0; }
 .tile-deeds    { --tile-c: #3FA0E8; --tile-cd: #1D6FB8; }
@@ -906,7 +907,8 @@ body.dark-mode #quran-reader-content.mushaf-page .ayah-block.is-playing .ayah-ar
   font-weight: 700; font-size: calc(var(--ramadan-font-size, 14px) - 1.5px); opacity: 0.9; position: sticky; top: 0; letter-spacing: 0.2px;
   background: var(--ramadan-header-bg, inherit);
 }
-.ramadan-schedule-table tbody tr:nth-child(even) { background: rgba(255,255,255,0.035); }
+.ramadan-schedule-table tbody tr { background: var(--ramadan-row-a, transparent); }
+.ramadan-schedule-table tbody tr:nth-child(even) { background: var(--ramadan-row-b, rgba(255,255,255,0.11)); }
 .ramadan-schedule-table tr.is-today { background: rgba(176,141,78,0.30) !important; }
 .ramadan-schedule-table tr.is-today td { font-weight: 800; border-top: 2px solid var(--gold, #B08D4E); border-bottom: 2px solid var(--gold, #B08D4E); }
 .ramadan-schedule-table tr.is-today td:first-child { color: var(--gold-light, #D9BD87); }
