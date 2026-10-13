@@ -8668,7 +8668,8 @@ async function loadRamadanPage() {
 function renderRamadanContent(r) {
   const contentBlock = document.getElementById('ramadan-content-block');
   contentBlock.innerHTML = '';
-  if (r.text || r.image_url || r.video_url) {
+  const rmTopMedia = (Array.isArray(r.top_media) ? r.top_media : []).filter((it) => it && it.url);
+  if (r.text || r.image_url || r.video_url || rmTopMedia.length) {
     const card = document.createElement('div');
     card.className = 'verse-card';
     card.style.margin = '10px 18px';
@@ -8679,7 +8680,19 @@ function renderRamadanContent(r) {
       const sqF = r.sq_fit === 'contain' ? 'contain' : 'cover';
       html += `<div class="rmz-sq" style="width:${sqW}%;${sqA}"><img id="ramadan-main-img" src="${secureUrl(r.image_url)}" style="object-fit:${sqF}"></div>`;
     }
-    if (r.video_url) html += `<video id="ramadan-video-el" src="${r.video_url}" controls style="width:100%;border-radius:10px;margin-bottom:10px"></video>`;
+    if (r.video_url) html += `<video id="ramadan-video-el" src="${secureUrl(r.video_url)}" controls playsinline preload="metadata" style="width:100%;border-radius:10px;margin-bottom:10px"></video>`;
+    /* عکس‌ها و ویدیوهای دلخواه (از پیشخوان ← رمضان ویژه ← «عکس و ویدیوی بالای جدول») به ترتیب */
+    if (rmTopMedia.length) {
+      html += '<div class="rmz-media">';
+      rmTopMedia.forEach((it, i) => {
+        html += '<div class="rmz-media-item">';
+        if (it.type === 'video') html += `<video class="rmz-media-el" src="${secureUrl(it.url)}" controls playsinline preload="metadata"></video>`;
+        else html += `<img class="rmz-media-el" data-rmz-i="${i}" src="${secureUrl(it.url)}" loading="lazy" alt="">`;
+        if (it.caption) html += `<div class="rmz-media-caption">${String(it.caption).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch])}</div>`;
+        html += '</div>';
+      });
+      html += '</div>';
+    }
     if (r.text) html += `<p class="verse-translation">${r.text}</p>`;
     if (r.link_url) html += `<button class="secondary-btn small-btn" id="ramadan-link-btn" style="margin-top:8px">مشاهده لینک</button>`;
     card.innerHTML = html;
@@ -8694,6 +8707,21 @@ function renderRamadanContent(r) {
     }
     const ramadanVideoEl = document.getElementById('ramadan-video-el');
     if (ramadanVideoEl) ramadanVideoEl.addEventListener('play', () => trackClick('ramadan_video'), { once: true });
+    card.querySelectorAll('img.rmz-media-el').forEach((im) => {
+      im.addEventListener('click', () => { const it = rmTopMedia[parseInt(im.dataset.rmzI, 10)]; if (it) openRmzZoom(it.url, it.caption || ''); });
+      im.addEventListener('error', () => { im.style.display = 'none'; });
+    });
+    card.querySelectorAll('video').forEach((v) => {
+      v.addEventListener('error', () => {
+        if (v.dataset.errNoted) return;
+        v.dataset.errNoted = '1';
+        const note = document.createElement('p');
+        note.className = 'muted-text small';
+        note.style.textAlign = 'center';
+        note.textContent = 'پخش این ویدیو به اینترنت نیاز دارد.';
+        v.insertAdjacentElement('afterend', note);
+      });
+    });
   }
 
   renderRamadanGallery(r);
