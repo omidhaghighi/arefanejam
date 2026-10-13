@@ -843,6 +843,14 @@ const APP_MSG_REG = {
   "text": "اوقات شرعی کپی شد.",
   "ok": "باشه"
  },
+ "azan_share_img_old": {
+  "kind": "alert",
+  "tone": "info",
+  "icon": "📲",
+  "title": "نیاز به نسخهٔ جدیدتر",
+  "text": "ارسال عکس اوقات شرعی در این نسخهٔ اپ ممکن نیست. با نصب نسخهٔ جدید اپ کار می‌کند؛ فعلاً متن اوقات شرعی ارسال می‌شود.",
+  "ok": "باشه"
+ },
  "azan_share_not_ready": {
   "kind": "alert",
   "tone": "info",
@@ -1405,6 +1413,32 @@ function renderCalendarWidget() {
     eventCardEl.innerHTML = '';
   }
   renderMyEvents(jy, jm, jd);
+  try { renderCalAzan(); } catch (e) { try { console.warn('cal-azan', e); } catch (e2) {} }
+}
+/* ساعت اذان (اوقات شرعی) دقیقاً برای روزِ انتخاب‌شده در تقویم؛ با همان شهر، روش محاسبه و اصلاحیه‌های تنظیمات اذان */
+function calAzanInstant(d) {
+  // ظهرِ همان تاریخ در منطقهٔ زمانیِ محاسبه (ایران ثابت یا ساعت گوشی) تا مرز نیمه‌شب روز را جابه‌جا نکند
+  const y = d.getFullYear(), m = d.getMonth(), day = d.getDate();
+  if (state.coords && isIranCoords(state.coords.lat, state.coords.lng)) return new Date(Date.UTC(y, m, day, 12, 0, 0) - IRAN_TZ_MIN * 60000);
+  return new Date(y, m, day, 12, 0, 0);
+}
+function renderCalAzan() {
+  const el = document.getElementById('cal-azan-block');
+  if (!el) return;
+  if (!state.coords) {
+    el.innerHTML = '<div class="cal-azan-card"><div class="cal-azan-empty">برای دیدن ساعت اذان این روز، ابتدا شهر یا موقعیت خود را در بخش «اذان» مشخص کنید.</div></div>';
+    return;
+  }
+  const list = buildPrayerListForDate(calAzanInstant(selectedDate));
+  const strs = getCalendarStrings(selectedDate);
+  let city = '';
+  try { city = effectiveCityName() || ''; } catch (e) {}
+  let h = '<div class="cal-azan-card"><div class="cal-azan-head"><b>🕌 ساعت اذان ' + calEsc(strs[activeCalendar]) + '</b>' + (city ? '<small>' + calEsc(city) + '</small>' : '') + '</div><div class="cal-azan-grid">';
+  list.forEach((p) => {
+    h += '<div class="cal-azan-item cal-azan-' + p.key + '"><span class="cal-azan-name">' + (PRAYER_ICONS[p.key] || '') + ' ' + calEsc(p.label) + '</span><span class="cal-azan-time">' + formatTime(p.time) + '</span></div>';
+  });
+  h += '</div></div>';
+  el.innerHTML = h;
 }
 (function setupCalEventZoom() {
   const el = document.getElementById('calendar-event-card');
@@ -3116,11 +3150,34 @@ function drawStar(ctx, cx, cy, r, color, alpha) {
   ctx.restore();
 }
 
+// نسخهٔ اندروید (Capacitor): WebView اندروید navigator.share و دانلودِ فایل ندارد، پس اشتراک با افزونهٔ بومی انجام می‌شود
+function azanNativeShare() {
+  try {
+    const C = window.Capacitor;
+    return (C && typeof C.isNativePlatform === 'function' && C.isNativePlatform() && C.Plugins && C.Plugins.AppUpdater) || null;
+  } catch (e) { return null; }
+}
+
 async function shareAzanTimesAsImage() {
   const s = state.settings || {};
   const title = (s.brand_name || 'عارفان جام') + ' — اوقات شرعی';
   const cal = getCalendarStrings(iranWallNow());
   const caption = title + '\n' + cal.jalali;
+
+  const nat = azanNativeShare();
+  if (nat) {
+    try {
+      const png = buildAzanShareCanvas().toDataURL('image/png');
+      await nat.shareImage({ base64: String(png).split(',')[1] || '', title, text: caption });
+      return;
+    } catch (e) {
+      // APK قدیمی (بدون متد اشتراک تصویر) یا خطای ساخت/ارسال: به نسخهٔ متنی برمی‌گردیم
+      const msg = String((e && (e.message || e.errorMessage)) || e || '');
+      if (/not implemented|unimplemented/i.test(msg)) { try { await appAlert('azan_share_img_old'); } catch (e2) {} }
+      shareAzanTimesAsText();
+      return;
+    }
+  }
 
   try {
     const canvas = buildAzanShareCanvas();
@@ -3149,6 +3206,13 @@ function shareAzanTimesAsText() {
   const text = buildAzanShareText();
   const s = state.settings || {};
   const title = (s.brand_name || 'عارفان جام') + ' — اوقات شرعی';
+  const nat = azanNativeShare();
+  if (nat) {
+    nat.shareText({ title, text }).catch(() => {
+      if (navigator.clipboard) navigator.clipboard.writeText(text).then(() => appAlert('azan_copy_done')).catch(() => {});
+    });
+    return;
+  }
   if (navigator.share) {
     navigator.share({ title, text }).catch(() => {});
   } else if (navigator.clipboard) {
@@ -3314,6 +3378,7 @@ function computePrayerTimes() {
   document.getElementById('home-next-prayer-time').textContent = formatTime(upcoming.time);
   updateCountdown(upcoming.time);
 
+  try { renderCalAzan(); } catch (e) {}
   checkAzanAlarm(list, now);
   checkPrayerTimeAlarm(list, now);
   scheduleNextAzanTimer(list, now);
@@ -14225,10 +14290,14 @@ bnrLoad();
 (function () {
   try {
     const TOKEN_KEY = 'arefanejam_stu_token';
-    const LEVEL = { head: 1, manager: 2, teacher: 3, student: 4, parent: 5 };
-    const LABEL = { head: 'رئیس سازمان', manager: 'مدیر', teacher: 'معلم', student: 'دانش‌آموز', parent: 'ولی / سرپرست' };
-    const ICON = { head: '👑', manager: '🏫', teacher: '👨‍🏫', student: '🎓', parent: '👪' };
-    const REL = { father: 'پدر', mother: 'مادر', guardian: 'سرپرست', other: 'ولی دیگر' };
+    const LEVEL = { head: 1, manager: 2, deputy: 3, dean: 4, teacher: 5, accountant: 6, janitor: 6, driver: 6, student: 7, parent: 8 };
+    const LABEL = { head: 'رئیس سازمان', manager: 'مدیر', deputy: 'معاون', dean: 'ناظم', teacher: 'معلم', accountant: 'حسابدار', janitor: 'سرایدار', driver: 'راننده', student: 'دانش‌آموز', parent: 'ولی / سرپرست' };
+    const ICON = { head: '👑', manager: '🏫', deputy: '🧑‍💼', dean: '📏', teacher: '👨‍🏫', accountant: '🧾', janitor: '🔑', driver: '🚌', student: '🎓', parent: '👪' };
+    const REL = { father: 'پدر', mother: 'مادر', guardian: 'سرپرست', grandpa: 'پدربزرگ', grandma: 'مادربزرگ', uncle: 'عمو', mamu: 'دایی', aunt: 'عمه', khaleh: 'خاله', brother: 'برادر', sister: 'خواهر', other: 'ولی دیگر' };
+    // هر نقش چه نقش‌هایی را می‌تواند زیر نظر داشته باشد (همان جدول سرور؛ سرور هم دوباره کنترل می‌کند)
+    const ALL_STAFF = ['deputy', 'dean', 'teacher', 'accountant', 'janitor', 'driver', 'student', 'parent'];
+    const CREATE = { head: ['manager'].concat(ALL_STAFF), manager: ALL_STAFF, deputy: ['dean', 'teacher', 'student', 'parent'], dean: ['student', 'parent'], teacher: ['student', 'parent'], student: ['parent'] };
+    const ATT_ROLES = ['head', 'manager', 'deputy', 'dean', 'teacher'];
     const ATT = { present: ['حاضر', '✅', 'ح'], absent: ['غایب', '❌', 'غ'], late: ['تأخیر', '⏰', 'ت'], excused: ['غیبت موجه', '📝', 'م'] };
     const S = { token: '', me: null, users: [], viewId: null, busy: false, sheet: null };
     try { S.token = localStorage.getItem(TOKEN_KEY) || ''; } catch (e) {}
@@ -14369,6 +14438,7 @@ bnrLoad();
 
     function stuRender() {
       const box = $('stu-main');
+      try { svStop(); } catch (e) {}
       if (!S.me) return;
       const isMe = (S.viewId == null) || S.viewId === S.me.id;
       const u = isMe ? S.me : (findUser(S.viewId) || S.me);
@@ -14407,8 +14477,11 @@ bnrLoad();
       }
       h += '</div></div>';
 
+      if (meView && S.me.features && S.me.features.length) h += '<div class="section-block"><h3>امکانات شما</h3><ul class="stu-feat">' + S.me.features.map((f) => '<li>' + esc(f) + '</li>').join('') + '</ul></div>';
+      if (meView) h += '<div class="section-block"><button type="button" class="secondary-btn sv-hub-btn" data-stu="sv-home">🏫 خدمات مدرسه</button><p class="muted-text small">تیکت، نمرات و وضعیت درسی، آزمون آنلاین، انضباطی، شهریه و سرویس مدرسه (بر اساس نقش شما).</p></div>';
+      else if (u.role === 'student' && ['head', 'manager', 'deputy', 'dean', 'teacher'].indexOf(S.me.role) !== -1) h += '<div class="section-block"><button type="button" class="secondary-btn sv-hub-btn" data-stu="sv-ov" data-id="' + u.id + '" data-back="cancel">📊 وضعیت درسی ' + esc(u.full_name) + '</button></div>';
       const myRole = S.me.role;
-      const viewerIsStaff = (LEVEL[myRole] || 9) < 4;
+      const viewerIsStaff = !!CREATE[myRole] && myRole !== 'student';
       // ولی: فرزند + اعلان‌ها
       if (meView && u.role === 'parent') {
         h += '<div class="section-block"><h3>اعلان‌ها</h3><div id="stu-notif-box"><p class="muted-text small">در حال بارگذاری…</p></div></div>';
@@ -14417,12 +14490,12 @@ bnrLoad();
       // دانش‌آموز: حضور و غیاب
       if (u.role === 'student') h += '<div class="section-block"><h3>حضور و غیاب</h3><div id="stu-att-box" data-sid="' + u.id + '"></div></div>';
       // ثبت حضور و غیاب (مسئولان)
-      if (viewerIsStaff && (LEVEL[u.role] || 9) < 4) {
+      if (S.me.can_att && ATT_ROLES.indexOf(u.role) !== -1) {
         h += '<div class="section-block stu-sheet-open"><button type="button" class="secondary-btn" style="width:100%" data-stu="sheet">📋 ثبت حضور و غیاب' + (u.id === S.me.id ? '' : ' (زیر نظر ' + esc(u.full_name) + ')') + '</button><p class="muted-text small">پس از ثبت، ولی/سرپرست دانش‌آموز در اپ مطلع می‌شود.</p></div>';
       }
       // زیرمجموعه‌ها / اولیا
       const isStu = u.role === 'student';
-      const canHaveKids = (LEVEL[u.role] || 9) < 5 && !(isStu && !viewerIsStaff);
+      const canHaveKids = !!CREATE[u.role] && (!isStu || viewerIsStaff);
       if (canHaveKids) {
         const kids = childrenOf(u.id);
         h += '<div class="section-block"><h3>' + (isStu ? 'اولیا (پدر، مادر، سرپرست)' : 'زیرمجموعه‌ها') + (kids.length ? ' (' + fa(kids.length) + ')' : '') + '</h3>';
@@ -14467,7 +14540,9 @@ bnrLoad();
     }
 
     /* ----- اعلان‌های ولی ----- */
+    const NOTIF_IC = { exam: '📝', grade: '🧮', discipline: '⚖️', fee: '💰', bus: '🚌', notice: '📢' };
     function notifText(n) {
+      if (n.kind && n.kind !== 'attendance') return (n.student && n.kind !== 'notice' ? 'فرزند شما «' + n.student + '» — ' : '') + fa(n.note || '');
       const st = ATT[n.status] ? ATT[n.status][0] : n.status_label;
       return 'فرزند شما «' + n.student + '» در ' + jal(n.date, true) + ' «' + st + '» ثبت شد.' + (n.note ? ' (' + n.note + ')' : '');
     }
@@ -14477,11 +14552,11 @@ bnrLoad();
         const d = await stuFetch('/students/notifs', {});
         const el = $('stu-notif-box'); if (!el) return;
         let h = '<div class="stu-notif-head"><button type="button" class="ghost-btn small-btn" data-stu="refresh">🔄 تازه‌سازی</button></div>';
-        if (!d.items.length) h += '<p class="muted-text small">اعلانی وجود ندارد. هر وقت حضور و غیاب فرزندتان ثبت شود اینجا خبر می‌دهیم.</p>';
+        if (!d.items.length) h += '<p class="muted-text small">اعلانی وجود ندارد. هر رویداد مدرسه دربارهٔ فرزندتان (حضور و غیاب، نمره، آزمون، انضباطی، شهریه، سرویس مدرسه و اعلان‌ها) اینجا خبر داده می‌شود.</p>';
         else {
           if (d.unread) h += '<p class="stu-notif-new">🔔 ' + fa(d.unread) + ' اعلان جدید</p>';
           h += '<div class="stu-notif-list">';
-          d.items.forEach((n) => { h += '<div class="stu-notif stu-att-' + esc(n.status) + (n.read ? '' : ' is-new') + '">' + (ATT[n.status] ? ATT[n.status][1] : '🔔') + '<span>' + esc(notifText(n)) + '</span></div>'; });
+          d.items.forEach((n) => { h += '<div class="stu-notif stu-att-' + esc(n.status) + (n.read ? '' : ' is-new') + '">' + (NOTIF_IC[n.kind] || (ATT[n.status] ? ATT[n.status][1] : '🔔')) + '<span>' + esc(notifText(n)) + '</span></div>'; });
           h += '</div>';
         }
         el.innerHTML = h;
@@ -14543,9 +14618,12 @@ bnrLoad();
       let h = '<div class="stu-topbar"><button type="button" class="ghost-btn small-btn" data-stu="cancel">‹ انصراف</button></div><div class="stu-card stu-form">';
       if (kind === 'add') {
         const parent = u;
-        const roles = parent.role === 'student' ? ['parent'] : Object.keys(LEVEL).filter((r) => LEVEL[r] > LEVEL[parent.role] && r !== 'parent');
+        const mine = ((S.me && S.me.can_add_roles) || []).map((x) => x.role);
+        const roles = (CREATE[parent.role] || []).filter((r) => mine.indexOf(r) !== -1);
+        if (parent.role !== 'student') { const i = roles.indexOf('parent'); if (i !== -1) roles.splice(i, 1); }
         h += '<h3>' + (parent.role === 'student' ? 'افزودن ولی / سرپرست برای «' : 'افزودن کاربر زیر نظر «') + esc(parent.full_name) + '»</h3>';
         h += field('نقش', '<select id="stu-f-role">' + roles.map((r) => '<option value="' + r + '">' + esc(LABEL[r]) + '</option>').join('') + '</select>');
+        h += '<p class="muted-text small" id="stu-f-feat"></p>';
         if (parent.role === 'student') h += field('نسبت', '<select id="stu-f-rel">' + Object.keys(REL).map((k) => '<option value="' + k + '">' + esc(REL[k]) + '</option>').join('') + '</select>');
         h += field('نام و نام خانوادگی', '<input type="text" id="stu-f-name" maxlength="80">');
         h += field('نام کاربری (انگلیسی)', '<input type="text" id="stu-f-user" dir="ltr" maxlength="32" autocapitalize="none" autocomplete="off" placeholder="مثلاً ali.rezaei">');
@@ -14573,6 +14651,15 @@ bnrLoad();
       box.innerHTML = h;
       try { window.scrollTo(0, 0); } catch (e) {}
       $('stu-f-save').onclick = () => submitForm(kind, u);
+      if (kind === 'add') {   // توضیح امکانات هر نقش زیر انتخاب نقش
+        const sel = $('stu-f-role'), feat = $('stu-f-feat');
+        const showFeat = () => {
+          if (!sel || !feat) return;
+          const it = ((S.me && S.me.can_add_roles) || []).find((x) => x.role === sel.value);
+          feat.textContent = it && it.features && it.features.length ? 'امکانات این نقش: ' + it.features.join('، ') : '';
+        };
+        if (sel) { sel.addEventListener('change', showFeat); showFeat(); }
+      }
     }
     async function submitForm(kind, u) {
       const err = $('stu-f-err'); err.textContent = '';
@@ -14607,11 +14694,647 @@ bnrLoad();
       } catch (e) { try { await appAlert('stu_err', null, { text: e.message || 'حذف نشد.', title: 'خطا', icon: '⚠️', tone: 'warn' }); } catch (e2) {} }
     }
 
+    /* =====================================================================
+       خدمات مدرسه: تیکت، نمرات، وضعیت درسی، انضباطی، شهریه، سرویس مدرسه،
+       اعلان به اولیا و آزمون آنلاین. همهٔ صفحه‌ها داخل #stu-main رسم می‌شوند و
+       دکمه‌ها با data-stu="sv-..." به SVA وصل‌اند. (سرور دسترسی هر نقش را دوباره کنترل می‌کند.)
+       ===================================================================== */
+    const SV = { fields: [], teachers: [], students: null, qs: {}, take: null, timer: null, saveT: null, editField: 0, ovId: 0, ovBack: 'sv-home', feeBack: 'sv-home', bus: null };
+    const SVA = {};
+    const EXM_LET = ['الف', 'ب', 'ج', 'د', 'ه', 'و'];
+    const inRoles = (arr) => !!S.me && arr.indexOf(S.me.role) !== -1;
+    const isMgr = () => inRoles(['head', 'manager']);
+    const gv = (id) => { const e = $(id); return e ? e.value : ''; };
+    const latin = (s) => String(s == null ? '' : s)
+      .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+      .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+      .replace(/٫/g, '.').replace(/[٬،,]/g, '').trim();
+    const money = (n) => fa(String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, '٬')) + ' تومان';
+    const todayStr = () => fmtD(new Date());
+    const dtFa = (s) => (s ? jal(String(s).slice(0, 10)) + ' ' + fa(String(s).slice(11, 16)) : '');
+    const tsFa = (ts) => { if (!ts) return ''; const d = new Date(ts * 1000); return jal(fmtD(d)) + ' ' + fa(String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')); };
+    const svBtn = (act, label, extra, cls) => '<button type="button" class="' + (cls || 'ghost-btn small-btn') + '" data-stu="' + act + '"' + (extra || '') + '>' + label + '</button>';
+    const svId = (id) => ' data-id="' + id + '"';
+
+    function svStop() {
+      if (SV.timer) { clearInterval(SV.timer); SV.timer = null; }
+      if (SV.saveT) { clearTimeout(SV.saveT); SV.saveT = null; }
+      SV.take = null;
+    }
+    function svShell(title, back, inner) {
+      $('stu-main').innerHTML = '<div class="stu-topbar"><button type="button" class="ghost-btn small-btn" data-stu="' + (back || 'cancel') + '">‹ بازگشت</button></div>' +
+        '<div class="stu-card sv-card"><h3 class="sv-title">' + esc(title) + '</h3>' + inner + '<p class="error-text" id="sv-err"></p></div>';
+      try { window.scrollTo(0, 0); } catch (e) {}
+    }
+    function svLoading(title, back) { svShell(title, back, '<p class="muted-text small center-block">در حال بارگذاری…</p>'); }
+    function svErr(e) {
+      const m = (e && e.message) || String(e || 'خطا');
+      const el = $('sv-err');
+      if (el) { el.textContent = m; try { el.scrollIntoView({ block: 'center' }); } catch (e2) {} }
+      else { try { appAlert('stu_err', null, { text: m, title: 'خطا', icon: '⚠️', tone: 'warn' }); } catch (e3) {} }
+    }
+    async function svAsk(text, title) {
+      try { return !!(await appConfirm('sv_confirm', {}, { text, title: title || 'تأیید', icon: '❓', tone: 'danger' })); } catch (e) { return false; }
+    }
+    async function svDispatch(act, t) {
+      const f = SVA[act]; if (!f) return;
+      const id = parseInt(t.getAttribute('data-id'), 10) || 0;
+      try { await f(t, id); } catch (e) { svErr(e); }
+    }
+    async function svStudents(force) {
+      if (!SV.students || force) { const d = await stuFetch('/school/students', {}); SV.students = d.students || []; }
+      return SV.students;
+    }
+    function svChecks(list, cls, checked) {
+      return list.map((s) => '<label class="sv-chk"><input type="checkbox" class="' + cls + '" value="' + s.id + '"' + (checked && checked(s) ? ' checked' : '') + '> ' + esc(s.name) + '</label>').join('');
+    }
+    function svPicked(cls) { return Array.prototype.map.call(document.querySelectorAll('#stu-main .' + cls + ':checked'), (c) => parseInt(c.value, 10)); }
+
+    /* ---------- منوی خدمات ---------- */
+    SVA['sv-home'] = async () => {
+      svStop();
+      const r = S.me.role, items = [];
+      const add = (act, ic, label, sub, id, extra) => items.push('<button type="button" class="sv-menu-item" data-stu="' + act + '"' + (id ? svId(id) : '') + (extra || '') + '><span class="sv-mi-ic">' + ic + '</span><span class="sv-mi-main"><b>' + esc(label) + '</b><small>' + esc(sub) + '</small></span><span class="sv-badge hidden" id="sv-b-' + act + '"></span><span class="stu-item-go">‹</span></button>');
+      const kid = (S.me.linked && S.me.linked.id) || 0;
+      if (r === 'janitor') add('sv-tk', '🎫', 'گزارش و تیکت به مدیر', 'تعمیرات، نظافت، تجهیزات و موارد فوری');
+      if (r === 'student') add('sv-ov', '📊', 'وضعیت درسی من', 'حضور و غیاب، نمرات، آزمون‌ها، انضباطی', S.me.id);
+      if (r === 'parent' && kid) {
+        add('sv-ov', '📊', 'وضعیت درسی ' + S.me.linked.full_name, 'حضور و غیاب، نمرات، آزمون‌ها، انضباطی', kid);
+        add('sv-fee-st', '💰', 'شهریه و پرداخت‌ها', 'هزینه‌ها، پرداخت‌شده و مانده', kid);
+        add('sv-bus', '🚌', 'سرویس مدرسه', 'راننده و شمارهٔ تماس');
+      }
+      if (inRoles(['head', 'manager', 'deputy', 'dean', 'teacher'])) add('sv-stl', '🎓', 'وضعیت درسی دانش‌آموزان', 'حضور و غیاب، نمرات، آزمون‌ها، انضباطی');
+      if (inRoles(['student', 'teacher', 'head', 'manager'])) add('sv-ex', '📝', 'آزمون آنلاین', r === 'student' ? 'آزمون‌های من' : (r === 'teacher' ? 'ساخت آزمون، بانک سوال، پیشنهاد سوال' : 'بانک سوال، تأیید پیشنهادها، رشته‌ها'));
+      if (inRoles(['head', 'manager', 'deputy', 'teacher'])) add('sv-gr', '🧮', 'ثبت نمره', 'ثبت نمرهٔ کل کلاس و اعلام به اولیا');
+      if (inRoles(['head', 'manager', 'deputy', 'dean'])) add('sv-dc', '⚖️', 'موارد انضباطی', 'تشویق، تذکر و تخلف با اعلان به اولیا');
+      if (inRoles(['head', 'manager', 'accountant'])) add('sv-fee', '💰', 'شهریه و حسابداری', 'ثبت هزینه و پرداخت، مانده حساب');
+      if (inRoles(['head', 'manager', 'deputy', 'driver'])) add('sv-bus', '🚌', 'سرویس مدرسه', r === 'driver' ? 'دانش‌آموزان من و اعلان به اولیا' : 'تخصیص دانش‌آموز به راننده');
+      if (inRoles(['head', 'manager', 'deputy'])) add('sv-an', '📢', 'اعلان به همهٔ اولیا', 'یک پیام عمومی از طرف مدرسه');
+      if (r !== 'janitor') add('sv-tk', '🎫', 'تیکت‌ها', r === 'head' || r === 'manager' ? 'پیام به همه و پاسخ به پیام‌ها' : 'پیام به مدیر');
+      svShell('🏫 خدمات مدرسه', 'cancel', '<div class="sv-menu">' + items.join('') + '</div>');
+      stuFetch('/tickets/list', {}).then((d) => {
+        const b = $('sv-b-sv-tk');
+        if (b && d.unread) { b.textContent = fa(d.unread); b.classList.remove('hidden'); }
+      }).catch(() => {});
+    };
+
+    /* ---------- تیکت ---------- */
+    SVA['sv-tk'] = async () => {
+      svLoading('🎫 تیکت‌ها', 'sv-home');
+      const d = await stuFetch('/tickets/list', {});
+      let h = svBtn('sv-tk-new', '➕ تیکت جدید', '', 'secondary-btn sv-wide');
+      if (!d.items.length) h += '<p class="muted-text small">هنوز تیکتی ندارید.</p>';
+      else {
+        h += '<div class="stu-list sv-list">';
+        d.items.forEach((t) => {
+          h += '<button type="button" class="stu-item" data-stu="sv-tk-open"' + svId(t.id) + '><span class="stu-item-main"><b>' + esc(t.subject) + (t.unread ? ' 🔴' : '') + '</b><small>' + esc(t.other) + (t.other_role ? ' · ' + esc(t.other_role) : '') + (t.status === 'closed' ? ' · 🔒 بسته' : '') + '</small><small>' + esc(t.last) + '</small></span><span class="stu-item-go">‹</span></button>';
+        });
+        h += '</div>';
+      }
+      svShell('🎫 تیکت‌ها', 'sv-home', h);
+    };
+    SVA['sv-tk-new'] = async () => {
+      svLoading('🎫 تیکت جدید', 'sv-tk');
+      const d = await stuFetch('/tickets/targets', {});
+      if (!d.targets.length) { svShell('🎫 تیکت جدید', 'sv-tk', '<p class="muted-text small">گیرنده‌ای برای تیکت پیدا نشد.</p>'); return; }
+      const opts = d.targets.map((x) => '<option value="' + x.id + '">' + esc(x.name) + ' — ' + esc(x.label) + '</option>').join('');
+      let h = field('گیرنده', '<select id="sv-t-to">' + opts + '</select>');
+      h += field('موضوع', '<input type="text" id="sv-t-sub" maxlength="160">');
+      if (S.me.role === 'janitor') h += '<div class="sv-btns">' + ['تعمیرات', 'نظافت', 'تجهیزات', 'حادثه / فوری'].map((s) => svBtn('sv-tk-preset', esc(s), ' data-s="' + esc(s) + '"')).join('') + '</div>';
+      h += field('پیام', '<textarea id="sv-t-body" rows="5" maxlength="2000"></textarea>');
+      h += svBtn('sv-tk-create', 'ارسال تیکت', '', 'secondary-btn sv-wide');
+      svShell('🎫 تیکت جدید', 'sv-tk', h);
+    };
+    SVA['sv-tk-preset'] = async (t) => { const el = $('sv-t-sub'); if (el) el.value = t.getAttribute('data-s') || ''; };
+    SVA['sv-tk-create'] = async (t) => {
+      t.disabled = true;
+      try {
+        const d = await stuFetch('/tickets/new', { to_id: parseInt(gv('sv-t-to'), 10) || 0, subject: gv('sv-t-sub'), body: gv('sv-t-body') });
+        await SVA['sv-tk-open'](null, d.id);
+      } finally { t.disabled = false; }
+    };
+    SVA['sv-tk-open'] = async (t, id) => {
+      svLoading('🎫 تیکت', 'sv-tk');
+      const d = await stuFetch('/tickets/get', { id });
+      let h = '<p class="muted-text small">گفتگو با ' + esc(d.other) + (d.status === 'closed' ? ' · 🔒 بسته‌شده' : '') + '</p><div class="sv-thread">';
+      d.messages.forEach((m) => { h += '<div class="sv-msg' + (m.mine ? ' mine' : '') + '"><small>' + esc(m.mine ? 'شما' : m.name) + ' · ' + esc(dtFa(m.at)) + '</small><p>' + esc(m.body).replace(/\n/g, '<br>') + '</p></div>'; });
+      h += '</div>' + field('پاسخ', '<textarea id="sv-t-body" rows="3" maxlength="2000"></textarea>');
+      h += '<div class="stu-actions">' + svBtn('sv-tk-reply', '📨 ارسال پاسخ', svId(id), 'secondary-btn') + (d.status === 'open' ? svBtn('sv-tk-close', '🔒 بستن تیکت', svId(id)) : '') + '</div>';
+      svShell('🎫 ' + d.subject, 'sv-tk', h);
+    };
+    SVA['sv-tk-reply'] = async (t, id) => {
+      t.disabled = true;
+      try { await stuFetch('/tickets/reply', { id, body: gv('sv-t-body') }); await SVA['sv-tk-open'](null, id); } finally { t.disabled = false; }
+    };
+    SVA['sv-tk-close'] = async (t, id) => {
+      if (!(await svAsk('این تیکت بسته شود؟ با ارسال پاسخ دوباره باز می‌شود.', 'بستن تیکت'))) return;
+      await stuFetch('/tickets/close', { id });
+      await SVA['sv-tk']();
+    };
+
+    /* ---------- فهرست دانش‌آموزان و وضعیت درسی ---------- */
+    SVA['sv-stl'] = async () => {
+      svLoading('🎓 دانش‌آموزان', 'sv-home');
+      const list = await svStudents(true);
+      let h = '';
+      if (!list.length) h = '<p class="muted-text small">دانش‌آموزی در دسترس شما نیست.</p>';
+      else {
+        h += '<div class="stu-list sv-list">';
+        list.forEach((s) => { h += '<button type="button" class="stu-item" data-stu="sv-ov"' + svId(s.id) + ' data-back="sv-stl"><span class="stu-avatar stu-av-sm stu-av-student">' + esc((s.name || '؟').trim().charAt(0)) + '</span><span class="stu-item-main"><b>' + esc(s.name) + '</b></span><span class="stu-item-go">‹</span></button>'; });
+        h += '</div>';
+      }
+      svShell('🎓 وضعیت درسی دانش‌آموزان', 'sv-home', h);
+    };
+    const DISC_IC = { praise: '🌟', warning: '⚠️', violation: '🚫' };
+    async function svOverview(id, back) {
+      SV.ovId = id; SV.ovBack = back || 'sv-home';
+      svLoading('📊 وضعیت درسی', SV.ovBack);
+      const d = await stuFetch('/school/overview', { student_id: id });
+      const sm = d.att.summary;
+      let h = '<p class="sv-who">' + esc(d.student.name) + '</p>';
+      h += '<div class="sv-sec"><h4>حضور و غیاب (۹۰ روز اخیر)</h4><div class="sv-chips"><span class="stu-att stu-att-present">✅ حاضر ' + fa(sm.present) + '</span><span class="stu-att stu-att-absent">❌ غایب ' + fa(sm.absent) + '</span><span class="stu-att stu-att-late">⏰ تأخیر ' + fa(sm.late) + '</span><span class="stu-att stu-att-excused">📝 موجه ' + fa(sm.excused) + '</span></div>';
+      if (d.att.recent.length) { h += '<div class="sv-mini">'; d.att.recent.forEach((r) => { h += '<div>' + esc(jal(r.att_date, true)) + ' ' + attBadge(r.status) + (r.note ? ' <small>' + esc(r.note) + '</small>' : '') + '</div>'; }); h += '</div>'; }
+      h += '</div>';
+      if (d.fees) h += '<div class="sv-sec"><h4>شهریه</h4><p>هزینه‌ها: <b>' + money(d.fees.charged) + '</b> · پرداخت‌شده: <b>' + money(d.fees.paid) + '</b> · مانده: <b class="' + (d.fees.balance > 0 ? 'sv-neg' : 'sv-pos') + '">' + money(d.fees.balance) + '</b></p>' + svBtn('sv-fee-st', 'جزئیات شهریه', svId(id) + ' data-back="sv-ov-back"') + '</div>';
+      if (d.bus) h += '<div class="sv-sec"><h4>سرویس مدرسه</h4><p>راننده: <b>' + esc(d.bus.name) + '</b>' + (d.bus.phone ? ' · ' + esc(fa(d.bus.phone)) : '') + '</p></div>';
+      h += '<div class="sv-sec"><h4>نمرات</h4>';
+      if (!d.grades.length) h += '<p class="muted-text small">نمره‌ای ثبت نشده است.</p>';
+      d.grades.forEach((g) => {
+        h += '<div class="sv-subj"><div class="sv-subj-h"><b>' + esc(g.subject) + '</b><span>میانگین ' + fa(g.avg) + '٪</span></div>';
+        g.items.forEach((i) => { h += '<div class="sv-grow"><span>' + esc(i.title) + ' <small>' + esc(jal(i.date)) + '</small></span><b>' + fa(i.score) + ' از ' + fa(i.max) + '</b>' + (i.can_delete ? '<button type="button" class="sv-x" data-stu="sv-gr-del"' + svId(i.id) + ' title="حذف">🗑️</button>' : '') + '</div>'; });
+        h += '</div>';
+      });
+      h += '</div><div class="sv-sec"><h4>آزمون‌های آنلاین</h4>';
+      if (!d.exams.length) h += '<p class="muted-text small">آزمونی ثبت نشده است.</p>';
+      d.exams.forEach((e) => { h += '<div class="sv-grow"><span>' + esc(e.title) + ' <small>' + esc(dtFa(e.at)) + '</small></span><b>' + fa(e.score) + ' از ' + fa(e.total) + '</b></div>'; });
+      h += '</div><div class="sv-sec"><h4>موارد انضباطی</h4>';
+      if (!d.discipline.length) h += '<p class="muted-text small">موردی ثبت نشده است.</p>';
+      d.discipline.forEach((x) => { h += '<div class="sv-grow"><span>' + (DISC_IC[x.kind] || '') + ' <b>' + esc(x.kind_label) + '</b>: ' + esc(x.body) + ' <small>' + esc(jal(x.date)) + '</small></span></div>'; });
+      h += '</div>';
+      svShell('📊 وضعیت درسی', SV.ovBack, h);
+    }
+    SVA['sv-ov'] = async (t, id) => { await svOverview(id || (S.me.linked && S.me.linked.id) || S.me.id, (t && t.getAttribute('data-back')) || 'sv-home'); };
+    SVA['sv-gr-del'] = async (t, id) => {
+      if (!(await svAsk('این نمره حذف شود؟', 'حذف نمره'))) return;
+      await stuFetch('/grades/delete', { id });
+      await svOverview(SV.ovId, SV.ovBack);
+    };
+
+    /* ---------- ثبت نمره ---------- */
+    SVA['sv-gr'] = async () => {
+      svLoading('🧮 ثبت نمره', 'sv-home');
+      const list = await svStudents(true);
+      let fl = [];
+      if (S.me.role === 'teacher') { try { fl = (await stuFetch('/exams/fields', {})).fields || []; } catch (e) { fl = []; } }
+      if (!list.length) { svShell('🧮 ثبت نمره', 'sv-home', '<p class="muted-text small">دانش‌آموزی برای ثبت نمره ندارید.</p>'); return; }
+      let h = field('درس', '<input type="text" id="sv-g-sub" list="sv-g-dl" maxlength="90" value="' + esc(fl[0] ? fl[0].name : '') + '"><datalist id="sv-g-dl">' + fl.map((x) => '<option value="' + esc(x.name) + '">').join('') + '</datalist>');
+      h += field('عنوان (میان‌ترم، کوییز، تکلیف…)', '<input type="text" id="sv-g-title" maxlength="150">');
+      h += field('بیشترین نمره', '<input type="text" inputmode="decimal" id="sv-g-max" value="20">');
+      h += field('تاریخ', '<input type="date" id="sv-g-date" value="' + todayStr() + '">');
+      h += '<p class="muted-text small">نمرهٔ هر دانش‌آموز را بنویسید (خالی بماند = ثبت نمی‌شود). بعد از ثبت، اولیای دانش‌آموز مطلع می‌شوند.</p><div class="sv-rows">';
+      list.forEach((s) => { h += '<label class="sv-row"><span>' + esc(s.name) + '</span><input type="text" inputmode="decimal" class="sv-g-sc" data-id="' + s.id + '"></label>'; });
+      h += '</div>' + svBtn('sv-gr-save', 'ثبت نمره‌ها', '', 'secondary-btn sv-wide');
+      svShell('🧮 ثبت نمره', 'sv-home', h);
+    };
+    SVA['sv-gr-save'] = async (t) => {
+      const items = [];
+      document.querySelectorAll('#stu-main .sv-g-sc').forEach((i) => { const v = latin(i.value); if (v !== '') items.push({ student_id: parseInt(i.getAttribute('data-id'), 10), score: v }); });
+      t.disabled = true;
+      try {
+        const r = await stuFetch('/grades/bulk', { subject: gv('sv-g-sub'), title: gv('sv-g-title'), max: latin(gv('sv-g-max')), date: gv('sv-g-date'), items });
+        svShell('🧮 ثبت نمره', 'sv-home', '<p class="sv-okmsg">✅ نمرهٔ ' + fa(r.saved) + ' دانش‌آموز ثبت شد و به اولیا اعلام شد.</p>' + svBtn('sv-gr', 'ثبت نمرهٔ دیگر', '', 'secondary-btn sv-wide'));
+      } finally { t.disabled = false; }
+    };
+
+    /* ---------- موارد انضباطی ---------- */
+    SVA['sv-dc'] = async () => {
+      svLoading('⚖️ موارد انضباطی', 'sv-home');
+      const [list, ld] = await Promise.all([svStudents(true), stuFetch('/disc/list', {})]);
+      let h = '';
+      if (!list.length) h += '<p class="muted-text small">دانش‌آموزی در دسترس شما نیست.</p>';
+      else {
+        h += field('دانش‌آموز', '<select id="sv-d-st">' + list.map((s) => '<option value="' + s.id + '">' + esc(s.name) + '</option>').join('') + '</select>');
+        h += field('نوع', '<select id="sv-d-kind"><option value="praise">🌟 تشویق</option><option value="warning" selected>⚠️ تذکر</option><option value="violation">🚫 مورد انضباطی</option></select>');
+        h += field('توضیح', '<textarea id="sv-d-body" rows="3" maxlength="480"></textarea>');
+        h += field('تاریخ', '<input type="date" id="sv-d-date" value="' + todayStr() + '">');
+        h += svBtn('sv-dc-save', 'ثبت و اطلاع به اولیا', '', 'secondary-btn sv-wide');
+      }
+      h += '<h4>آخرین موارد ثبت‌شده</h4>';
+      if (!ld.items.length) h += '<p class="muted-text small">موردی ثبت نشده است.</p>';
+      ld.items.forEach((x) => { h += '<div class="sv-item"><b>' + (DISC_IC[x.kind] || '') + ' ' + esc(x.student) + ' — ' + esc(x.kind_label) + '</b><small>' + esc(x.body) + '</small><small>' + esc(jal(x.date)) + (x.by ? ' · ' + esc(x.by) : '') + '</small>' + (x.can_delete ? '<div class="stu-actions">' + svBtn('sv-dc-del', '🗑️ حذف', svId(x.id), 'danger-btn small-btn') + '</div>' : '') + '</div>'; });
+      svShell('⚖️ موارد انضباطی', 'sv-home', h);
+    };
+    SVA['sv-dc-save'] = async (t) => {
+      t.disabled = true;
+      try {
+        await stuFetch('/disc/save', { student_id: parseInt(gv('sv-d-st'), 10) || 0, kind: gv('sv-d-kind'), body: gv('sv-d-body'), date: gv('sv-d-date') });
+        await SVA['sv-dc']();
+      } finally { t.disabled = false; }
+    };
+    SVA['sv-dc-del'] = async (t, id) => {
+      if (!(await svAsk('این مورد حذف شود؟', 'حذف'))) return;
+      await stuFetch('/disc/delete', { id });
+      await SVA['sv-dc']();
+    };
+
+    /* ---------- شهریه ---------- */
+    SVA['sv-fee'] = async () => {
+      svLoading('💰 شهریه و حسابداری', 'sv-home');
+      const d = await stuFetch('/fees/summary', {});
+      let h = '<div class="sv-sum"><span>کل هزینه‌ها<b>' + money(d.charged) + '</b></span><span>دریافتی<b>' + money(d.paid) + '</b></span><span>مانده<b class="sv-neg">' + money(d.charged - d.paid) + '</b></span></div>';
+      h += svBtn('sv-fee-new', '➕ ثبت هزینه برای دانش‌آموزان', '', 'secondary-btn sv-wide');
+      if (!d.students.length) h += '<p class="muted-text small">دانش‌آموزی در دسترس نیست.</p>';
+      else {
+        h += '<div class="stu-list sv-list">';
+        d.students.forEach((s) => { h += '<button type="button" class="stu-item" data-stu="sv-fee-st"' + svId(s.id) + ' data-back="sv-fee"><span class="stu-item-main"><b>' + esc(s.name) + '</b><small>هزینه ' + money(s.charged) + ' · پرداخت ' + money(s.paid) + '</small></span><span class="sv-bal ' + (s.balance > 0 ? 'sv-neg' : 'sv-pos') + '">' + (s.balance > 0 ? money(s.balance) : (s.charged ? '✅ تسویه' : '—')) + '</span><span class="stu-item-go">‹</span></button>'; });
+        h += '</div>';
+      }
+      svShell('💰 شهریه و حسابداری', 'sv-home', h);
+    };
+    async function svFeeStudent(sid, back) {
+      SV.feeBack = back || 'sv-home';
+      svLoading('💰 شهریه', SV.feeBack === 'sv-ov-back' ? 'sv-ov-back' : SV.feeBack);
+      const d = await stuFetch('/fees/student', { student_id: sid });
+      let h = '<p class="sv-who">' + esc(d.student.name) + '</p>';
+      if (!d.fees.length) h += '<p class="muted-text small">هزینه‌ای ثبت نشده است.</p>';
+      d.fees.forEach((f) => {
+        const left = f.amount - f.paid;
+        h += '<div class="sv-item"><b>' + esc(f.title) + '</b><small>مبلغ ' + money(f.amount) + ' · پرداخت‌شده ' + money(f.paid) + ' · مانده <span class="' + (left > 0 ? 'sv-neg' : 'sv-pos') + '">' + (left > 0 ? money(left) : 'تسویه') + '</span></small>' + (f.due ? '<small>سررسید: ' + esc(jal(f.due)) + '</small>' : '') + (f.note ? '<small>' + esc(f.note) + '</small>' : '');
+        f.pays.forEach((p) => { h += '<small class="sv-pay">• ' + money(p.amount) + ' — ' + esc(jal(p.date)) + (p.note ? ' (' + esc(p.note) + ')' : '') + '</small>'; });
+        if (d.can_edit) {
+          if (left > 0) h += '<div class="sv-payrow"><input type="text" inputmode="numeric" id="sv-p-' + f.id + '" placeholder="مبلغ پرداخت (تومان)">' + svBtn('sv-fee-pay', 'ثبت پرداخت', svId(f.id) + ' data-sid="' + sid + '"', 'secondary-btn small-btn') + '</div>';
+          h += '<div class="stu-actions">' + svBtn('sv-fee-del', '🗑️ حذف هزینه', svId(f.id) + ' data-sid="' + sid + '"', 'danger-btn small-btn') + '</div>';
+        }
+        h += '</div>';
+      });
+      svShell('💰 شهریه', SV.feeBack, h);
+    }
+    SVA['sv-fee-st'] = async (t, id) => {
+      const back = (t && t.getAttribute('data-back')) || 'sv-home';
+      await svFeeStudent(id, back);
+    };
+    SVA['sv-ov-back'] = async () => { await svOverview(SV.ovId, SV.ovBack); };
+    SVA['sv-fee-pay'] = async (t, id) => {
+      const sid = parseInt(t.getAttribute('data-sid'), 10) || 0;
+      t.disabled = true;
+      try { await stuFetch('/fees/pay', { fee_id: id, amount: parseInt(latin(gv('sv-p-' + id)), 10) || 0, date: todayStr() }); await svFeeStudent(sid, SV.feeBack); } finally { t.disabled = false; }
+    };
+    SVA['sv-fee-del'] = async (t, id) => {
+      if (!(await svAsk('این هزینه با همهٔ پرداخت‌هایش حذف شود؟', 'حذف هزینه'))) return;
+      await stuFetch('/fees/delete', { fee_id: id });
+      await svFeeStudent(parseInt(t.getAttribute('data-sid'), 10) || 0, SV.feeBack);
+    };
+    SVA['sv-fee-new'] = async () => {
+      svLoading('➕ ثبت هزینه', 'sv-fee');
+      const list = await svStudents(true);
+      let h = field('عنوان هزینه (مثلاً شهریه مهر)', '<input type="text" id="sv-f-title" maxlength="150">');
+      h += field('مبلغ (تومان)', '<input type="text" inputmode="numeric" id="sv-f-amount">');
+      h += field('سررسید (اختیاری)', '<input type="date" id="sv-f-due">');
+      h += field('توضیح (اختیاری)', '<input type="text" id="sv-f-note" maxlength="250">');
+      h += '<h4>دانش‌آموزان</h4><label class="sv-chk"><input type="checkbox" data-all=".sv-f-st"> انتخاب همه</label><div class="sv-rows">' + svChecks(list, 'sv-f-st') + '</div>';
+      h += svBtn('sv-fee-charge', 'ثبت هزینه و اطلاع به اولیا', '', 'secondary-btn sv-wide');
+      svShell('➕ ثبت هزینه', 'sv-fee', h);
+    };
+    SVA['sv-fee-charge'] = async (t) => {
+      t.disabled = true;
+      try {
+        const r = await stuFetch('/fees/charge', { title: gv('sv-f-title'), amount: parseInt(latin(gv('sv-f-amount')), 10) || 0, due_date: gv('sv-f-due'), note: gv('sv-f-note'), student_ids: svPicked('sv-f-st') });
+        svShell('➕ ثبت هزینه', 'sv-fee', '<p class="sv-okmsg">✅ هزینه برای ' + fa(r.saved) + ' دانش‌آموز ثبت شد و به اولیا اعلام شد.</p>' + svBtn('sv-fee', 'بازگشت به فهرست', '', 'secondary-btn sv-wide'));
+      } finally { t.disabled = false; }
+    };
+
+    /* ---------- سرویس مدرسه ---------- */
+    SVA['sv-bus'] = async () => {
+      svLoading('🚌 سرویس مدرسه', 'sv-home');
+      const d = await stuFetch('/bus/overview', {});
+      SV.bus = d;
+      let h = '';
+      if (d.mode === 'driver') {
+        if (!d.students.length) h = '<p class="muted-text small">هنوز دانش‌آموزی به سرویس شما اختصاص داده نشده است.</p>';
+        else {
+          h += '<p class="muted-text small">دانش‌آموزان را انتخاب و نوع اعلان را بزنید؛ اولیای آن‌ها فوراً مطلع می‌شوند.</p><label class="sv-chk"><input type="checkbox" data-all=".sv-bs"> انتخاب همه</label><div class="sv-rows">';
+          d.students.forEach((s) => { h += '<label class="sv-chk"><input type="checkbox" class="sv-bs" value="' + s.id + '"> ' + esc(s.name) + (s.parent ? ' <small>— ' + esc(s.parent) + (s.phone ? ' · ' + esc(fa(s.phone)) : '') + '</small>' : '') + '</label>'; });
+          h += '</div><div class="sv-btns">' + svBtn('sv-bus-n', '✅ سوار شد', ' data-k="board"') + svBtn('sv-bus-n', '🏠 پیاده شد', ' data-k="drop"') + svBtn('sv-bus-n', '🚌 سرویس حرکت کرد', ' data-k="leave"') + svBtn('sv-bus-n', '⏰ تأخیر دارم', ' data-k="late"') + '</div>';
+          h += field('پیام دلخواه (اختیاری)', '<input type="text" id="sv-bn-text" maxlength="120">') + svBtn('sv-bus-n', '📨 ارسال پیام دلخواه', ' data-k="custom"', 'secondary-btn sv-wide') + '<p class="sv-okmsg" id="sv-ok"></p>';
+        }
+      } else if (d.mode === 'manage') {
+        h += '<p class="muted-text small">راننده را انتخاب کنید و دانش‌آموزان سرویس او را مشخص کنید.</p>';
+        if (!d.drivers.length) h += '<p class="muted-text small">هنوز راننده‌ای تعریف نشده است (از صفحهٔ کاربران، نقش «راننده» بسازید).</p>';
+        d.drivers.forEach((x) => { h += '<button type="button" class="stu-item" data-stu="sv-bus-drv"' + svId(x.id) + '><span class="stu-avatar stu-av-sm stu-av-driver">🚌</span><span class="stu-item-main"><b>' + esc(x.name) + '</b><small>' + fa(x.students.length) + ' دانش‌آموز' + (x.phone ? ' · ' + esc(fa(x.phone)) : '') + '</small></span><span class="stu-item-go">‹</span></button>'; });
+      } else {
+        h = d.driver ? '<p>راننده سرویس: <b>' + esc(d.driver.name) + '</b>' + (d.driver.phone ? '<br>تلفن: ' + esc(fa(d.driver.phone)) : '') + '</p><p class="muted-text small">وقتی راننده سوار/پیاده شدن یا تأخیر را اعلام کند، همین‌جا و در اعلان‌ها خبر می‌دهیم.</p>' : '<p class="muted-text small">برای این دانش‌آموز هنوز سرویسی ثبت نشده است.</p>';
+      }
+      svShell('🚌 سرویس مدرسه', 'sv-home', h);
+    };
+    SVA['sv-bus-n'] = async (t) => {
+      const k = t.getAttribute('data-k');
+      const r = await stuFetch('/bus/notify', { student_ids: svPicked('sv-bs'), kind: k, text: gv('sv-bn-text') });
+      const ok = $('sv-ok'); if (ok) ok.textContent = '✅ برای ' + fa(r.students) + ' دانش‌آموز اعلام شد.';
+      const e = $('sv-err'); if (e) e.textContent = '';
+    };
+    SVA['sv-bus-drv'] = async (t, id) => {
+      const d = SV.bus; if (!d || d.mode !== 'manage') return;
+      const drv = d.drivers.filter((x) => x.id === id)[0]; if (!drv) return;
+      let h = '<p class="sv-who">' + esc(drv.name) + '</p><label class="sv-chk"><input type="checkbox" data-all=".sv-ba"> انتخاب همه</label><div class="sv-rows">';
+      d.students.forEach((s) => { h += '<label class="sv-chk"><input type="checkbox" class="sv-ba" value="' + s.id + '"' + (s.driver_id === id ? ' checked' : '') + '> ' + esc(s.name) + (s.driver_id && s.driver_id !== id ? ' <small>(راننده دیگر)</small>' : '') + '</label>'; });
+      h += '</div>' + svBtn('sv-bus-assign', 'ذخیرهٔ دانش‌آموزان این راننده', svId(id), 'secondary-btn sv-wide');
+      svShell('🚌 ' + drv.name, 'sv-bus', h);
+    };
+    SVA['sv-bus-assign'] = async (t, id) => {
+      t.disabled = true;
+      try { await stuFetch('/bus/assign', { driver_id: id, student_ids: svPicked('sv-ba') }); await SVA['sv-bus'](); } finally { t.disabled = false; }
+    };
+
+    /* ---------- اعلان عمومی ---------- */
+    SVA['sv-an'] = async () => {
+      svShell('📢 اعلان به اولیا', 'sv-home', field('متن اعلان', '<textarea id="sv-an-text" rows="4" maxlength="220"></textarea>') + '<p class="muted-text small">این پیام برای اولیای همهٔ دانش‌آموزان فعالِ شما ارسال می‌شود.</p>' + svBtn('sv-an-send', '📢 ارسال اعلان', '', 'secondary-btn sv-wide'));
+    };
+    SVA['sv-an-send'] = async (t) => {
+      const text = gv('sv-an-text').trim();
+      if (!text) { svErr(new Error('متن اعلان را بنویسید.')); return; }
+      if (!(await svAsk('این اعلان برای همهٔ اولیا ارسال شود؟', 'ارسال اعلان'))) return;
+      t.disabled = true;
+      try {
+        const r = await stuFetch('/school/announce', { text });
+        svShell('📢 اعلان به اولیا', 'sv-home', '<p class="sv-okmsg">✅ اعلان برای ' + fa(r.sent) + ' نفر ارسال شد.</p>');
+      } finally { t.disabled = false; }
+    };
+
+    /* ---------- آزمون آنلاین ---------- */
+    const Q_STATUS = { approved: 'تأییدشده', pending: 'در انتظار تأیید', rejected: 'ردشده' };
+    const exWindow = (e) => (e.open_from_ts || e.open_until_ts) ? '<small>بازهٔ آزمون: ' + (e.open_from_ts ? 'از ' + esc(tsFa(e.open_from_ts)) + ' ' : '') + (e.open_until_ts ? 'تا ' + esc(tsFa(e.open_until_ts)) : '') + '</small>' : '';
+
+    SVA['sv-ex'] = async () => {
+      svStop();
+      if (S.me.role === 'student') { await svExStudent(); return; }
+      let b = '';
+      if (S.me.role === 'teacher') b = svBtn('sv-ex-new', '➕ ساخت آزمون') + svBtn('sv-ex-bank', '📚 بانک سوال') + svBtn('sv-ex-qnew', '💡 پیشنهاد سوال');
+      else b = svBtn('sv-ex-bank', '📚 بانک سوال') + svBtn('sv-ex-pend', '🕓 پیشنهادهای معلمان') + svBtn('sv-ex-flds', '🗂️ رشته‌ها و معلم‌ها') + svBtn('sv-ex-qnew', '➕ سوال جدید');
+      svShell('📝 آزمون آنلاین', 'sv-home', '<div class="sv-btns">' + b + '</div><h4>آزمون‌ها</h4><div id="sv-body"><p class="muted-text small">در حال بارگذاری…</p></div>');
+      const d = await stuFetch('/exams/ex/list', {});
+      const box = $('sv-body'); if (!box) return;
+      if (!d.items.length) { box.innerHTML = '<p class="muted-text small">هنوز آزمونی ساخته نشده است.</p>'; return; }
+      let h = '';
+      d.items.forEach((e) => {
+        h += '<div class="sv-item"><b>' + esc(e.title) + '</b><small>' + esc(e.field) + (e.teacher && !e.mine ? ' · ' + esc(e.teacher) : '') + ' · ' + fa(e.qcount) + ' سوال · ' + fa(e.duration_min) + ' دقیقه</small><small>شرکت‌کرده: ' + fa(e.done) + ' از ' + fa(e.assigned) + (e.avg !== null && e.avg !== undefined ? ' · میانگین ' + fa(e.avg) + '٪' : '') + (e.status === 'closed' ? ' · 🔒 بسته' : '') + '</small>' + exWindow(e) +
+          '<div class="stu-actions">' + svBtn('sv-ex-res', '📋 نتایج', svId(e.id)) + (e.status === 'open' ? svBtn('sv-ex-close', '🔒 بستن', svId(e.id)) : '') + svBtn('sv-ex-del', '🗑️ حذف', svId(e.id), 'danger-btn small-btn') + '</div></div>';
+      });
+      box.innerHTML = h;
+    };
+    async function svExStudent() {
+      svLoading('📝 آزمون‌های من', 'sv-home');
+      const d = await stuFetch('/exams/ex/list', {});
+      let h = '';
+      if (!d.items.length) h = '<p class="muted-text small">آزمونی برای شما تعریف نشده است.</p>';
+      d.items.forEach((e) => {
+        let a = '';
+        if (e.state === 'available') a = svBtn('sv-ex-start', '▶️ شروع آزمون', svId(e.id), 'secondary-btn small-btn');
+        else if (e.state === 'running') a = svBtn('sv-ex-start', '⏱️ ادامهٔ آزمون', svId(e.id), 'secondary-btn small-btn');
+        else if (e.state === 'done') a = '<b>نمره: ' + fa(e.score) + ' از ' + fa(e.total) + '</b> ' + svBtn('sv-ex-me', '📊 مشاهده', svId(e.id));
+        else if (e.state === 'upcoming') a = '<small>هنوز شروع نشده' + (e.open_from_ts ? ' — از ' + esc(tsFa(e.open_from_ts)) : '') + '</small>';
+        else if (e.state === 'ended') a = '<small>زمان شرکت گذشته است.</small>';
+        else a = '<small>این آزمون بسته شده است.</small>';
+        h += '<div class="sv-item"><b>' + esc(e.title) + '</b><small>' + esc(e.field) + ' · ' + fa(e.qcount) + ' سوال · ' + fa(e.duration_min) + ' دقیقه</small>' + exWindow(e) + '<div class="stu-actions">' + a + '</div></div>';
+      });
+      svShell('📝 آزمون‌های من', 'sv-home', h);
+    }
+    SVA['sv-ex-start'] = async (t, id) => {
+      if (!(await svAsk('آزمون شروع شود؟ بعد از شروع، زمان متوقف نمی‌شود و فقط یک بار می‌توانید شرکت کنید.', 'شروع آزمون'))) return;
+      t.disabled = true;
+      try {
+        const d = await stuFetch('/exams/take/start', { exam_id: id });
+        if (d.done) svExResult(d.result); else svTake(id, d);
+      } finally { t.disabled = false; }
+    };
+    function svTake(id, d) {
+      svStop();
+      SV.take = { id, ans: d.answers || {}, end: Date.now() + d.remaining * 1000, sent: false, retryAt: 0 };
+      let h = '<div class="exm-timer"><span>⏱️ زمان باقی‌مانده</span><b id="exm-left">--:--</b></div><p class="muted-text small">پاسخ‌ها خودکار ذخیره می‌شوند و با پایان زمان، آزمون خودکار ثبت می‌شود.</p>';
+      d.questions.forEach((q, i) => {
+        h += '<div class="exm-q"><p class="exm-qt"><b>' + fa(i + 1) + '.</b> ' + esc(q.t) + '</p>';
+        q.o.forEach((o, j) => { h += '<label class="exm-opt"><input type="radio" name="exq' + q.id + '" data-q="' + q.id + '" value="' + j + '"' + (SV.take.ans[q.id] === j ? ' checked' : '') + '><span>' + EXM_LET[j] + ') ' + esc(o) + '</span></label>'; });
+        h += '</div>';
+      });
+      h += svBtn('sv-ex-submit', '✅ ثبت نهایی پاسخ‌ها', svId(id), 'secondary-btn sv-wide');
+      svShell('📝 ' + d.title, 'sv-ex', h);
+      SV.timer = setInterval(() => {
+        const el = $('exm-left');
+        if (!el || !SV.take) { svStop(); return; }
+        const left = Math.max(0, Math.ceil((SV.take.end - Date.now()) / 1000));
+        el.textContent = fa(String(Math.floor(left / 60)).padStart(2, '0') + ':' + String(left % 60).padStart(2, '0'));
+        if (el.parentNode) el.parentNode.classList.toggle('is-low', left <= 60);
+        if (left <= 0 && !SV.take.sent && Date.now() >= SV.take.retryAt) { SV.take.sent = true; svExSubmit(SV.take.id, true); }
+      }, 1000);
+    }
+    async function svExSubmit(id, auto) {
+      const tk = SV.take;
+      const ans = tk ? tk.ans : {};
+      if (!auto && !(await svAsk('پاسخ‌ها ثبت نهایی شود؟ بعد از ثبت نمی‌توانید تغییر دهید.', 'ثبت نهایی'))) return;
+      try {
+        const d = await stuFetch('/exams/take/submit', { exam_id: id, answers: ans });
+        svStop();
+        svExResult(d.result);
+      } catch (e) {
+        if (SV.take) { SV.take.sent = false; SV.take.retryAt = Date.now() + 5000; }
+        svErr(e);
+      }
+    }
+    SVA['sv-ex-submit'] = async (t, id) => { await svExSubmit(id, false); };
+    function svExResult(r) {
+      let h = '<div class="exm-score"><b>' + fa(r.score) + '</b><span>از ' + fa(r.total) + '</span><small>' + fa(r.percent) + '٪</small></div>';
+      if (r.review) {
+        r.review.forEach((q, i) => {
+          h += '<div class="exm-q"><p class="exm-qt"><b>' + fa(i + 1) + '.</b> ' + esc(q.t) + '</p>';
+          q.o.forEach((o, j) => { h += '<div class="exm-rv' + (j === q.c ? ' ok' : (j === q.a ? ' bad' : '')) + '">' + EXM_LET[j] + ') ' + esc(o) + (j === q.c ? ' ✅' : '') + (j === q.a && j !== q.c ? ' ❌ پاسخ شما' : '') + '</div>'; });
+          if (q.a < 0) h += '<small class="muted-text">بدون پاسخ</small>';
+          h += '</div>';
+        });
+      }
+      svShell('📝 ' + r.title, 'sv-ex', h);
+    }
+    SVA['sv-ex-me'] = async (t, id) => { const d = await stuFetch('/exams/take/result', { exam_id: id }); svExResult(d.result); };
+    SVA['sv-ex-res'] = async (t, id) => {
+      svLoading('📋 نتایج آزمون', 'sv-ex');
+      const d = await stuFetch('/exams/ex/results', { exam_id: id });
+      const st = { notstarted: 'شرکت نکرده', running: 'در حال آزمون', done: '' };
+      let h = '<p class="muted-text small">' + fa(d.qcount) + ' سوال' + (d.avg !== null ? ' · میانگین کلاس ' + fa(d.avg) + '٪' : '') + '</p>';
+      d.rows.forEach((r) => { h += '<div class="sv-grow"><span>' + esc(r.name) + '</span><b>' + (r.state === 'done' ? fa(r.score) + ' از ' + fa(r.total) + ' (' + fa(r.percent) + '٪)' : st[r.state]) + '</b></div>'; });
+      svShell('📋 ' + d.title, 'sv-ex', h);
+    };
+    SVA['sv-ex-close'] = async (t, id) => {
+      if (!(await svAsk('آزمون بسته شود؟ دانش‌آموزانی که شروع نکرده‌اند دیگر نمی‌توانند شرکت کنند.', 'بستن آزمون'))) return;
+      await stuFetch('/exams/ex/close', { exam_id: id }); await SVA['sv-ex']();
+    };
+    SVA['sv-ex-del'] = async (t, id) => {
+      if (!(await svAsk('آزمون با همهٔ نتایجش حذف شود؟', 'حذف آزمون'))) return;
+      await stuFetch('/exams/ex/delete', { exam_id: id }); await SVA['sv-ex']();
+    };
+
+    /* --- بانک سوال --- */
+    async function svBankRender(fid, status) {
+      const d = await stuFetch('/exams/q/list', { field_id: fid || 0, status: status || '' });
+      SV.qs = {}; d.questions.forEach((q) => { SV.qs[q.id] = q; });
+      let h = '<div class="sv-filter"><select id="sv-qf"><option value="0">همهٔ رشته‌ها</option>' + SV.fields.map((f) => '<option value="' + f.id + '"' + (f.id === fid ? ' selected' : '') + '>' + esc(f.name) + '</option>').join('') + '</select>';
+      if (isMgr()) h += '<select id="sv-qs"><option value="">همهٔ وضعیت‌ها</option>' + Object.keys(Q_STATUS).map((k) => '<option value="' + k + '"' + (k === status ? ' selected' : '') + '>' + Q_STATUS[k] + '</option>').join('') + '</select>';
+      h += '</div>' + svBtn('sv-ex-qnew', isMgr() ? '➕ سوال جدید' : '💡 پیشنهاد سوال', '', 'secondary-btn sv-wide');
+      if (!d.questions.length) h += '<p class="muted-text small">سوالی پیدا نشد.</p>';
+      d.questions.forEach((q) => { h += svQCard(q); });
+      svShell('📚 بانک سوال', 'sv-ex', h);
+    }
+    function svQCard(q, pend) {
+      const own = q.author_id === S.me.id;
+      const canEdit = isMgr() || (own && q.status !== 'approved');
+      let h = '<div class="sv-item sv-q st-' + q.status + '"><div class="sv-q-top"><span class="stu-chip">' + esc(Q_STATUS[q.status] || q.status) + '</span><small>' + esc(q.field) + ' · ' + esc(q.author) + '</small></div><p class="exm-qt">' + esc(q.text) + '</p>';
+      q.options.forEach((o, j) => { h += '<div class="exm-rv' + (j === q.correct ? ' ok' : '') + '">' + EXM_LET[j] + ') ' + esc(o) + (j === q.correct ? ' ✅' : '') + '</div>'; });
+      if (q.status === 'rejected' && q.note) h += '<small class="error-text">دلیل رد: ' + esc(q.note) + '</small>';
+      if (pend) h += '<input type="text" class="sv-rn" id="sv-rn-' + q.id + '" maxlength="250" placeholder="دلیل رد (اختیاری)"><div class="stu-actions">' + svBtn('sv-ex-qok', '✅ تأیید', svId(q.id), 'secondary-btn small-btn') + svBtn('sv-ex-qno', '❌ رد', svId(q.id), 'danger-btn small-btn') + '</div>';
+      if (canEdit) h += '<div class="stu-actions">' + svBtn('sv-ex-qedit', '✏️ ویرایش', svId(q.id)) + svBtn('sv-ex-qdel', '🗑️ حذف', svId(q.id), 'danger-btn small-btn') + '</div>';
+      return h + '</div>';
+    }
+    async function svLoadFields() { const d = await stuFetch('/exams/fields', {}); SV.fields = d.fields || []; SV.teachers = d.teachers || []; return d; }
+    SVA['sv-ex-bank'] = async () => { svLoading('📚 بانک سوال', 'sv-ex'); await svLoadFields(); await svBankRender(0, ''); };
+    SVA['sv-ex-pend'] = async () => {
+      svLoading('🕓 پیشنهادهای معلمان', 'sv-ex');
+      await svLoadFields();
+      const d = await stuFetch('/exams/q/list', { status: 'pending' });
+      SV.qs = {}; d.questions.forEach((q) => { SV.qs[q.id] = q; });
+      let h = d.questions.length ? '' : '<p class="muted-text small">پیشنهاد تأییدنشده‌ای وجود ندارد.</p>';
+      d.questions.forEach((q) => { h += svQCard(q, true); });
+      svShell('🕓 پیشنهادهای معلمان', 'sv-ex', h);
+    };
+    SVA['sv-ex-qok'] = async (t, id) => { await stuFetch('/exams/q/decide', { id, approve: true }); await SVA['sv-ex-pend'](); };
+    SVA['sv-ex-qno'] = async (t, id) => { await stuFetch('/exams/q/decide', { id, approve: false, note: gv('sv-rn-' + id) }); await SVA['sv-ex-pend'](); };
+    SVA['sv-ex-qdel'] = async (t, id) => {
+      if (!(await svAsk('این سوال حذف شود؟ (آزمون‌هایی که قبلاً ساخته شده‌اند تغییر نمی‌کنند.)', 'حذف سوال'))) return;
+      await stuFetch('/exams/q/delete', { id }); await svBankRender(0, '');
+    };
+    async function svQForm(q) {
+      if (!SV.fields.length) await svLoadFields();
+      if (!SV.fields.length) { svShell('💡 سوال', 'sv-ex', '<p class="muted-text small">' + (isMgr() ? 'ابتدا از «رشته‌ها و معلم‌ها» یک رشته بسازید.' : 'مدیر هنوز رشته‌ای به شما اختصاص نداده است.') + '</p>'); return; }
+      const o = (q && q.options) || [];
+      let h = field('رشته', '<select id="sv-q-field">' + SV.fields.map((f) => '<option value="' + f.id + '"' + (q && q.field_id === f.id ? ' selected' : '') + '>' + esc(f.name) + '</option>').join('') + '</select>');
+      h += field('متن سوال', '<textarea id="sv-q-text" rows="3" maxlength="1000">' + esc(q ? q.text : '') + '</textarea>');
+      h += '<p class="muted-text small">حداقل دو گزینه را پر کنید (تا شش گزینه).</p>';
+      for (let i = 0; i < 6; i++) h += field('گزینهٔ ' + EXM_LET[i], '<input type="text" class="sv-o" maxlength="300" value="' + esc(o[i] || '') + '">');
+      h += field('گزینهٔ درست', '<select id="sv-q-c">' + EXM_LET.map((l, i) => '<option value="' + i + '"' + (q && q.correct === i ? ' selected' : '') + '>' + l + '</option>').join('') + '</select>');
+      h += svBtn('sv-ex-qsave', isMgr() ? 'ذخیرهٔ سوال' : 'ارسال برای تأیید مدیر', q ? svId(q.id) : '', 'secondary-btn sv-wide');
+      svShell(q ? '✏️ ویرایش سوال' : (isMgr() ? '➕ سوال جدید' : '💡 پیشنهاد سوال'), 'sv-ex-bank', h);
+    }
+    SVA['sv-ex-qnew'] = async () => { await svQForm(null); };
+    SVA['sv-ex-qedit'] = async (t, id) => { await svQForm(SV.qs[id] || null); };
+    SVA['sv-ex-qsave'] = async (t, id) => {
+      const vals = Array.prototype.map.call(document.querySelectorAll('#stu-main .sv-o'), (i) => i.value.trim());
+      const c = parseInt(gv('sv-q-c'), 10) || 0;
+      const opts = []; let nc = -1;
+      vals.forEach((v, i) => { if (v) { if (i === c) nc = opts.length; opts.push(v); } });
+      if (nc < 0) { svErr(new Error('گزینهٔ درست نباید خالی باشد.')); return; }
+      t.disabled = true;
+      try {
+        const r = await stuFetch('/exams/q/save', { id: id || 0, field_id: parseInt(gv('sv-q-field'), 10) || 0, text: gv('sv-q-text'), options: opts, correct: nc });
+        svShell('📚 سوال', 'sv-ex-bank', '<p class="sv-okmsg">' + (r.pending ? '✅ سوال برای تأیید مدیر ارسال شد. بعد از تأیید در بانک سوال قرار می‌گیرد.' : '✅ سوال ذخیره شد.') + '</p>' + svBtn('sv-ex-bank', 'رفتن به بانک سوال', '', 'secondary-btn sv-wide'));
+      } finally { t.disabled = false; }
+    };
+
+    /* --- رشته‌ها و معلم‌ها (مدیر) --- */
+    function svFieldsRender() {
+      let h = '<div class="sv-filter"><input type="text" id="sv-fname" maxlength="80" placeholder="نام رشته، مثلاً ریاضی" value="' + esc(SV.editField ? ((SV.fields.filter((f) => f.id === SV.editField)[0] || {}).name || '') : '') + '">' + svBtn('sv-ex-fsave', SV.editField ? 'ذخیرهٔ نام' : '➕ افزودن', '', 'secondary-btn small-btn') + '</div>';
+      if (!SV.fields.length) h += '<p class="muted-text small">هنوز رشته‌ای تعریف نشده است.</p>';
+      SV.fields.forEach((f) => {
+        h += '<div class="sv-item"><b>' + esc(f.name) + '</b><small>معلم‌ها: ' + (f.teachers && f.teachers.length ? esc(f.teachers.map((x) => x.name).join('، ')) : 'هیچ‌کدام') + '</small><small>' + fa(f.q_count || 0) + ' سوال تأییدشده</small><div class="stu-actions">' + svBtn('sv-ex-ftch', '👥 معلم‌ها', svId(f.id)) + svBtn('sv-ex-fedit', '✏️ تغییر نام', svId(f.id)) + svBtn('sv-ex-fdel', '🗑️ حذف', svId(f.id), 'danger-btn small-btn') + '</div></div>';
+      });
+      svShell('🗂️ رشته‌ها و معلم‌ها', 'sv-ex', h);
+    }
+    SVA['sv-ex-flds'] = async () => { svLoading('🗂️ رشته‌ها و معلم‌ها', 'sv-ex'); SV.editField = 0; await svLoadFields(); svFieldsRender(); };
+    SVA['sv-ex-fedit'] = async (t, id) => { SV.editField = id; svFieldsRender(); };
+    SVA['sv-ex-fsave'] = async () => {
+      await stuFetch('/exams/field/save', { id: SV.editField || 0, name: gv('sv-fname') });
+      SV.editField = 0; await svLoadFields(); svFieldsRender();
+    };
+    SVA['sv-ex-fdel'] = async (t, id) => {
+      if (!(await svAsk('این رشته حذف شود؟ (فقط اگر سوال یا آزمونی نداشته باشد حذف می‌شود.)', 'حذف رشته'))) return;
+      await stuFetch('/exams/field/delete', { id }); await svLoadFields(); svFieldsRender();
+    };
+    SVA['sv-ex-ftch'] = async (t, id) => {
+      const f = SV.fields.filter((x) => x.id === id)[0]; if (!f) return;
+      const on = {}; (f.teachers || []).forEach((x) => { on[x.id] = 1; });
+      let h = '<p class="muted-text small">معلم‌هایی که فقط سوال‌های همین رشته را می‌بینند و برایش آزمون می‌سازند:</p>';
+      h += SV.teachers.length ? '<div class="sv-rows">' + svChecks(SV.teachers, 'sv-ft', (s) => !!on[s.id]) + '</div>' : '<p class="muted-text small">معلمی تعریف نشده است.</p>';
+      h += svBtn('sv-ex-ftsave', 'ذخیره', svId(id), 'secondary-btn sv-wide');
+      svShell('👥 معلم‌های ' + f.name, 'sv-ex-flds', h);
+    };
+    SVA['sv-ex-ftsave'] = async (t, id) => {
+      await stuFetch('/exams/field/teachers', { field_id: id, teacher_ids: svPicked('sv-ft') });
+      await svLoadFields(); svFieldsRender();
+    };
+
+    /* --- ساخت آزمون (معلم) --- */
+    async function svNewLoadQs() {
+      const box = $('sv-n-qs'); if (!box) return;
+      const fid = parseInt(gv('sv-n-field'), 10) || 0;
+      box.innerHTML = '<p class="muted-text small">در حال بارگذاری…</p>';
+      const d = await stuFetch('/exams/q/list', { field_id: fid, status: 'approved' });
+      const b2 = $('sv-n-qs'); if (!b2) return;
+      if (!d.questions.length) { b2.innerHTML = '<p class="muted-text small">بانک سوالِ تأییدشدهٔ این رشته خالی است.</p>'; return; }
+      b2.innerHTML = '<label class="sv-chk"><input type="checkbox" data-all=".sv-n-q"> انتخاب همه</label>' + d.questions.map((q) => '<label class="sv-chk"><input type="checkbox" class="sv-n-q" value="' + q.id + '"> ' + esc(q.text.length > 90 ? q.text.slice(0, 90) + '…' : q.text) + '</label>').join('');
+    }
+    SVA['sv-ex-new'] = async () => {
+      svLoading('➕ آزمون جدید', 'sv-ex');
+      const [fd, list] = await Promise.all([svLoadFields(), svStudents(true)]);
+      if (!SV.fields.length) { svShell('➕ آزمون جدید', 'sv-ex', '<p class="muted-text small">مدیر هنوز رشته‌ای به شما اختصاص نداده است؛ از مدیر بخواهید در «رشته‌ها و معلم‌ها» شما را اضافه کند.</p>'); return; }
+      if (!list.length) { svShell('➕ آزمون جدید', 'sv-ex', '<p class="muted-text small">دانش‌آموزی در کلاس شما نیست.</p>'); return; }
+      let h = field('عنوان آزمون', '<input type="text" id="sv-n-title" maxlength="160">');
+      h += field('رشته', '<select id="sv-n-field">' + SV.fields.map((f) => '<option value="' + f.id + '">' + esc(f.name) + '</option>').join('') + '</select>');
+      h += field('زمان آزمون (دقیقه)', '<input type="text" inputmode="numeric" id="sv-n-dur" value="20">');
+      h += field('شروع بازهٔ آزمون (اختیاری)', '<input type="datetime-local" id="sv-n-from">');
+      h += field('پایان بازهٔ شرکت (اختیاری)', '<input type="datetime-local" id="sv-n-until">');
+      h += '<label class="sv-chk"><input type="checkbox" id="sv-n-rev"> بعد از آزمون پاسخ‌های درست به دانش‌آموز نشان داده شود</label>';
+      h += '<h4>سوال‌ها</h4><div id="sv-n-qs"></div><h4>دانش‌آموزان</h4><label class="sv-chk"><input type="checkbox" data-all=".sv-n-st"> انتخاب همه</label><div class="sv-rows">' + svChecks(list, 'sv-n-st') + '</div>';
+      h += svBtn('sv-ex-nsave', 'ساخت آزمون', '', 'secondary-btn sv-wide');
+      svShell('➕ آزمون جدید', 'sv-ex', h);
+      await svNewLoadQs();
+    };
+    SVA['sv-ex-nsave'] = async (t) => {
+      const ts = (v) => { if (!v) return 0; const x = new Date(v).getTime(); return isNaN(x) ? 0 : Math.floor(x / 1000); };
+      t.disabled = true;
+      try {
+        await stuFetch('/exams/ex/save', {
+          title: gv('sv-n-title'), field_id: parseInt(gv('sv-n-field'), 10) || 0, duration_min: parseInt(latin(gv('sv-n-dur')), 10) || 0,
+          open_from_ts: ts(gv('sv-n-from')), open_until_ts: ts(gv('sv-n-until')), review: !!($('sv-n-rev') && $('sv-n-rev').checked),
+          question_ids: svPicked('sv-n-q'), student_ids: svPicked('sv-n-st'),
+        });
+        await SVA['sv-ex']();
+      } finally { t.disabled = false; }
+    };
+
+    /* تغییر مقدار فیلدها (انتخاب همه، پاسخ آزمون، فیلتر بانک، رشتهٔ آزمون) */
+    function svChange(t) {
+      if (t.hasAttribute && t.hasAttribute('data-all')) {
+        const on = t.checked;
+        document.querySelectorAll('#stu-main ' + t.getAttribute('data-all')).forEach((c) => { c.checked = on; });
+        return;
+      }
+      if (t.matches && t.matches('.exm-opt input') && SV.take) {
+        SV.take.ans[t.getAttribute('data-q')] = parseInt(t.value, 10);
+        const eid = SV.take.id, snap = JSON.parse(JSON.stringify(SV.take.ans));
+        if (SV.saveT) clearTimeout(SV.saveT);
+        SV.saveT = setTimeout(() => { SV.saveT = null; stuFetch('/exams/take/save', { exam_id: eid, answers: snap }).catch(() => {}); }, 700);
+        return;
+      }
+      if (t.id === 'sv-n-field') { svNewLoadQs().catch(svErr); return; }
+      if (t.id === 'sv-qf' || t.id === 'sv-qs') { svBankRender(parseInt(gv('sv-qf'), 10) || 0, gv('sv-qs')).catch(svErr); }
+    }
+    document.addEventListener('change', (ev) => {
+      const t = ev.target;
+      if (!t || !t.closest || !t.closest('#tab-students')) return;
+      svChange(t);
+    });
+
     /* ----- رویدادها ----- */
     document.addEventListener('click', (ev) => {
       const t = ev.target && ev.target.closest ? ev.target.closest('#tab-students [data-stu]') : null;
       if (!t || !S.me) return;
       const act = t.getAttribute('data-stu');
+      if (act.indexOf('sv-') === 0) { svDispatch(act, t); return; }
       const cur = (S.viewId == null) ? S.me : (findUser(S.viewId) || S.me);
       if (act === 'logout') doLogout();
       else if (act === 'profile') renderForm('profile', S.me);

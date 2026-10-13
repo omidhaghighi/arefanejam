@@ -1583,6 +1583,99 @@ public class AppUpdaterPlugin extends Plugin {
         return pm != null && pm.isIgnoringBatteryOptimizations(ctx.getPackageName());
     }
 
+    /* ---------- اشتراک‌گذاری (WebView اندروید navigator.share و دانلود فایل ندارد) ---------- */
+    private void startShareChooser(final PluginCall call, final Intent chooser) {
+        final Activity act = getActivity();
+        if (act == null) {
+            try {
+                chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(chooser);
+                call.resolve();
+            } catch (Throwable e) {
+                call.reject("share failed: " + e.getMessage());
+            }
+            return;
+        }
+        act.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    act.startActivity(chooser);
+                    call.resolve();
+                } catch (Throwable e) {
+                    call.reject("share failed: " + e.getMessage());
+                }
+            }
+        });
+    }
+
+    /** تصویر PNG (base64 بدون پیشوند data:) را با برگهٔ اشتراکِ اندروید می‌فرستد؛ فایل در cache/updates (همان مسیرِ FileProvider بروزرسانی) نوشته می‌شود. */
+    @PluginMethod
+    public void shareImage(final PluginCall call) {
+        try {
+            String b64 = call.getString("base64", "");
+            String text = call.getString("text", "");
+            String title = call.getString("title", "");
+            if (b64 == null || b64.length() < 100) {
+                call.reject("no image");
+                return;
+            }
+            byte[] bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT);
+            if (bytes == null || bytes.length < 100) {
+                call.reject("bad image");
+                return;
+            }
+            Context ctx = getContext();
+            File dir = new File(ctx.getCacheDir(), "updates");
+            if (!dir.exists() && !dir.mkdirs()) {
+                call.reject("no dir");
+                return;
+            }
+            File f = new File(dir, "azan-times.png");
+            FileOutputStream os = new FileOutputStream(f);
+            try {
+                os.write(bytes);
+                os.flush();
+            } finally {
+                os.close();
+            }
+            Uri uri = FileProvider.getUriForFile(ctx, ctx.getPackageName() + ".updateprovider", f);
+            Intent send = new Intent(Intent.ACTION_SEND);
+            send.setType("image/png");
+            send.putExtra(Intent.EXTRA_STREAM, uri);
+            if (text != null && text.length() > 0) send.putExtra(Intent.EXTRA_TEXT, text);
+            if (title != null && title.length() > 0) send.putExtra(Intent.EXTRA_SUBJECT, title);
+            send.setClipData(android.content.ClipData.newRawUri("", uri));
+            send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            Intent chooser = Intent.createChooser(send, (title != null && title.length() > 0) ? title : "اشتراک‌گذاری");
+            chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startShareChooser(call, chooser);
+        } catch (Throwable e) {
+            call.reject("share failed: " + e.getMessage());
+        }
+    }
+
+    /** متن ساده را با برگهٔ اشتراکِ اندروید می‌فرستد. */
+    @PluginMethod
+    public void shareText(final PluginCall call) {
+        try {
+            String text = call.getString("text", "");
+            String title = call.getString("title", "");
+            if (text == null || text.length() == 0) {
+                call.reject("no text");
+                return;
+            }
+            Intent send = new Intent(Intent.ACTION_SEND);
+            send.setType("text/plain");
+            send.putExtra(Intent.EXTRA_TEXT, text);
+            if (title != null && title.length() > 0) send.putExtra(Intent.EXTRA_SUBJECT, title);
+            Intent chooser = Intent.createChooser(send, (title != null && title.length() > 0) ? title : "اشتراک‌گذاری");
+            startShareChooser(call, chooser);
+        } catch (Throwable e) {
+            call.reject("share failed: " + e.getMessage());
+        }
+    }
+
     /** Magnetic declination (degrees, east positive) at a location, from Android's own geomagnetic model. Used by the qibla compass to convert magnetic north to true north. */
     @PluginMethod
     public void magneticDeclination(PluginCall call) {
