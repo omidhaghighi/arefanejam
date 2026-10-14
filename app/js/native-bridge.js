@@ -585,10 +585,22 @@
 
   function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
+  // «مجوز» سقف ساعتی: سایت به گوشی‌ای که اجازهٔ دانلود گرفت یک مجوز امضاشده می‌دهد؛ گوشی در پرسیدن‌های بعدی آن را پس می‌دهد
+  // تا دوباره از سقف کم نشود و وسط دانلود/نصب متوقف نماند (مجوز ۴۸ ساعت و مخصوص همان نسخه است).
+  var PERMIT_KEY = 'arefanejam_upd_permit';
   function fetchInfo() {
-    return fetch(apiBase() + '/app-update?t=' + Date.now(), { cache: 'no-store' })
-      .then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); });
+    var permit = '';
+    try { permit = localStorage.getItem(PERMIT_KEY) || ''; } catch (e) {}
+    var url = apiBase() + '/app-update?t=' + Date.now() + (/^[0-9]{9,11}\.[a-f0-9]{16}$/.test(permit) ? '&p=' + permit : '');
+    return fetch(url, { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
+      .then(function (j) {
+        try { if (j && j.permit) localStorage.setItem(PERMIT_KEY, String(j.permit)); } catch (e) {}
+        return j;
+      });
   }
+  var QUEUED_TITLE = 'نوبت بروزرسانی شما هنوز نرسیده';
+  var QUEUED_MSG = 'نسخهٔ جدید آماده است و به‌صورت تدریجی برای همهٔ کاربران پخش می‌شود. نیازی به کاری از شما نیست؛ به‌زودی خودکار برای شما دانلود و نصب می‌شود.';
 
   // اگر اپ قدیمی (بدون بخش نصب داخلی) باشد، مثل قبل با مرورگر باز می‌شود
   function browserFallback(url) {
@@ -853,6 +865,7 @@
       var announced = !!(info && info.enabled && info.version && info.apk_url);
       var available = announced && isNewer(info.version, CURRENT);
       if (!available) {
+        if (manual && info && info.queued) { render({ mode: 'info', icon: 'check', title: QUEUED_TITLE, message: QUEUED_MSG, buttons: [{ label: 'باشه', primary: true }] }); return; }
         if (manual) render({
           mode: 'success', icon: 'check',
           title: announced ? 'برنامه به‌روز است' : 'نسخهٔ جدیدی اعلام نشده',
@@ -1096,6 +1109,10 @@
           return;
         }
         manualFinish(run);
+        if (info && info.queued) {
+          render({ mode: 'info', icon: 'check', title: QUEUED_TITLE, message: QUEUED_MSG, buttons: [{ label: 'باشه', primary: true }] });
+          return;
+        }
         if (r === 'error' && !apiOk) {
           render({
             mode: 'error', icon: 'warn',

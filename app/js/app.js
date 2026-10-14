@@ -12088,7 +12088,7 @@ async function loadMokatibMeetings(mosqueId, month) {
 
 /* ---------- «معرفی اپ به دوستان» (صفحهٔ بیشتر) ----------
  * متن و لینک از GET /app-share می‌آید (پیشخوان ← تنظیمات ← بروزرسانی داخل اپ)؛ آخرین مقدار برای حالت آفلاین ذخیره می‌شود.
- * اشتراک: افزونهٔ بومی (shareText، در APK فعلی هست) ← navigator.share ← کپی در کلیپ‌بورد. */
+ * اشتراک: افزونهٔ بومی shareApk (خودِ فایل APK + متن و لینک دانلود زیرش؛ APK جدید) ← shareText (فقط متن و لینک) ← navigator.share ← کپی در کلیپ‌بورد. */
 (function setupShareAppTile() {
   const tile = document.getElementById('app-share-tile');
   if (!tile) return;
@@ -12113,6 +12113,11 @@ async function loadMokatibMeetings(mosqueId, month) {
     const text = String(info.text || '').trim() + '\n' + String(info.link || '').trim();
     try { trackClick('app_share'); } catch (e) {}
     const nat = azanNativeShare();
+    // اول خودِ فایل نصبی (APK) فرستاده می‌شود و متن + لینک دانلود زیر آن می‌آید (نیاز به APK جدید دارد)؛
+    // اگر این APK هنوز این قابلیت را نداشت یا فایل آماده نشد، مثل قبل فقط متن + لینک فرستاده می‌شود.
+    if (nat && typeof nat.shareApk === 'function') {
+      try { await nat.shareApk({ title, text }); return; } catch (e) { /* ادامه با اشتراک متن و لینک */ }
+    }
     if (nat && typeof nat.shareText === 'function') {
       try { await nat.shareText({ title, text }); return; } catch (e) { /* ادامه با روش بعدی */ }
     }
