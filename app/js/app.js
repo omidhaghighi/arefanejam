@@ -1743,6 +1743,7 @@ function applyQuranReportTexts() {
 
 function applyCachedSettingsUi(cached) {
   state.settings = cached;
+  applyReciterNames();
   document.getElementById('topbar-title').textContent = cached.brand_name || 'عارفان جام';
   if (cached.logo_url) document.getElementById('topbar-logo').src = secureUrl(cached.logo_url);
   applyQuranReportTexts();
@@ -1803,6 +1804,7 @@ function loadSettings() {
   // 2) تنظیمات تازه از سایت (در پس‌زمینه اگر نسخهٔ ذخیره‌شده داریم)
   const fresh = apiFetch('/settings').then((data) => {
     state.settings = data;
+    applyReciterNames();
     applyMoreTiles(data);
     try { localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(data)); } catch (e) {}
     let str = null;
@@ -2148,6 +2150,7 @@ setInterval(async () => {
   try {
     state.settings = await apiFetch('/settings');
     try { localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(state.settings)); } catch (e) {}
+    applyReciterNames();
     prefetchAzanAudioForOffline();
     checkForNewAnnouncement();
     checkForNewServerAlarm();
@@ -7230,6 +7233,23 @@ function renderReciterBars() {
     if (act && bar.offsetParent !== null) { try { act.scrollIntoView({ block: 'nearest', inline: 'center' }); } catch (e) {} }
   });
 }
+/* نام دلخواه قاری‌ها از پیشخوان (← نام قاری‌ها): از /settings (فیلد reciter_names) می‌آید و روی RECITERS اعمال می‌شود؛ شناسه‌ها عوض نمی‌شوند.
+   قبل از ساخته شدن RECITERS صدا زده شود خطا نمی‌دهد (بی‌صدا رد می‌شود) و بعد از ساخته شدن دوباره صدا زده می‌شود. */
+function applyReciterNames() {
+  try {
+    const map = ((state.settings || {}).reciter_names) || {};
+    let changed = false;
+    RECITERS.forEach((r) => {
+      if (r._orig === undefined) r._orig = r.name;
+      const nm = String(map[r.id] || '').trim() || r._orig;
+      if (nm !== r.name) { r.name = nm; changed = true; }
+    });
+    if (!changed) return;
+    const sel = document.getElementById('reciter-select');
+    if (sel) Array.prototype.forEach.call(sel.options, (o) => { const r = RECITERS.find((x) => x.id === o.value); if (r) o.textContent = 'قاری: ' + r.name; });
+    document.querySelectorAll('.rc-chip').forEach((c) => { const r = RECITERS.find((x) => x.id === c.dataset.id); if (r) c.textContent = r.name; });
+  } catch (e) { /* RECITERS هنوز ساخته نشده */ }
+}
 function applyReciter(id, opts) {
   if (!RECITERS.some((r) => r.id === id)) return;
   const changed = id !== currentReciter;
@@ -7250,6 +7270,7 @@ function applyReciter(id, opts) {
   }
 }
 renderReciterBars();
+applyReciterNames();
 document.getElementById('reciter-select').addEventListener('change', (e) => applyReciter(e.target.value));
 
 const savedFontSize = localStorage.getItem('arefanejam_arabic_font_size') || '22';
@@ -12088,7 +12109,7 @@ async function loadMokatibMeetings(mosqueId, month) {
 
 /* ---------- «معرفی اپ به دوستان» (صفحهٔ بیشتر) ----------
  * متن و لینک از GET /app-share می‌آید (پیشخوان ← تنظیمات ← بروزرسانی داخل اپ)؛ آخرین مقدار برای حالت آفلاین ذخیره می‌شود.
- * اشتراک: افزونهٔ بومی shareApk (خودِ فایل APK + متن و لینک دانلود زیرش؛ APK جدید) ← shareText (فقط متن و لینک) ← navigator.share ← کپی در کلیپ‌بورد. */
+ * اشتراک (فقط متن + لینک سایت، بدون ارسال فایل): افزونهٔ بومی (shareText) ← navigator.share ← کپی در کلیپ‌بورد. */
 (function setupShareAppTile() {
   const tile = document.getElementById('app-share-tile');
   if (!tile) return;
@@ -12113,11 +12134,6 @@ async function loadMokatibMeetings(mosqueId, month) {
     const text = String(info.text || '').trim() + '\n' + String(info.link || '').trim();
     try { trackClick('app_share'); } catch (e) {}
     const nat = azanNativeShare();
-    // اول خودِ فایل نصبی (APK) فرستاده می‌شود و متن + لینک دانلود زیر آن می‌آید (نیاز به APK جدید دارد)؛
-    // اگر این APK هنوز این قابلیت را نداشت یا فایل آماده نشد، مثل قبل فقط متن + لینک فرستاده می‌شود.
-    if (nat && typeof nat.shareApk === 'function') {
-      try { await nat.shareApk({ title, text }); return; } catch (e) { /* ادامه با اشتراک متن و لینک */ }
-    }
     if (nat && typeof nat.shareText === 'function') {
       try { await nat.shareText({ title, text }); return; } catch (e) { /* ادامه با روش بعدی */ }
     }

@@ -1655,62 +1655,6 @@ public class AppUpdaterPlugin extends Plugin {
         }
     }
 
-    /**
-     * خودِ فایل نصبیِ همین اپ (APK نصب‌شده روی گوشی) را با برگهٔ اشتراکِ اندروید می‌فرستد؛ متن (و لینک دانلود زیرِ آن) هم همراهش می‌رود.
-     * کپی در cache/updates/share/ نوشته می‌شود (جدا از cache/updates/arefanejam.apk که مخصوص بروزرسانی است)؛ همان FileProvider بروزرسانی.
-     * اگر APK چندبخشی (split) باشد یا کپی نشود، reject می‌شود تا جاوااسکریپت به اشتراکِ متن/لینک برگردد.
-     */
-    @PluginMethod
-    public void shareApk(final PluginCall call) {
-        final String text = call.getString("text", "");
-        final String title = call.getString("title", "");
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    Context ctx = getContext();
-                    android.content.pm.ApplicationInfo ai = ctx.getApplicationInfo();
-                    if (ai == null || ai.sourceDir == null) { call.reject("no apk"); return; }
-                    if (Build.VERSION.SDK_INT >= 21 && ai.splitSourceDirs != null && ai.splitSourceDirs.length > 0) { call.reject("split apk"); return; }
-                    File src = new File(ai.sourceDir);
-                    if (!src.exists() || src.length() < 100000) { call.reject("no apk"); return; }
-                    File dir = new File(new File(ctx.getCacheDir(), "updates"), "share");
-                    if (!dir.exists() && !dir.mkdirs()) { call.reject("no dir"); return; }
-                    File f = new File(dir, "arefanejam.apk");
-                    if (!f.exists() || f.length() != src.length() || f.lastModified() < src.lastModified()) {
-                        File tmp = new File(dir, "arefanejam.apk.tmp");
-                        InputStream in = new java.io.FileInputStream(src);
-                        OutputStream os = new FileOutputStream(tmp);
-                        try {
-                            byte[] buf = new byte[64 * 1024];
-                            int n;
-                            while ((n = in.read(buf)) > 0) os.write(buf, 0, n);
-                            os.flush();
-                        } finally {
-                            try { in.close(); } catch (Throwable ignore) { }
-                            os.close();
-                        }
-                        if (f.exists()) f.delete();
-                        if (!tmp.renameTo(f)) { call.reject("copy failed"); return; }
-                    }
-                    Uri uri = FileProvider.getUriForFile(ctx, ctx.getPackageName() + ".updateprovider", f);
-                    Intent send = new Intent(Intent.ACTION_SEND);
-                    send.setType("application/vnd.android.package-archive");
-                    send.putExtra(Intent.EXTRA_STREAM, uri);
-                    if (text != null && text.length() > 0) send.putExtra(Intent.EXTRA_TEXT, text);
-                    if (title != null && title.length() > 0) send.putExtra(Intent.EXTRA_SUBJECT, title);
-                    send.setClipData(android.content.ClipData.newRawUri("", uri));
-                    send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                    Intent chooser = Intent.createChooser(send, (title != null && title.length() > 0) ? title : "اشتراک‌گذاری");
-                    chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                    startShareChooser(call, chooser);
-                } catch (Throwable e) {
-                    call.reject("share apk failed: " + e.getMessage());
-                }
-            }
-        }).start();
-    }
-
     /** متن ساده را با برگهٔ اشتراکِ اندروید می‌فرستد. */
     @PluginMethod
     public void shareText(final PluginCall call) {
