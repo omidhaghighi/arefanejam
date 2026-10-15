@@ -11080,7 +11080,14 @@ async function loadKhatmList() {
   el.innerHTML = '<p class="muted-text small" style="padding:0 18px">در حال بارگذاری...</p>';
   try {
     const device_id = await ensureDeviceId();
-    const rows = shariqAsArray(await shariqGet('/khatm/list?device_id=' + encodeURIComponent(device_id)));
+    let rows = shariqAsArray(await shariqGet('/khatm/list?device_id=' + encodeURIComponent(device_id)));
+    // پشتیبان: ختم‌های باز خودِ این گوشی همیشه در فهرست دیده شوند (حتی اگر فهرست عمومی کم‌وکاست برگردد)
+    try {
+      const mineRows = shariqAsArray(await shariqGet('/khatm/mine?device_id=' + encodeURIComponent(device_id)));
+      const have = new Set(rows.map((r) => Number(r.id)));
+      mineRows.forEach((m) => { if (m && m.status === 'open' && !have.has(Number(m.id))) rows.push(m); });
+      rows.sort((a, b) => (Number(a.age) || 0) - (Number(b.age) || 0));
+    } catch (e) { /* بی‌صدا */ }
     khatmSetInquiry(rows.some((r) => Number(r.my_ask) > 0));
     el.innerHTML = '';
     if (!rows.length) {
