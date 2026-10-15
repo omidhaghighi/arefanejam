@@ -518,6 +518,7 @@ function switchToTab(tabName, opts) {
   if (tabName === 'mokatib-public') { try { loadMokatibPublicTree(); } catch (e) {} }
   if (tabName === 'mokatib-home') { try { loadMokatibHome(); } catch (e) {} }
   try { bnrRenderTab(tabName); } catch (e) {}
+  pvOnTabSwitch(tabName);
   if (tabName !== 'game-ayah') gaStopTimer();
   if (tabName === 'game-ayah') gaOpen();
 }
@@ -7426,6 +7427,7 @@ async function openSurahReader(number, name, opts) {
       }
     } catch (e) {} // در صورت هر خطایی (مثلاً هنوز دادهٔ آفلاین آماده نیست) مستقیم برو سراغ باز کردن سوره
   }
+  try { trackPage('item:surah:' + number, 'سوره ' + msgSurahName(name)); } catch (e) {}
   if (getQuranMode() === 'page') {
     openQuranPageReader({ surahNumber: number, name: name, scrollToAyah: opts.scrollToAyah, autoPlay: opts.autoPlay, resumePage: opts.resumePage });
     return;
@@ -8415,6 +8417,81 @@ async function trackClick(linkType) {
   apiFetch('/track-click', { method: 'POST', body: JSON.stringify({ link_type: linkType, device_id }) }).catch(() => {});
 }
 
+/* ---------- آمار بازدید صفحه‌ها (هر صفحه/آیتمی که اضافه شود خودکار شمرده می‌شود) ----------
+   - هر بار تب عوض شود (switchToTab) یک بازدید ثبت می‌شود؛ برای آیتم‌های داخل صفحه (فعالیت‌ها، سوره‌ها، ...) از
+     trackPage('item:نوع:شناسه', 'نام خوانا') استفاده کنید تا در پیشخوان ← آمار کاربران ← «بازدید آیتم‌ها» بیاید.
+   - بدون اینترنت: بازدیدها در گوشی صف می‌شوند و با برگشتن اینترنت (با زمان واقعی خودشان) فرستاده می‌شوند.
+   - «الان در کدام صفحه‌اند»: heartbeat هر ۶۰ ثانیه (و همان لحظهٔ عوض‌شدن صفحه) صفحهٔ فعلی را هم می‌فرستد. */
+var PV_QUEUE_KEY = 'arefanejam_pv_queue';
+var pvLast = { key: '', t: 0 };
+var pvFlushing = false;
+var pvPingTimer = null;
+var pvHiddenAt = 0;
+var curPageKey = '';
+function pvQueueRead() { try { const q = JSON.parse(localStorage.getItem(PV_QUEUE_KEY) || '[]'); return Array.isArray(q) ? q : []; } catch (e) { return []; } }
+function pvQueueWrite(q) { try { localStorage.setItem(PV_QUEUE_KEY, JSON.stringify(q.slice(-200))); } catch (e) {} }
+function currentPageKey() { return curPageKey || (typeof currentTab !== 'undefined' ? currentTab : '') || ''; }
+async function pvFlush() {
+  if (pvFlushing) return;
+  if (!pvQueueRead().length || navigator.onLine === false) return;
+  pvFlushing = true;
+  try {
+    const device_id = await ensureDeviceId();
+    const batch = pvQueueRead().slice(0, 40);
+    if (batch.length) {
+      const now = Date.now();
+      const items = batch.map((e) => ({ page: e.p, label: e.l || undefined, ago: Math.max(0, Math.round((now - e.t) / 1000)) }));
+      await apiFetch('/track-page', { method: 'POST', body: JSON.stringify({ device_id, items }) });
+      pvQueueWrite(pvQueueRead().slice(batch.length));
+    }
+  } catch (e) { /* صف می‌ماند؛ بار بعد دوباره تلاش می‌شود */ }
+  pvFlushing = false;
+  if (pvQueueRead().length && navigator.onLine !== false) setTimeout(pvFlush, 1500);
+}
+function trackPage(key, label) {
+  try {
+    key = String(key || '');
+    if (!key) return;
+    const now = Date.now();
+    if (pvLast.key === key && now - pvLast.t < 4000) return; // دوبار اجرای پشت‌سرهم یک بازدید حساب شود
+    pvLast = { key: key, t: now };
+    const q = pvQueueRead();
+    q.push({ p: key, l: String(label || '').slice(0, 60), t: now });
+    pvQueueWrite(q);
+    pvFlush();
+  } catch (e) {}
+}
+function pvPingSoon() {
+  clearTimeout(pvPingTimer);
+  pvPingTimer = setTimeout(() => { try { sendHeartbeat(); } catch (e) {} }, 1200);
+}
+function pvOnTabSwitch(tabName) {
+  try {
+    let pk = String(tabName || ''), pl = '';
+    if (pk === 'submenu') {
+      const t = document.getElementById('submenu-title');
+      pk = 'submenu:' + (window.__menuGroupKey || '');
+      pl = 'منو: ' + (t ? t.textContent.trim() : '');
+    } else {
+      const h = document.querySelector('#tab-' + pk + ' h2, #tab-' + pk + ' h3');
+      pl = h ? h.textContent.trim() : '';
+      if (pl.length < 2 || pl === '—') pl = '';
+    }
+    curPageKey = pk;
+    trackPage(pk, pl);
+    pvPingSoon();
+  } catch (e) {}
+}
+document.addEventListener('visibilitychange', () => {
+  try {
+    if (document.hidden) { pvHiddenAt = Date.now(); sendHeartbeat(); return; } // صفحه '' می‌رود: کاربر از «الان آنلاین هر صفحه» خارج می‌شود
+    if (pvHiddenAt && Date.now() - pvHiddenAt > 60000) trackPage(currentPageKey()); // برگشت از پس‌زمینه = بازدید تازه
+    pvFlush();
+    sendHeartbeat();
+  } catch (e) {}
+});
+window.addEventListener('online', () => { try { pvFlush(); } catch (e) {} });
+
 /* ---------- اصلاح دستی اوقات (استثنای یک روز خاص) ---------- */
 let azanExceptions = [];
 async function loadAzanExceptions() {
@@ -8525,6 +8602,7 @@ const SUBMENU_TILE_COLORS = [
 function openMenuGroup(key) {
   const group = MENU_GROUPS[key];
   if (!group) return;
+  window.__menuGroupKey = key;
   document.getElementById('submenu-title').textContent = group.title;
   const listEl = document.getElementById('submenu-list');
   listEl.innerHTML = '';
@@ -12375,8 +12453,9 @@ function ensureDeviceId() {
 /* ---------- آمار نصب/آنلاین (heartbeat) ---------- */
 async function sendHeartbeat() {
   const device_id = await ensureDeviceId();
-  apiFetch('/heartbeat', { method: 'POST', body: JSON.stringify({ device_id }) }).catch(() => {});
+  apiFetch('/heartbeat', { method: 'POST', body: JSON.stringify({ device_id, page: document.hidden ? '' : currentPageKey() }) }).catch(() => {});
   syncDeviceIdToServiceWorker(device_id);
+  try { pvFlush(); } catch (e) {}
 }
 sendHeartbeat();
 setInterval(() => { if (!document.hidden) sendHeartbeat(); }, 60000);
@@ -14442,6 +14521,7 @@ function actPopOne() {
   if (currentTab === 'activities') actRender();
 }
 function actEnter(id) {
+  try { const n = actFindHere(String(id)); trackPage('item:act:' + id, 'فعالیت: ' + ((n && n.title) || id)); } catch (e) {}
   actPath.push(String(id));
   pushOverlay('act', actPopOne);
   actRender();
@@ -14466,7 +14546,7 @@ function actLoad() {
   }).catch(() => { if (currentTab === 'activities') actRender(); });
 }
 // پیدا کردن آیکون با شناسه در فهرست فعلی (سطح جاری)، و رفتن به یک بخش اپ (همان منطق منوی همبرگری)
-function actFindNode(id) {
+function actFindHere(id) {
   try {
     const chain = actChain();
     const node = chain.length ? chain[chain.length - 1] : null;
@@ -14491,7 +14571,7 @@ function actGoTab(t) {
       const t = e.target.closest('[data-act-id]');
       if (!t) return;
       // هدایت: اگر مدیر برای این آیکون «رفتن به بخش اپ / لینک» گذاشته باشد، به‌جای باز شدن محتوا همان انجام می‌شود
-      const gn = actFindNode(t.getAttribute('data-act-id'));
+      const gn = actFindHere(t.getAttribute('data-act-id'));
       if (gn && gn.go_type === 'tab' && gn.go_tab) { try { trackClick('activities_goto'); } catch (e2) {} if (actGoTab(gn.go_tab)) return; }
       if (gn && gn.go_type === 'link' && /^https?:\/\//i.test(gn.go_url || '')) { try { trackClick('activities_golink'); } catch (e2) {} try { window.open(gn.go_url, '_blank'); } catch (e3) { location.href = gn.go_url; } return; }
       actEnter(t.getAttribute('data-act-id'));
