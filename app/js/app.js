@@ -461,6 +461,7 @@ function switchToTab(tabName, opts) {
   document.querySelectorAll('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === tabName));
   document.querySelectorAll('.tab-panel').forEach((p) => p.classList.toggle('active', p.id === 'tab-' + tabName));
 
+  if (tabName !== 'charity') pauseCharityVideos();
   if (tabName !== 'quran-reader') disconnectQuranReadingTracker();
   if (leavingSurahNumber && tabName !== 'quran-reader') maybeShowQuranSurahExitPopup(leavingSurahNumber);
   if (tabName === 'lesson') loadVerseOfDay();
@@ -3172,6 +3173,37 @@ function buildAzanShareCanvas() {
   ctx.fillStyle = EMERALD;
   ctx.font = "700 18px 'Vazirmatn', sans-serif";
   ctx.fillText(brand, W / 2, footerY + footerH / 2 + 2);
+
+  // --- واترمارک خیلی کمرنگ (متن، پررنگی، رنگ و زاویه از پیشخوان؛ متن خالی = بدون واترمارک) ---
+  try {
+    const wmRaw = (s.wm_text === undefined || s.wm_text === null) ? 'دارالحفظ خواجه عزیزالله' : String(s.wm_text);
+    const wmText = wmRaw.trim();
+    if (wmText) {
+      let wmOp = parseFloat(s.wm_opacity); if (!isFinite(wmOp)) wmOp = 10;
+      wmOp = Math.max(0, Math.min(100, wmOp)) / 100;
+      let wmDeg = parseFloat(s.wm_angle); if (!isFinite(wmDeg)) wmDeg = -30;
+      const wmColor = /^#[0-9a-fA-F]{3,8}$/.test(String(s.wm_color || '')) ? s.wm_color : '#777777';
+      if (wmOp > 0) {
+        const rad = wmDeg * Math.PI / 180;
+        const ca = Math.abs(Math.cos(rad)), sa = Math.abs(Math.sin(rad));
+        // طول مجاز نوشته در همان جهت چرخش (تا از کادر بیرون نزند)
+        const maxLen = Math.min(ca > 0.001 ? (W * 0.86) / ca : 1e9, sa > 0.001 ? (H * 0.86) / sa : 1e9);
+        ctx.save();
+        ctx.globalAlpha = wmOp;
+        ctx.fillStyle = wmColor;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        let fs = 64;
+        ctx.font = "700 " + fs + "px 'Vazirmatn', sans-serif";
+        const tw = ctx.measureText(wmText).width;
+        if (tw > maxLen) { fs = Math.max(10, Math.floor(fs * maxLen / tw)); ctx.font = "700 " + fs + "px 'Vazirmatn', sans-serif"; }
+        ctx.translate(W / 2, H / 2);
+        ctx.rotate(rad);
+        ctx.fillText(wmText, 0, 0);
+        ctx.restore();
+      }
+    }
+  } catch (e) { /* واترمارک اختیاری است؛ خطا نباید ساخت عکس را خراب کند */ }
 
   ctx.restore(); // پایان clip گوشه‌های گرد
   return canvas;
@@ -9402,6 +9434,24 @@ function renderZakatCharityCards() {
   bindCharityCopyButtons(list);
   wrap.hidden = false;
 }
+/* ویدیوهای صفحهٔ خیرین: وقتی کاربر از صفحه یا از حالت تمام‌صفحه برمی‌گردد یا اپ به پس‌زمینه می‌رود، متوقف شوند */
+function pauseCharityVideos() {
+  try {
+    document.querySelectorAll('#charity-content video').forEach((v) => { try { v.pause(); } catch (e) {} });
+  } catch (e) {}
+}
+(function () {
+  function onFsChange() {
+    const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+    if (fsEl) { window.__charityFsVideo = (fsEl.tagName === 'VIDEO' && fsEl.closest && fsEl.closest('#charity-content')) ? fsEl : null; return; }
+    const v = window.__charityFsVideo; window.__charityFsVideo = null;
+    if (v) { try { v.pause(); } catch (e) {} }
+  }
+  document.addEventListener('fullscreenchange', onFsChange);
+  document.addEventListener('webkitfullscreenchange', onFsChange);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) pauseCharityVideos(); });
+  window.addEventListener('pagehide', pauseCharityVideos);
+})();
 function renderCharityPage() {
   const c = window.__charityData || {};
   const el = document.getElementById('charity-content');
@@ -9420,9 +9470,10 @@ function renderCharityPage() {
   card.className = 'charity-card';
   let html = '';
   if (c.image_url || c.video_url) {
+    // بالا: اول عکس (تمام‌عرض)، زیرش ویدیوی مستطیلی تمام‌عرض با نسبت واقعی خودش
     html += `<div class="charity-main-media">`;
-    if (c.image_url) html += `<img src="${c.image_url}" class="charity-main-media-el">`;
-    if (c.video_url) html += `<video id="charity-video-el" src="${c.video_url}" controls class="charity-main-media-el"></video>`;
+    if (c.image_url) html += `<img src="${c.image_url}" class="charity-main-img">`;
+    if (c.video_url) html += `<video id="charity-video-el" src="${c.video_url}" controls playsinline webkit-playsinline preload="metadata" class="charity-main-video"></video>`;
     html += `</div>`;
   }
   if (c.text) html += `<p class="muted-text" style="margin-bottom:14px">${c.text}</p>`;
@@ -9455,7 +9506,18 @@ function renderCharityPage() {
     });
   }
   const charityVideoEl = document.getElementById('charity-video-el');
-  if (charityVideoEl) charityVideoEl.addEventListener('play', () => trackClick('charity_video'), { once: true });
+  if (charityVideoEl) {
+    charityVideoEl.addEventListener('play', () => trackClick('charity_video'), { once: true });
+    // نسبت واقعی ویدیو (افقی/عمودی) را بگیر تا کادر دقیقاً به اندازهٔ ویدیو باشد
+    charityVideoEl.addEventListener('loadedmetadata', () => {
+      const vw = charityVideoEl.videoWidth, vh = charityVideoEl.videoHeight;
+      if (vw && vh) charityVideoEl.style.aspectRatio = vw + ' / ' + vh;
+    });
+  }
+  // هر ویدیوی این صفحه: با خروج از حالت تمام‌صفحه (iOS) متوقف شود
+  el.querySelectorAll('video').forEach((v) => {
+    v.addEventListener('webkitendfullscreen', () => { try { v.pause(); } catch (e) {} });
+  });
   el.querySelectorAll('.charity-media-grid video.charity-media-el').forEach((v) => {
     v.addEventListener('play', () => trackClick('charity_video'), { once: true });
   });
