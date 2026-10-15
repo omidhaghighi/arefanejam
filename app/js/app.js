@@ -11495,6 +11495,8 @@ function khatmUpdatePreview() {
       const d = khatmViewData;
       if (!d) return;
       const btn = $('khatm-view-confirm-btn');
+      if (btn.dataset.busy === '1') return; // جلوگیری از ارسال دوباره (لمس پشت‌سرهم)
+      btn.dataset.busy = '1';
       const name = $('khatm-view-name').value.trim();
       btn.disabled = true;
       try {
@@ -11503,7 +11505,10 @@ function khatmUpdatePreview() {
         try { if (name) localStorage.setItem(KHATM_NAME_KEY, name); } catch (e) {}
         const conflicts = (res && res.conflicts) || [];
         await loadKhatmView();
-        if (conflicts.length) {
+        // فقط بخش‌هایی که واقعاً دست شخص دیگری است «تعارض» حساب می‌شوند (بخشِ خودِ همین گوشی نه)
+        const mineAfter = new Set(((khatmViewData && khatmViewData.taken) || []).filter((t) => t.mine).map((t) => t.p));
+        const realConflicts = conflicts.filter((x) => !mineAfter.has(Number(x)));
+        if (realConflicts.length) {
           appAlert('khatm_conflict');
         } else {
           appAlert(khatmSel.size ? 'khatm_join_ok' : 'khatm_leave_ok');
@@ -11511,7 +11516,7 @@ function khatmUpdatePreview() {
       } catch (e) {
         appAlertErr('khatm_set_fail', e);
         khatmUpdateConfirmState();
-      }
+      } finally { btn.dataset.busy = '0'; }
     });
   } catch (e) { /* خطای این بخش نباید اجرای بقیهٔ اپ را متوقف کند */ }
 })();
