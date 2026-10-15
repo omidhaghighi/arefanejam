@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
-<link rel="stylesheet" href="css/style.css?v=134">
+<link rel="stylesheet" href="css/style.css?v=135">
 </head>
 <body>
 
@@ -107,7 +107,10 @@
     </button>
     <img id="topbar-logo" src="icons/icon-192.png" alt="لوگو" class="topbar-logo">
     <span id="topbar-title" class="topbar-title">عارفان جام</span>
-    <button id="topbar-reload-btn" class="topbar-reload-btn" title="بارگذاری مجدد">🔄</button>
+    <span id="topbar-reload-wrap" class="topbar-reload-wrap">
+      <button id="topbar-reload-btn" class="topbar-reload-btn" title="بارگذاری مجدد"><span class="reload-ic">🔄</span></button>
+      <span id="topbar-update-hint" class="topbar-update-hint" aria-hidden="true">نرم‌افزار را بروز کنید</span>
+    </span>
     <button id="topbar-dark-toggle" class="topbar-dark-toggle">🌙</button>
   </header>
 
@@ -1835,7 +1838,7 @@
 /* native-bridge.js و app.js (به‌همین ترتیب) فقط بعد از پایان صفحهٔ شروع (ویدیو/عکس/گیف) بارگذاری می‌شوند.
    اگر صفحهٔ شروعی نباشد یا تمام شده باشد، بی‌درنگ بارگذاری می‌شوند. */
 (function () {
-  var list = ['js/native-bridge.js?v=28', 'js/app.js?v=198'], i = 0;
+  var list = ['js/native-bridge.js?v=31', 'js/app.js?v=200'], i = 0;
   function next() {
     if (i >= list.length) return;
     var el = document.createElement('script'); el.src = list[i++];

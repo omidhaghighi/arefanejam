@@ -4973,3 +4973,39 @@ body.dark-mode .sv-card h4 { color: var(--gold-light); }
 .exm-score b { font-size: 40px; color: var(--emerald); }
 body.dark-mode .exm-score b { color: var(--gold-light); }
 .sv-rn { width: 100%; margin-top: 6px; }
+
+/* اعلان داخل اپ: «پاسخ شما در بخش نظرات داده شد» */
+.fb-banner { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 10px); left: 12px; right: 12px; margin: 0 auto; max-width: 440px; z-index: 99998; direction: rtl;
+  display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 14px; background: #143C36; color: #FFF6DC; border: 1px solid #B08D4E;
+  box-shadow: 0 8px 24px rgba(0,0,0,.3); font-size: 14px; cursor: pointer; animation: fbBannerIn .35s ease; }
+.fb-banner b { flex: 1; font-weight: 700; }
+.fb-banner-go { border: 0; border-radius: 10px; padding: 6px 12px; background: #B08D4E; color: #143C36; font-weight: 700; font-family: inherit; cursor: pointer; }
+.fb-banner-x { border: 0; background: transparent; color: #FFF6DC; font-size: 16px; padding: 4px 6px; cursor: pointer; opacity: .8; }
+@keyframes fbBannerIn { from { transform: translateY(-24px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* ===== دکمهٔ بروزرسانی نوار بالا: وقتی نسخهٔ جدید هست می‌چرخد، قرمز/آبی می‌شود و نوشتهٔ ریز زیرش می‌آید ===== */
+.topbar-reload-wrap { position: relative; display: inline-flex; flex: 0 0 auto; }
+.topbar-reload-btn .reload-ic { display: inline-block; line-height: 1; }
+.topbar-reload-btn.has-update:not(.spinning) {
+  border-color: rgba(255,255,255,.8);
+  animation: updBtnColor 1.4s ease-in-out infinite;
+}
+.topbar-reload-btn.has-update:not(.spinning) .reload-ic { animation: updIconSpin 1.8s linear infinite; }
+@keyframes updBtnColor {
+  0%, 100% { background: #e53935; box-shadow: 0 0 0 0 rgba(229,57,53,.6), 0 0 12px 2px rgba(229,57,53,.75); }
+  50%      { background: #1e88e5; box-shadow: 0 0 0 0 rgba(30,136,229,.6), 0 0 12px 2px rgba(30,136,229,.75); }
+}
+@keyframes updIconSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.topbar-update-hint {
+  display: none; position: absolute; top: 100%; left: 50%; margin-top: 1px;
+  transform: translateX(-50%); white-space: nowrap; z-index: 5;
+  font-size: 9px; line-height: 1.1; font-weight: 700; padding: 2px 6px; border-radius: 999px;
+  color: #fff; background: #e53935; cursor: pointer;
+  animation: updHintColor 1.4s ease-in-out infinite;
+}
+.topbar-update-hint.show { display: block; }
+@keyframes updHintColor { 0%, 100% { background: #e53935; } 50% { background: #1e88e5; } }
+@media (prefers-reduced-motion: reduce) {
+  .topbar-reload-btn.has-update .reload-ic { animation: none; }
+  .topbar-reload-btn.has-update:not(.spinning), .topbar-update-hint { animation-duration: 3s; }
+}

@@ -474,7 +474,11 @@ public class UpdateJobService extends JobService {
             if (api == null || !api.startsWith("http")) api = DEFAULT_API;
             while (api.endsWith("/")) api = api.substring(0, api.length() - 1);
 
-            JSONObject info = new JSONObject(httpText(api + "/inbox?t=" + System.currentTimeMillis(), connectMs, readMs));
+            // با device_id، پاسخ‌های پشتیبانِ «نظر و پشتیبانی» همین دستگاه هم در فهرست می‌آید
+            String dev = sp.getString("device", "");
+            String q = "/inbox?t=" + System.currentTimeMillis();
+            if (dev != null && dev.matches("[A-Za-z0-9_.\\-]{8,64}")) q += "&device_id=" + dev;
+            JSONObject info = new JSONObject(httpText(api + q, connectMs, readMs));
             sp.edit().putLong("inbox_last", System.currentTimeMillis()).apply();
             if (!info.optBoolean("enabled", false)) return;
             JSONArray items = info.optJSONArray("items");
@@ -583,7 +587,9 @@ public class UpdateJobService extends JobService {
                             .setShowWhen(true)
                             .setAutoCancel(true);
                     if (pi != null) b.setContentIntent(pi);
-                    int id = 20000 + (it.optString("uid", "").hashCode() & 0xFFFFF) % 70000;
+                    // پاسخ پشتیبان همیشه با شناسهٔ ثابت ۴۸۰۶ نشان داده می‌شود تا اپ بتواند بعد از دیدن پاسخ، اعلانش را ببندد
+                    int id = "feedback".equals(it.optString("type", "")) ? 4806
+                            : 20000 + (it.optString("uid", "").hashCode() & 0xFFFFF) % 70000;
                     nm.notify(id, b.build());
                 }
             } else {

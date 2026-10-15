@@ -998,6 +998,14 @@ const APP_MSG_REG = {
   "text": "برای اینکه اذان همیشه سر وقت و حتی با گوشی قفل پخش شود، در پنجرهٔ بعدی لطفاً «اجازه» (Allow) را بزنید.",
   "ok": "باشه"
  },
+ "notif_ask": {
+  "kind": "alert",
+  "tone": "warn",
+  "icon": "🔔",
+  "title": "اعلان‌های برنامه بسته است",
+  "text": "اعلان‌های «عارفان جام» روی گوشی شما خاموش است و پیام‌ها و خبرهای تازه به شما نمی‌رسد. لطفاً از تنظیمات گوشی ← برنامه‌ها ← عارفان جام ← اعلان‌ها (Notifications)، اعلان‌ها را روشن کنید.",
+  "ok": "باشه"
+ },
  "exact_alarm_ask": {
   "kind": "confirm",
   "tone": "warn",
@@ -12236,7 +12244,7 @@ function ensureDeviceId() {
     deviceIdPromise = apiFetch('/register-device', { method: 'POST' })
       .then((res) => {
         const id = res && res.device_id;
-        if (id) { localStorage.setItem('arefanejam_device_id', id); return id; }
+        if (id) { localStorage.setItem('arefanejam_device_id', id); try { if (typeof window.arefNativeDevice === 'function') window.arefNativeDevice(id); } catch (e) {} return id; }
         return 'dev-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
       })
       .catch(() => 'dev-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10));
@@ -13820,14 +13828,56 @@ async function loadFeedbackSettings() {
   } catch (e) { /* بدون اینترنت: متن‌های پیش‌فرض */ }
 }
 
-// آیا پشتیبان به گفتگوی من جواب داده؟ (نقطهٔ قرمز روی کاشی)
+// آیا پشتیبان به گفتگوی من جواب داده؟ (نقطهٔ قرمز روی کاشی + اعلان داخل اپ «پاسخ شما در بخش نظرات داده شد»).
+// وقتی اپ بسته/در پس‌زمینه است، همین پاسخ را کد بومی از راه /inbox?device_id=... به‌صورت اعلان اندروید می‌آورد.
+const FB_NOTED_KEY = 'arefanejam_fb_noted';
+function fbCancelNotice() { try { if (typeof window.arefCancelFeedbackNotice === 'function') window.arefCancelFeedbackNotice(); } catch (e) {} }
+function fbBanner(ticketId) {
+  try {
+    const old = document.getElementById('fb-banner'); if (old) old.remove();
+    const b = fbEl('div', 'fb-banner');
+    b.id = 'fb-banner';
+    b.setAttribute('role', 'alert');
+    b.appendChild(fbEl('span', '', '💬'));
+    b.appendChild(fbEl('b', '', 'پاسخ شما در بخش نظرات داده شد'));
+    const go = fbEl('button', 'fb-banner-go', 'مشاهده');
+    go.type = 'button';
+    const x = fbEl('button', 'fb-banner-x', '✕');
+    x.type = 'button';
+    x.setAttribute('aria-label', 'بستن');
+    const close = () => { try { b.remove(); } catch (e) {} };
+    go.addEventListener('click', (e) => { e.stopPropagation(); close(); if (ticketId) openFbView(ticketId); else switchToTab('feedback', { push: true }); });
+    x.addEventListener('click', (e) => { e.stopPropagation(); close(); });
+    b.addEventListener('click', () => { close(); if (ticketId) openFbView(ticketId); else switchToTab('feedback', { push: true }); });
+    b.appendChild(go); b.appendChild(x);
+    document.body.appendChild(b);
+    try { if (navigator.vibrate) navigator.vibrate([120, 60, 120]); } catch (e) {}
+    setTimeout(close, 15000);
+  } catch (e) {}
+}
 async function fbCheckNews() {
   try {
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
     fbLastCheck = Date.now();
     const device_id = await ensureDeviceId();
     const d = await shariqGet('/feedback/mine?device_id=' + encodeURIComponent(device_id));
-    fbSetDot(d && Number(d.unread) > 0);
+    const rows = Array.isArray(d && d.tickets) ? d.tickets : [];
+    const unread = rows.filter((r) => r && r.unread);
+    fbSetDot(unread.length > 0 || Number(d && d.unread) > 0);
+    if (!unread.length) {
+      try { localStorage.removeItem(FB_NOTED_KEY); } catch (e) {}
+      fbCancelNotice();
+      return;
+    }
+    // هر پاسخ تازه (تعداد پیام‌های گفتگو عوض می‌شود) فقط یک‌بار اعلام می‌شود
+    const rev = unread.map((r) => r.id + ':' + r.count).join(',');
+    let noted = '';
+    try { noted = localStorage.getItem(FB_NOTED_KEY) || ''; } catch (e) {}
+    if (!document.hidden && noted !== rev) {
+      try { localStorage.setItem(FB_NOTED_KEY, rev); } catch (e) {}
+      fbCancelNotice();
+      if (fbViewId !== Number(unread[0].id) || currentTab !== 'feedback-view') fbBanner(unread[0].id);
+    }
   } catch (e) { /* بی‌صدا */ }
 }
 
@@ -14054,6 +14104,8 @@ document.addEventListener('visibilitychange', () => {
 });
 loadFeedbackSettings();
 setTimeout(fbCheckNews, 10000);
+// تا وقتی اپ روی صفحه است، هر ۹۰ ثانیه می‌پرسد آیا پاسخی آمده (پاسخ در همان لحظه داخل اپ نشان داده شود)
+setInterval(() => { if (!document.hidden) fbCheckNews(); }, 90000);
 
 /* ---------- فعالیت‌های حوزه: آیکون‌های درختی که مدیر در پیشخوان تعریف می‌کند ----------
    پیشخوان ← عارفان جام ← «فعالیت‌های حوزه». داده از GET /activities می‌آید (آفلاین هم ذخیره می‌شود).

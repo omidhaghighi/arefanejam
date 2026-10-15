@@ -368,6 +368,11 @@ public class AppUpdaterPlugin extends Plugin {
             if (api != null && api.startsWith("http")) {
                 UpdateJobService.prefs(ctx).edit().putString("api", api).apply();
             }
+            // شناسهٔ دستگاه (برای اعلان «پاسخ شما در بخش نظرات داده شد»): فقط نویسه‌های امن
+            String dev = call.getString("device", "");
+            if (dev != null && dev.matches("[A-Za-z0-9_.\\-]{8,64}")) {
+                UpdateJobService.prefs(ctx).edit().putString("device", dev).apply();
+            }
             UpdateJobService.schedule(ctx);
             JSObject r = new JSObject();
             r.put("job", UpdateJobService.hasJob(ctx));

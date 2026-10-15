@@ -363,6 +363,29 @@
     stSet(s);
   })();
   var permStepBusy = false;
+  /* وضعیت واقعی مجوز «اعلان‌ها» را می‌پرسد. مجوز فقط یک‌بار (باز شدن دوم) خواسته می‌شد و اگر کاربر رد می‌کرد یا
+     بعداً از تنظیمات گوشی بسته می‌شد، اعلان‌های بومی (اعلان کاربران/خبر/پاسخ پشتیبان) برای همیشه بی‌صدا نمی‌رسیدند.
+     حالا: اگر هنوز «prompt» است دوباره درخواست می‌شود؛ اگر «denied» است پیام راهنما برای روشن‌کردن از تنظیمات گوشی نشان
+     داده می‌شود (حداکثر ۴ بار، هر ≥ ۳ روز). نتیجه: true اگر چیزی به کاربر نشان داده شد. */
+  var NOTIF_ASK_KEY = 'arefanejam_notif_asked'; // {n, ts}
+  function notifHealth() {
+    if (typeof LN.checkPermissions !== 'function') return Promise.resolve(false);
+    return LN.checkPermissions().then(function (r) {
+      var d = r && r.display;
+      if (!d || d === 'granted') return false;
+      var st = {};
+      try { st = JSON.parse(localStorage.getItem(NOTIF_ASK_KEY) || '{}'); } catch (e) {}
+      var n = Number(st.n) || 0, ts = Number(st.ts) || 0;
+      if (n >= 4 || (n > 0 && Date.now() - ts < 3 * DAY_MS)) return false;
+      try { localStorage.setItem(NOTIF_ASK_KEY, JSON.stringify({ n: n + 1, ts: Date.now() })); } catch (e) {}
+      if (d === 'prompt' || d === 'prompt-with-rationale') {
+        return Promise.resolve(LN.requestPermissions()).then(function () { return true; });
+      }
+      if (typeof window.appAlert === 'function') return Promise.resolve(window.appAlert('notif_ask')).then(function () { return true; });
+      try { window.alert('اعلان‌های برنامه روی گوشی شما بسته است. از تنظیمات گوشی ← برنامه‌ها ← عارفان جام ← اعلان‌ها، آن را روشن کنید.'); } catch (e) {}
+      return true;
+    }).catch(function (e) { log(e); return false; });
+  }
   function permStep() {
     try {
       if (permStepBusy) return Promise.resolve();
@@ -370,16 +393,20 @@
       var now = Date.now();
       if (!locationDone()) return Promise.resolve();                       // اول فقط مکان
       if (s.last && now - s.last < 20 * 3600 * 1000) return Promise.resolve();
-      var step = null;
-      if (!s.notif) { if (s.sessions >= (IS_IOS ? 1 : 2)) { s.notif = 1; step = function () { return LN.requestPermissions(); }; } }
-      else if (IS_IOS) { step = null; }                                    // iOS: باتری/آلارم دقیق ندارد
-      else if (!s.bat) { if (now - s.first >= DAY_MS) { s.bat = 1; step = function () { return askBattery(false); }; } }
-      else if (!s.exact) { if (now - s.first >= 2 * DAY_MS) { s.exact = 1; step = askExactAlarmIfNeeded; } }
-      else { step = function () { return askBattery(false); }; }          // اگر باتری را نپذیرفته: هر ۳ روز، حداکثر ۳ بار
-      if (!step) return Promise.resolve();
-      s.last = now; stSet(s);
       permStepBusy = true;
-      return Promise.resolve().then(step).catch(log).then(function () { permStepBusy = false; });
+      var pre = (s.notif && !IS_IOS) ? notifHealth() : Promise.resolve(false);
+      return pre.then(function (shown) {
+        if (shown) { var t = stGet() || s; t.last = Date.now(); stSet(t); return; }   // این نوبت صرف یادآوری اعلان‌ها شد
+        var step = null;
+        if (!s.notif) { if (s.sessions >= (IS_IOS ? 1 : 2)) { s.notif = 1; step = function () { return LN.requestPermissions(); }; } }
+        else if (IS_IOS) { step = null; }                                    // iOS: باتری/آلارم دقیق ندارد
+        else if (!s.bat) { if (now - s.first >= DAY_MS) { s.bat = 1; step = function () { return askBattery(false); }; } }
+        else if (!s.exact) { if (now - s.first >= 2 * DAY_MS) { s.exact = 1; step = askExactAlarmIfNeeded; } }
+        else { step = function () { return askBattery(false); }; }          // اگر باتری را نپذیرفته: هر ۳ روز، حداکثر ۳ بار
+        if (!step) return;
+        s.last = now; stSet(s);
+        return Promise.resolve().then(step).catch(log);
+      }).then(function () { permStepBusy = false; }, function (e) { permStepBusy = false; log(e); });
     } catch (e) { permStepBusy = false; log(e); return Promise.resolve(); }
   }
   document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') setTimeout(permStep, 2500); });
@@ -478,6 +505,15 @@
 
   function log(e) { try { console.log('[AppUpdate]', e); } catch (x) {} }
   function AU() { return Cap.Plugins && Cap.Plugins.AppUpdater; }
+  // شناسهٔ دستگاه را به بخش بومی می‌دهیم تا با اپ بسته هم بتواند «پاسخ شما در بخش نظرات داده شد» را برای همین گوشی بیاورد
+  function devId() { try { return localStorage.getItem('arefanejam_device_id') || ''; } catch (e) { return ''; } }
+  window.arefNativeDevice = function (id) {
+    try { var PB0 = AU(); if (PB0 && typeof PB0.bgConfig === 'function') PB0.bgConfig({ api: apiBase(), device: String(id || devId()) }).catch(function () {}); } catch (e) {}
+  };
+  // اعلان «پاسخ پشتیبان» (شناسهٔ ثابت ۴۸۰۶) بعد از دیدن پاسخ بسته می‌شود
+  window.arefCancelFeedbackNotice = function () {
+    try { var LN0 = Cap.Plugins && Cap.Plugins.LocalNotifications; if (LN0 && typeof LN0.cancel === 'function') LN0.cancel({ notifications: [{ id: 4806 }] }).catch(function () {}); } catch (e) {}
+  };
 
   function apiBase() {
     var b = '';
@@ -864,6 +900,7 @@
     fetchInfo().then(function (info) {
       var announced = !!(info && info.enabled && info.version && info.apk_url);
       var available = announced && isNewer(info.version, CURRENT);
+      if (info) setUpdateAvail('apk', available ? info.version : '');
       if (!available) {
         if (manual && info && info.queued) { render({ mode: 'info', icon: 'check', title: QUEUED_TITLE, message: QUEUED_MSG, buttons: [{ label: 'باشه', primary: true }] }); return; }
         if (manual) render({
@@ -991,6 +1028,30 @@
   /* ===== دکمهٔ «بروزرسانی» نوار بالا (🔄 بالا سمت چپ) =====
      با هر بار زدن: اول نسخهٔ جدید APK از سایت پرسیده می‌شود؛ اگر بود پنجرهٔ «نسخهٔ جدید آماده است» می‌آید.
      اگر APK جدید نبود، «بروزرسانی ظاهر اپ از سایت» بررسی و همان لحظه اعمال می‌شود. اگر هیچ‌کدام نبود: «برنامه به‌روز است». */
+  /* ===== نشانگر «بروزرسانی جدید» روی همین دکمه =====
+     وقتی نسخهٔ جدید APK (یا ظاهر جدید اپ) از سایت اعلام شده باشد، دکمه می‌چرخد و قرمز/آبی می‌شود
+     و نوشتهٔ ریز «نرم‌افزار را بروز کنید» زیرش می‌آید. با نصب نسخهٔ جدید یا به‌روز بودن، خودکار خاموش می‌شود. */
+  var UPD_AVAIL_KEY = 'arefanejam_upd_avail';
+  var updAvail = { apk: '', web: false };
+
+  function paintUpdateBtn() {
+    var on = !!(updAvail.apk || updAvail.web);
+    var b = document.getElementById('topbar-reload-btn');
+    var h = document.getElementById('topbar-update-hint');
+    if (b) b.classList.toggle('has-update', on);
+    if (h) h.classList.toggle('show', on);
+  }
+
+  function setUpdateAvail(kind, val) {
+    if (kind === 'apk') {
+      updAvail.apk = val ? String(val) : '';
+      if (val) lsSet(UPD_AVAIL_KEY, String(val)); else lsDel(UPD_AVAIL_KEY);
+    } else {
+      updAvail.web = !!val;
+    }
+    paintUpdateBtn();
+  }
+
   var manualBusy = false;
   var manualRun = 0;
 
@@ -1031,10 +1092,10 @@
         st = s || {};
         if (st.stagedId) return 'staged';
         return withTimeout(webManifestFetch(), 15000).then(function (m) {
-          if (!m || !m.enabled || !m.id || !m.base || !m.files || !m.files.length) return 'none';
-          if (m.id === st.activeId) return 'none';
+          if (!m || !m.enabled || !m.id || !m.base || !m.files || !m.files.length) { setUpdateAvail('web', false); return 'none'; }
+          if (m.id === st.activeId) { setUpdateAvail('web', false); return 'none'; }
           if (m.id === st.badId && Date.now() - (st.badTs || 0) < WEB_BAD_MS) return 'none';
-          return P.webSync({ id: m.id, base: m.base, files: m.files }).then(function () { return 'staged'; });
+          return P.webSync({ id: m.id, base: m.base, files: m.files }).then(function () { setUpdateAvail('web', true); return 'staged'; });
         });
       }).then(function (r) { webBusy = false; return r; }, function (e) { webBusy = false; log(e); return 'error'; });
     });
@@ -1075,6 +1136,7 @@
     withTimeout(fetchInfo(), 15000).catch(function (e) { log(e); apiOk = false; return null; }).then(function (info) {
       if (run !== manualRun) return;
       var announced = !!(info && info.enabled && info.version && info.apk_url);
+      if (info) setUpdateAvail('apk', (announced && isNewer(info.version, CURRENT)) ? info.version : '');
       if (announced && isNewer(info.version, CURRENT)) {
         // APK جدید هست: پنجرهٔ «نسخهٔ جدید آماده است» (با دکمهٔ بروزرسانی)
         manualFinish(run);
@@ -1273,6 +1335,14 @@
   function wire() {
     var rb = document.getElementById('topbar-reload-btn');
     if (rb) rb.title = 'بروزرسانی';
+    // اگر دفعهٔ قبل نسخهٔ جدید اعلام شده بود و هنوز نصب نشده، نشانگر همان لحظه (بدون انتظار اینترنت) دیده شود
+    var cachedV = lsGet(UPD_AVAIL_KEY);
+    if (cachedV) {
+      if (isNewer(cachedV, CURRENT)) updAvail.apk = cachedV; else lsDel(UPD_AVAIL_KEY);
+    }
+    paintUpdateBtn();
+    var uh = document.getElementById('topbar-update-hint');
+    if (uh) uh.addEventListener('click', function () { var r = document.getElementById('topbar-reload-btn'); if (r && !r.disabled) r.click(); });
     var tile = document.getElementById('app-update-tile');
     if (tile) {
       tile.classList.remove('hidden');
@@ -1289,7 +1359,7 @@
         // اول کار پس‌زمینه ثبت می‌شود (bgConfig) و بعد وضعیت خوانده می‌شود؛ وگرنه ممکن بود وضعیت «غیرفعال» دیده شود
         // چون هنوز ثبت نشده بود.
         var preBg = (PS && typeof PS.bgConfig === 'function')
-          ? Promise.resolve(PS.bgConfig({ api: apiBase() })).catch(function () {})
+          ? Promise.resolve(PS.bgConfig({ api: apiBase(), device: devId() })).catch(function () {})
           : Promise.resolve();
         if (PS && typeof PS.status === 'function') preBg.then(function () { return PS.status(); }).then(function (s) {
           var why = '';
@@ -1308,7 +1378,7 @@
       setupAzanTest(vl);
     }
     // آدرس سایت را به بخش بومی می‌دهیم تا دانلود پس‌زمینه (حتی با اپ بسته) از همان سایت بپرسد
-    try { var PB = AU(); if (PB && typeof PB.bgConfig === 'function') PB.bgConfig({ api: apiBase() }).catch(function () {}); } catch (eb) {}
+    try { var PB = AU(); if (PB && typeof PB.bgConfig === 'function') PB.bgConfig({ api: apiBase(), device: devId() }).catch(function () {}); } catch (eb) {}
     // با برگشتن اینترنت، بدون منتظر ماندن برای زمان‌سنج، بررسی می‌شود
     window.addEventListener('online', function () { setTimeout(function () { check(false); }, 2500); });
     watchBoot();
@@ -1374,10 +1444,12 @@
       st = s || {};
       return webManifestFetch();
     }).then(function (m) {
-      if (!m || !m.enabled || !m.id || !m.base || !m.files || !m.files.length) return;
-      if (m.id === st.activeId || m.id === st.stagedId) return;
+      if (!m || !m.enabled || !m.id || !m.base || !m.files || !m.files.length) { setUpdateAvail('web', false); return; }
+      if (m.id === st.activeId) { setUpdateAvail('web', false); return; }
+      if (m.id === st.stagedId) { setUpdateAvail('web', true); return; }
       if (m.id === st.badId && Date.now() - (st.badTs || 0) < WEB_BAD_MS) return;
       return P.webSync({ id: m.id, base: m.base, files: m.files }).then(function () {
+        setUpdateAvail('web', true);
         // اگر اپ همین چند ثانیه پیش باز شده و کاربر مشغول کاری نیست، همین حالا اعمال شود؛ وگرنه دفعهٔ بعد
         webPending = true;
         if (Date.now() - sessionStart < 60000 && !userIsTyping()) webApplyStaged();
