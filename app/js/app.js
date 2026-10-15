@@ -71,6 +71,27 @@ function getUserCalcMethod() {
 function setUserCalcMethod(key) {
   try { if (!key || key === 'default') localStorage.removeItem(AZAN_METHOD_KEY); else localStorage.setItem(AZAN_METHOD_KEY, key); } catch (e) {}
 }
+/* ===== تنظیمات پیشرفتهٔ اذان (صفحهٔ «تنظیمات»؛ فقط روی همین گوشی ذخیره می‌شود) =====
+   off: اذان هر وقت جداگانه خاموش · adj: اصلاح دقیقه‌ای هر وقت (−۳۰ تا +۳۰) · pre: یادآوری N دقیقه قبل از اذان (۰ = خاموش)
+   post: یادآوری «وقت نماز» N دقیقه بعد از اذان (۰ = خاموش؛ پیش‌فرض ۲۰ مثل قبل) · voice: صدای اذان از میان صداهای داخل اپ */
+const AZ_PREFS_KEY = 'arefanejam_azan_prefs';
+const AZ_PRAYERS = [['fajr', 'فجر'], ['dhuhr', 'ظهر'], ['asr', 'عصر'], ['maghrib', 'مغرب'], ['isha', 'عشاء']];
+let azPrefsCache = null;
+function azPrefs() {
+  if (azPrefsCache) return azPrefsCache;
+  let p = {};
+  try { p = JSON.parse(localStorage.getItem(AZ_PREFS_KEY) || '{}') || {}; } catch (e) { p = {}; }
+  p.off = (p.off && typeof p.off === 'object') ? p.off : {};
+  p.adj = (p.adj && typeof p.adj === 'object') ? p.adj : {};
+  p.pre = Number(p.pre) > 0 ? Number(p.pre) : 0;
+  p.post = (p.post === undefined || p.post === null || !isFinite(Number(p.post))) ? 20 : Math.max(0, Number(p.post));
+  p.voice = String(p.voice || '');
+  azPrefsCache = p;
+  return p;
+}
+function azPrefsSave() { try { localStorage.setItem(AZ_PREFS_KEY, JSON.stringify(azPrefs())); } catch (e) {} }
+function azOff(key) { return !!azPrefs().off[key]; }
+function azAdj(key) { const v = Number(azPrefs().adj[key]); return isFinite(v) ? Math.max(-30, Math.min(30, Math.round(v))) : 0; }
 function userCalcMethodName() {
   const k = getUserCalcMethod();
   const o = AZAN_METHOD_OPTIONS.find((x) => x.key === k);
@@ -491,6 +512,7 @@ function switchToTab(tabName, opts) {
   if (tabName === 'feedback-view') loadFbView();
   if (tabName === 'activities') actOnTabOpen(); else actLeaveTab();
   if (tabName === 'ads') adsOnTabOpen();
+  if (tabName === 'settings') { try { settingsOnTabOpen(); } catch (e) {} }
   if (tabName === 'students') { try { window.stuOnTabOpen(); } catch (e) {} }
   // مکاتب: بارگذاری داده همین‌جا انجام می‌شود (نه فقط با کلیک کاشی «بیشتر»)، تا از منوی پایین هم کامل باز شود
   if (tabName === 'mokatib-public') { try { loadMokatibPublicTree(); } catch (e) {} }
@@ -3405,6 +3427,9 @@ function buildPrayerListForDate(date, includeHidden) {
     times.isha = applyTimeOverride(times.isha, exception.isha);
   }
 
+  // اصلاح دقیقه‌ای که خود کاربر در «تنظیمات» برای هر وقت گذاشته (روی نمایش و اذان هر دو اثر دارد)
+  ['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'].forEach((k) => { const a = azAdj(k); if (a && times[k]) times[k] = new Date(times[k].getTime() + a * 60000); });
+
   const list = [
     { key: 'fajr', label: 'فجر', time: times.fajr },
     { key: 'sunrise', label: 'طلوع آفتاب', time: times.sunrise },
@@ -3457,6 +3482,7 @@ function computePrayerTimes() {
   try { renderCalAzan(); } catch (e) {}
   checkAzanAlarm(list, now);
   checkPrayerTimeAlarm(list, now);
+  checkPreAzanAlarm(list, now);
   scheduleNextAzanTimer(list, now);
   updateStickyNotification(upcoming);
   syncScheduleToServiceWorker(list);
@@ -3492,17 +3518,19 @@ function syncScheduleToServiceWorker(list) {
   // prayers: only the first 7 days (as before) for the service worker
   const nativePrayers = [];
   allLists.forEach((dayList) => dayList
-    .filter((p) => !NON_PRAYER_KEYS.includes(p.key))
+    .filter((p) => !NON_PRAYER_KEYS.includes(p.key) && !azOff(p.key))
     .forEach((p) => nativePrayers.push({ key: p.key, label: p.label, timeIso: p.time.toISOString() })));
   const prayers = nativePrayers.slice(0, 7 * 5);
   // اذان فقط وقتی فعال است که مدیر خاموشش نکرده باشد و کاربر هم سوییچ «فعال‌سازی پخش اذان» را روشن گذاشته باشد
   const enabled = s.azan_enabled !== '' && bgModeOnSafe();
-  const voiceId = s.azan_voice_active || '';
-  const key = JSON.stringify(nativePrayers) + '|' + (s.azan_audio_url || '') + '|' + voiceId + '|' + enabled;
+  const voiceId = azPrefs().voice || s.azan_voice_active || '';
+  const preM = azPrefs().pre;
+  const key = JSON.stringify(nativePrayers) + '|' + (s.azan_audio_url || '') + '|' + voiceId + '|' + enabled + '|' + preM;
   if (key === lastScheduleSyncKey) return; // چیزی تغییر نکرده
   lastScheduleSyncKey = key;
   // نسخهٔ اندروید (Capacitor): آلارم‌ها به سیستم آلارم خود اندروید سپرده می‌شوند
   if (window.NativeAlarms) window.NativeAlarms.syncSchedule(nativePrayers, enabled, s.brand_name || 'عارفان جام', voiceId, normalizeAzanUrl(s.azan_audio_url) || '');
+  if (window.NativeAlarms && typeof window.NativeAlarms.syncPre === 'function') window.NativeAlarms.syncPre(enabled && preM > 0 ? nativePrayers.slice(0, 35) : [], preM);
   if (!swReady) return;
   navigator.serviceWorker.controller.postMessage({
     type: 'AREFANEJAM_SCHEDULE_SYNC',
@@ -3758,6 +3786,7 @@ function checkAzanAlarm(list, now) {
   const todayKey = now.toDateString();
   list.forEach((p) => {
     if (p.key === 'sunrise' || p.key === 'sunset') return; // این دو، اذان محسوب نمی‌شوند
+    if (azOff(p.key)) return; // کاربر اذان این وقت را خاموش کرده
     const diffMinutes = (now - p.time) / 60000;
     if (diffMinutes >= 0 && diffMinutes < 2) {
       const storeKey = PRAYER_PLAYED_PREFIX + p.key + '_' + todayKey;
@@ -3776,13 +3805,38 @@ function checkAzanAlarm(list, now) {
    بر پایهٔ اوقات شرعیِ همین گوشی محاسبه می‌شود، پس بدون اینترنت هم کار می‌کند. */
 const PRAYER_TIME_REMINDER_MINUTES = 20;
 const PRAYER_TIME_PLAYED_PREFIX = 'arefanejam_prayer_time_played_';
+/* یادآوری «N دقیقه تا اذان» وقتی اپ باز است (نسخهٔ وب). در اپ اندروید همین یادآوری با اعلان بومی (NativeAlarms.syncPre) می‌آید. */
+const PRE_PLAYED_PREFIX = 'arefanejam_pre_played_';
+function checkPreAzanAlarm(list, now) {
+  if (window.NativeAlarms) return;
+  const preM = azPrefs().pre;
+  if (!preM) return;
+  const s = state.settings || {};
+  if (s.azan_enabled === '') return;
+  const todayKey = now.toDateString();
+  list.forEach((p) => {
+    if (p.key === 'sunrise' || p.key === 'sunset' || azOff(p.key)) return;
+    const at = new Date(p.time.getTime() - preM * 60000);
+    const diffMinutes = (now - at) / 60000;
+    if (diffMinutes >= 0 && diffMinutes < 2 && p.time > now) {
+      const storeKey = PRE_PLAYED_PREFIX + p.key + '_' + preM + '_' + todayKey;
+      if (!sessionStorage.getItem(storeKey)) {
+        sessionStorage.setItem(storeKey, '1');
+        showAlarmModal(toPersianDigits(preM) + ' دقیقه تا اذان ' + p.label, 'به وقت اذان ' + p.label + ' ' + toPersianDigits(preM) + ' دقیقه مانده است.');
+      }
+    }
+  });
+}
 function checkPrayerTimeAlarm(list, now) {
   const s = state.settings || {};
   if (s.azan_enabled === '') return; // مدیر پخش اذان را کاملاً خاموش کرده است
   const todayKey = now.toDateString();
+  const postM = azPrefs().post;
+  if (!postM) return; // کاربر یادآوری «وقت نماز» را خاموش کرده
   list.forEach((p) => {
     if (p.key === 'sunrise' || p.key === 'sunset' || p.key === 'maghrib') return;
-    const reminderTime = new Date(p.time.getTime() + PRAYER_TIME_REMINDER_MINUTES * 60000);
+    if (azOff(p.key)) return;
+    const reminderTime = new Date(p.time.getTime() + postM * 60000);
     const diffMinutes = (now - reminderTime) / 60000;
     if (diffMinutes >= 0 && diffMinutes < 2) {
       const storeKey = PRAYER_TIME_PLAYED_PREFIX + p.key + '_' + todayKey;
@@ -3886,9 +3940,14 @@ function scheduleNextAzanTimer(list, now) {
   list.forEach((p) => {
     if (p.key === 'sunrise' || p.key === 'sunset') return;
     if (p.time > now) upcomingTimes.push(p.time);
-    if (p.key !== 'maghrib') {
-      const reminderTime = new Date(p.time.getTime() + PRAYER_TIME_REMINDER_MINUTES * 60000);
+    const postM = azPrefs().post, preM = azPrefs().pre;
+    if (p.key !== 'maghrib' && postM > 0) {
+      const reminderTime = new Date(p.time.getTime() + postM * 60000);
       if (reminderTime > now) upcomingTimes.push(reminderTime);
+    }
+    if (preM > 0 && !window.NativeAlarms) {
+      const preTime = new Date(p.time.getTime() - preM * 60000);
+      if (preTime > now) upcomingTimes.push(preTime);
     }
   });
   if (!upcomingTimes.length) return;
@@ -13383,6 +13442,108 @@ document.getElementById('hb-page-close').addEventListener('click', () => overlay
 document.getElementById('hb-page').addEventListener('click', (e) => { if (e.target.id === 'hb-page') overlayGo('hbpage', 0, closeHbPage); });
 hbLoad();
 loadMoreIcons(true);
+
+/* ---------- صفحهٔ «تنظیمات» (بیشتر ← ⚙️ تنظیمات، و چرخ‌دندهٔ پایین-راست منوی همبرگری) ----------
+   سوییچ پخش اذان همان عنصر قبلی است (فقط جایش عوض شده؛ شناسه‌ها #bg-mode-toggle / #bg-mode-status ثابت‌اند).
+   دکمه‌های شهر / GPS / روش محاسبه همان دکمه‌های صفحهٔ اذان را صدا می‌زنند. بخش «پایداری و تست اذان» فقط در اپ اندروید دیده می‌شود. */
+function settingsPlugin() { try { return window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AppUpdater; } catch (e) { return null; } }
+function settingsOnTabOpen() {
+  const loc = document.getElementById('azan-location-label'), myLoc = document.getElementById('set-loc-label');
+  if (loc && myLoc) myLoc.textContent = loc.textContent;
+  try { refreshAzanMethodUi(); } catch (e) {}
+  const mn = document.getElementById('azan-method-name'), myMn = document.getElementById('set-method-name');
+  if (mn && myMn) myMn.textContent = mn.textContent;
+  const nat = document.getElementById('set-native-block');
+  if (nat) nat.classList.toggle('hidden', typeof window.openAzanTestPanel !== 'function');
+  try { updateBgStatus(); } catch (e) {}
+}
+(function setupSettingsPage() {
+  const $ = (id) => document.getElementById(id);
+  const proxy = (mine, orig) => { const m = $(mine); if (m) m.addEventListener('click', () => { const o = $(orig); if (o) o.click(); }); };
+  proxy('set-city-btn', 'city-picker-btn');
+  proxy('set-gps-btn', 'azan-gps-btn');
+  proxy('set-method-btn', 'azan-method-btn');
+  const open = $('azan-open-settings');
+  if (open) open.addEventListener('click', () => switchToTab('settings', { push: true }));
+  // برچسب شهر و نام روش را زنده نگه می‌دارد (بعد از انتخاب شهر/GPS/روش)
+  [['azan-location-label', 'set-loc-label'], ['azan-method-name', 'set-method-name']].forEach((p) => {
+    const src = $(p[0]), dst = $(p[1]);
+    if (!src || !dst || !window.MutationObserver) return;
+    new MutationObserver(() => { dst.textContent = src.textContent; }).observe(src, { childList: true, characterData: true, subtree: true });
+  });
+  const msg = (t) => { const m = $('set-native-msg'); if (m) m.textContent = t || ''; };
+  const bat = $('set-battery-btn');
+  if (bat) bat.addEventListener('click', () => {
+    try {
+      if (window.NativeAlarms && typeof window.NativeAlarms.requestBattery === 'function') {
+        Promise.resolve(window.NativeAlarms.requestBattery(true)).then(() => msg('اگر پنجرهٔ مجوز آمد «اجازه» را بزنید. اگر پنجره‌ای نیامد، یعنی مجوز از قبل داده شده است.'));
+      } else msg('این بخش فقط در اپ اندروید کار می‌کند.');
+    } catch (e) { msg('انجام نشد.'); }
+  });
+  const test = $('set-test-btn');
+  if (test) test.addEventListener('click', () => { if (typeof window.openAzanTestPanel === 'function') window.openAzanTestPanel(); else msg('این بخش فقط در اپ اندروید کار می‌کند.'); });
+  const stop = $('set-stop-btn');
+  if (stop) stop.addEventListener('click', () => {
+    const P = settingsPlugin();
+    if (P && typeof P.stopAzan === 'function') Promise.resolve(P.stopAzan()).then(() => msg('✅ اذان متوقف شد.')).catch(() => msg('انجام نشد.'));
+    else msg('این APK قدیمی است یا اذانی در حال پخش نیست.');
+  });
+  /* ----- تنظیمات پیشرفتهٔ اذان ----- */
+  const applyAz = () => { try { lastScheduleSyncKey = ''; if (state.coords) computePrayerTimes(); } catch (e) {} };
+  const offBox = $('set-az-off'), adjBox = $('set-az-adj');
+  const adjLabel = (v) => (v === 0 ? 'بدون تغییر' : (v > 0 ? '+' : '−') + toPersianDigits(Math.abs(v)) + ' دقیقه');
+  const adjEls = {};
+  AZ_PRAYERS.forEach((pr) => {
+    const k = pr[0], name = pr[1];
+    if (offBox) {
+      const row = document.createElement('label'); row.className = 'switch-row';
+      const sp = document.createElement('span'); sp.textContent = 'اذان ' + name;
+      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !azOff(k);
+      cb.addEventListener('change', () => { azPrefs().off[k] = !cb.checked; azPrefsSave(); applyAz(); });
+      row.append(sp, cb); offBox.appendChild(row);
+    }
+    if (adjBox) {
+      const row = document.createElement('div'); row.className = 'set-adj-row';
+      const nm = document.createElement('span'); nm.className = 'set-adj-name'; nm.textContent = name;
+      const minus = document.createElement('button'); minus.type = 'button'; minus.className = 'set-step'; minus.textContent = '−'; minus.setAttribute('aria-label', 'یک دقیقه کمتر');
+      const val = document.createElement('span'); val.className = 'set-adj-val'; val.textContent = adjLabel(azAdj(k));
+      const plus = document.createElement('button'); plus.type = 'button'; plus.className = 'set-step'; plus.textContent = '+'; plus.setAttribute('aria-label', 'یک دقیقه بیشتر');
+      const step = (d) => {
+        const v = Math.max(-30, Math.min(30, azAdj(k) + d));
+        azPrefs().adj[k] = v; azPrefsSave(); val.textContent = adjLabel(v); applyAz();
+      };
+      minus.addEventListener('click', () => step(-1));
+      plus.addEventListener('click', () => step(1));
+      adjEls[k] = val;
+      row.append(nm, minus, val, plus); adjBox.appendChild(row);
+    }
+  });
+  const adjReset = $('set-az-adj-reset');
+  if (adjReset) adjReset.addEventListener('click', () => {
+    azPrefs().adj = {}; azPrefsSave();
+    Object.keys(adjEls).forEach((k) => { adjEls[k].textContent = adjLabel(0); });
+    applyAz();
+  });
+  const preSel = $('set-az-pre');
+  if (preSel) { preSel.value = String(azPrefs().pre); preSel.addEventListener('change', () => { azPrefs().pre = Number(preSel.value) || 0; azPrefsSave(); applyAz(); }); }
+  const postSel = $('set-az-post');
+  if (postSel) { postSel.value = String(azPrefs().post); if (postSel.value !== String(azPrefs().post)) postSel.value = '20'; postSel.addEventListener('change', () => { azPrefs().post = Number(postSel.value) || 0; azPrefsSave(); applyAz(); }); }
+  const voiceSel = $('set-az-voice'), voiceNote = $('set-az-voice-note');
+  if (voiceSel) {
+    const voices = (window.NATIVE_AZAN_VOICES && window.NATIVE_AZAN_VOICES.length) ? window.NATIVE_AZAN_VOICES : [];
+    const def = document.createElement('option'); def.value = ''; def.textContent = 'پیش‌فرض (صدای انتخاب‌شده توسط سایت)';
+    voiceSel.appendChild(def);
+    voices.forEach((v) => { const o = document.createElement('option'); o.value = v.id; o.textContent = v.name || v.id; voiceSel.appendChild(o); });
+    voiceSel.value = azPrefs().voice;
+    if (voiceSel.value !== azPrefs().voice) voiceSel.value = '';
+    voiceSel.addEventListener('change', () => { azPrefs().voice = voiceSel.value; azPrefsSave(); applyAz(); });
+    if (voiceNote) voiceNote.textContent = voices.length > 1
+      ? 'صدای انتخابی از بعد از اذان بعدی اعمال می‌شود. (فقط در اپ اندروید)'
+      : 'فعلاً فقط یک صدا داخل اپ است؛ وقتی چند صدا اضافه شود اینجا قابل انتخاب می‌شود. (فقط در اپ اندروید)';
+  }
+  const gear = $('hb-settings');
+  if (gear) gear.addEventListener('click', () => hbChoose({ type: 'tab', target: 'settings' }));
+})();
 
 /* ---------- منوی پایین اپ (قابل‌مدیریت از پیشخوان ← «🧭 منوی پایین اپ») ----------
    مسیر /bottom-nav: { custom, items: [{tab, label, icon, image}] }. اگر custom=false همان شش دکمهٔ پیش‌فرض است.

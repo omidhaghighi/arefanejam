@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
-<link rel="stylesheet" href="css/style.css?v=137">
+<link rel="stylesheet" href="css/style.css?v=139">
 </head>
 <body>
 
@@ -244,11 +244,7 @@
       </div>
 
       <div class="section-block">
-        <label class="switch-row">
-          <span>فعال‌سازی پخش اذان</span>
-          <input type="checkbox" id="bg-mode-toggle" checked>
-        </label>
-        <p class="muted-text small" id="bg-mode-status" style="line-height:2;margin-top:6px"></p>
+        <button id="azan-open-settings" class="ghost-btn small-btn" type="button">⚙️ تنظیمات اذان و نماز</button>
       </div>
 
       <div class="section-block">
@@ -488,6 +484,10 @@
         <button data-ikey="main:students" class="menu-tile tile-students" id="students-more-tile" data-goto="students">
           <span class="menu-tile-badge" id="students-tile-badge">🎓</span>
           <span class="menu-tile-label" id="students-tile-label">دانش‌آموزان</span>
+        </button>
+        <button data-ikey="main:settings" class="menu-tile tile-settings" id="settings-more-tile" data-goto="settings">
+          <span class="menu-tile-badge">⚙️</span>
+          <span class="menu-tile-label">تنظیمات</span>
         </button>
         <button data-ikey="main:update" class="menu-tile tile-update hidden" id="app-update-tile">
           <span class="menu-tile-badge">🔄</span>
@@ -911,6 +911,85 @@
         <p id="about-text-el" class="muted-text">—</p>
       </div>
       <div class="section-block" id="about-links-block"></div>
+    </section>
+
+    <!-- تنظیمات (بیشتر ← تنظیمات / چرخ‌دندهٔ منوی همبرگری) -->
+    <section id="tab-settings" class="tab-panel">
+      <div class="section-block">
+        <h3>🕌 تنظیمات اذان و نماز</h3>
+        <label class="switch-row">
+          <span>فعال‌سازی پخش اذان</span>
+          <input type="checkbox" id="bg-mode-toggle" checked>
+        </label>
+        <p class="muted-text small" id="bg-mode-status" style="line-height:2;margin-top:6px"></p>
+      </div>
+
+      <div class="section-block">
+        <h3>📍 شهر و روش محاسبهٔ اوقات</h3>
+        <div class="az-loc-row">
+          <p class="az-loc-label muted-text" id="set-loc-label">—</p>
+          <div class="az-loc-btns">
+            <button id="set-city-btn" class="az-ico-btn" type="button" aria-label="انتخاب شهر از فهرست"><span aria-hidden="true">🏙️</span><small>شهر</small></button>
+            <button id="set-gps-btn" class="az-ico-btn" type="button" aria-label="یافتن موقعیت دقیق من (GPS)"><span aria-hidden="true">📍</span><small>GPS</small></button>
+          </div>
+        </div>
+        <button id="set-method-btn" class="az-method-pill" type="button" aria-haspopup="dialog">
+          <span class="amp-ic" aria-hidden="true">🧭</span>
+          <span class="amp-txt"><small>روش محاسبه اذان</small><b id="set-method-name">—</b></span>
+          <span class="amp-arrow" aria-hidden="true">‹</span>
+        </button>
+      </div>
+
+      <div class="section-block">
+        <h3>🕋 اذان هر وقت</h3>
+        <p class="muted-text small" style="line-height:2">هر وقتی را که نمی‌خواهید اذانش پخش شود خاموش کنید (مثلاً اذان فجر).</p>
+        <div id="set-az-off"></div>
+      </div>
+
+      <div class="section-block">
+        <h3>⏱ اصلاح دقیقهٔ اوقات</h3>
+        <p class="muted-text small" style="line-height:2">اگر اوقات با تقویم مسجد یا شهر شما چند دقیقه فرق دارد، برای هر وقت جلو یا عقب ببرید (تا ۳۰ دقیقه). روی اذان و نمایش اوقات اثر دارد.</p>
+        <div id="set-az-adj"></div>
+        <button id="set-az-adj-reset" class="ghost-btn small-btn" type="button" style="margin-top:8px">↺ برگرداندن همه به حالت عادی</button>
+      </div>
+
+      <div class="section-block">
+        <h3>🔔 یادآوری‌ها</h3>
+        <label class="set-field" for="set-az-pre">یادآوری قبل از اذان</label>
+        <select id="set-az-pre" class="set-select">
+          <option value="0">خاموش</option>
+          <option value="5">۵ دقیقه قبل</option>
+          <option value="10">۱۰ دقیقه قبل</option>
+          <option value="15">۱۵ دقیقه قبل</option>
+          <option value="30">۳۰ دقیقه قبل</option>
+        </select>
+        <label class="set-field" for="set-az-post" style="margin-top:12px">یادآوری «وقت نماز» بعد از اذان</label>
+        <select id="set-az-post" class="set-select">
+          <option value="0">خاموش</option>
+          <option value="10">۱۰ دقیقه بعد</option>
+          <option value="20">۲۰ دقیقه بعد (پیش‌فرض)</option>
+          <option value="30">۳۰ دقیقه بعد</option>
+          <option value="45">۴۵ دقیقه بعد</option>
+        </select>
+        <p class="muted-text small" style="line-height:2;margin-top:6px">یادآوری قبل از اذان در اپ اندروید به‌صورت اعلان می‌آید (حتی با اپ بسته)؛ در نسخهٔ وب فقط وقتی اپ باز است.</p>
+      </div>
+
+      <div class="section-block">
+        <h3>🎙 صدای اذان</h3>
+        <select id="set-az-voice" class="set-select" aria-label="صدای اذان"></select>
+        <p class="muted-text small" id="set-az-voice-note" style="line-height:2;margin-top:6px"></p>
+      </div>
+
+      <div class="section-block hidden" id="set-native-block">
+        <h3>🔔 پایداری و تست اذان (نسخهٔ اندروید)</h3>
+        <p class="muted-text small" style="line-height:2">برای اینکه اذان همیشه سر وقت و حتی با گوشی قفل یا اپ بسته پخش شود.</p>
+        <div class="set-btn-col">
+          <button id="set-battery-btn" class="ghost-btn small-btn" type="button">🔋 مجوز اجرا در پس‌زمینه (باتری)</button>
+          <button id="set-test-btn" class="ghost-btn small-btn" type="button">🔔 تست و گزارش وضعیت اذان</button>
+          <button id="set-stop-btn" class="ghost-btn small-btn" type="button">⏹ توقف اذانِ در حال پخش</button>
+        </div>
+        <p class="muted-text small" id="set-native-msg" style="line-height:2;margin-top:6px"></p>
+      </div>
     </section>
 
     <!-- فهرست سوره‌های قرآن -->
@@ -1570,6 +1649,12 @@
     </div>
     <div id="hb-list" class="hb-list"></div>
     <div id="hb-foot" class="hb-foot"></div>
+    <div class="hb-bottom">
+      <button type="button" id="hb-settings" class="hb-gear" aria-label="تنظیمات">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <small>تنظیمات</small>
+      </button>
+    </div>
   </nav>
 </div>
 
@@ -1838,7 +1923,7 @@
 /* native-bridge.js و app.js (به‌همین ترتیب) فقط بعد از پایان صفحهٔ شروع (ویدیو/عکس/گیف) بارگذاری می‌شوند.
    اگر صفحهٔ شروعی نباشد یا تمام شده باشد، بی‌درنگ بارگذاری می‌شوند. */
 (function () {
-  var list = ['js/native-bridge.js?v=32', 'js/app.js?v=202'], i = 0;
+  var list = ['js/native-bridge.js?v=34', 'js/app.js?v=204'], i = 0;
   function next() {
     if (i >= list.length) return;
     var el = document.createElement('script'); el.src = list[i++];

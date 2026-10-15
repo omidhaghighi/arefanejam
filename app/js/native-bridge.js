@@ -123,6 +123,7 @@
   var ready = false;
   var queuedSchedule = null;
   var queuedNotes = null;
+  var queuedPre = null;
   var busy = Promise.resolve();
 
   function hash(str) {
@@ -131,6 +132,7 @@
     return Math.abs(h) % 900000000;
   }
   function azanId(key) { return 1 + hash(key); }            // ۱ تا ۹۰۰ میلیون
+  function preId(key) { return 1950000001 + (hash(String(key)) % 150000000); } // یادآوری «قبل از اذان»؛ بالاتر از بازهٔ یادداشت‌ها
   function noteId(key) { return 1000000001 + hash(String(key)); } // بالاتر از بازهٔ اذان
   function log(e) { try { console.log('[NativeAlarms]', e); } catch (x) {} }
 
@@ -242,6 +244,31 @@
     }).catch(log);
   }
 
+  /* یادآوری «N دقیقه تا اذان …» (تنظیمات ← یادآوری قبل از اذان): اعلان محلی، آفلاین و حتی با اپ بسته.
+     هر بار کل فهرست جایگزین می‌شود (kind = azanpre). minutes = 0 یعنی خاموش. */
+  function applyPre(items, minutes) {
+    return cancelByKind('azanpre').then(function () {
+      if (!minutes || !items || !items.length) return;
+      var now = Date.now(), out = [];
+      var fn = function (n) { try { return Number(n).toLocaleString('fa-IR'); } catch (e) { return String(n); } };
+      items.forEach(function (p) {
+        var at = new Date(p.timeIso).getTime() - minutes * 60000;
+        if (!(at > now + 2000)) return;
+        out.push({
+          id: preId(p.key + '|' + p.timeIso),
+          title: fn(minutes) + ' دقیقه تا اذان ' + p.label,
+          body: 'به وقت اذان ' + p.label + ' ' + fn(minutes) + ' دقیقه مانده است.',
+          schedule: { at: new Date(at), allowWhileIdle: true },
+          channelId: CH_NOTES,
+          smallIcon: SMALL_ICON,
+          extra: { kind: 'azanpre', prayer: p.key }
+        });
+      });
+      if (IS_IOS) out = out.slice(0, 20);
+      if (out.length) return LN.schedule({ notifications: out });
+    }).catch(log);
+  }
+
   // نوتیفیکیشن ثابت: نام اپ + تاریخ امروز (عنوان) و متن دلخواه مدیر (متن). همیشه با همان شناسه جایگزین می‌شود.
   function applyStickyPlain(p) {
     var n = {
@@ -282,6 +309,10 @@
     },
     isNativeAzan: function () { return nativeAzan; },
     requestBattery: function (force) { return askBattery(!!force); },
+    syncPre: function (items, minutes) {
+      queuedPre = [items, minutes];
+      if (ready) enqueue(function () { return applyPre(items, minutes); });
+    },
     syncNotes: function (list) {
       queuedNotes = [list];
       if (ready) enqueue(function () { return applyNotes(list); });
@@ -430,6 +461,7 @@
       ready = true;
       if (queuedSchedule) enqueue(function () { return applySchedule(queuedSchedule[0], queuedSchedule[1], queuedSchedule[2], queuedSchedule[3], queuedSchedule[4]); });
       if (queuedNotes) enqueue(function () { return applyNotes(queuedNotes[0]); });
+      if (queuedPre) enqueue(function () { return applyPre(queuedPre[0], queuedPre[1]); });
       if (queuedSticky) enqueue(function () { return applySticky(queuedSticky.p); });
       // چند ثانیه بعد، اگر نوبت یکی از مجوزهای مرحله‌ای رسیده باشد (نه در اولین باز شدن)
       setTimeout(permStep, 8000);
@@ -1259,6 +1291,13 @@
       overlay.style.display = 'block';
       refresh();
     });
+
+    // برای دکمهٔ «تست و گزارش وضعیت اذان» در صفحهٔ تنظیمات (بدون ۵ بار زدن روی خط نسخه)
+    window.openAzanTestPanel = function () {
+      if (!overlay) build();
+      overlay.style.display = 'block';
+      refresh();
+    };
 
     function btn(label, fn, strong) {
       var b = el('button', null, label);
