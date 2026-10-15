@@ -40,8 +40,9 @@ public class AzanService extends Service {
 
     // pressing the phone's power button while the azan plays stops the azan
     // (the button always produces a SCREEN_OFF if the screen was on, or a SCREEN_ON if it was off)
-    private static final long POWER_GUARD_MS = 6000L;   // ignore screen changes in the first 6s (the azan notification / sticky card (+3s) often wakes the screen by itself)
-    private static final long POWER_STOP_DELAY_MS = 3000L; // after a real power-button press the azan stops 3 seconds later
+    private static final long POWER_GUARD_MS = 6000L;      // SCREEN_ON in the first 6s is ignored (the azan notification / sticky card (+3s) often wakes the screen by itself)
+    private static final long POWER_OFF_GUARD_MS = 700L;   // SCREEN_OFF is never caused by a notification, so it only needs a tiny guard
+    private static final long POWER_STOP_DELAY_MS = 0L;    // after a real power-button press the azan stops IMMEDIATELY
     private final android.os.Handler stopHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private boolean stopPending = false;
     private BroadcastReceiver screenReceiver;
@@ -119,12 +120,14 @@ public class AzanService extends Service {
                         if (now - azanStartedAt < POWER_GUARD_MS) return;
                         scheduleDelayedStop("power button/screen on");
                     } else if (Intent.ACTION_SCREEN_OFF.equals(a)) {
-                        if (now - azanStartedAt < POWER_GUARD_MS) return;
+                        if (now - azanStartedAt < POWER_OFF_GUARD_MS) return;
                         long timeout = 30000L;
                         try {
                             timeout = Settings.System.getInt(getContentResolver(), Settings.System.SCREEN_OFF_TIMEOUT, 30000);
                         } catch (Throwable ignore) { }
-                        if (timeout > 0 && now - screenOnAt >= timeout - 2000L) {
+                        long onFor = now - screenOnAt;
+                        // only a screen-off that lands right at the automatic timeout is treated as the timeout; anything else is the power button
+                        if (timeout > 0 && onFor >= timeout - 2000L && onFor <= timeout + 4000L) {
                             AzanReceiver.logEvent(AzanService.this, "screen off by timeout -> azan keeps playing");
                             return;
                         }
@@ -149,11 +152,13 @@ public class AzanService extends Service {
     private void scheduleDelayedStop(String why) {
         if (stopPending) return;
         stopPending = true;
-        AzanReceiver.logEvent(this, why + " -> azan will stop in 3s");
+        AzanReceiver.logEvent(this, why + " -> azan stopped immediately");
+        // cut the sound right now, then shut the service down
+        releasePlayer();
+        if (POWER_STOP_DELAY_MS <= 0L) { stopSelf(); return; }
         stopHandler.postDelayed(new Runnable() {
             @Override
             public void run() {
-                AzanReceiver.logEvent(AzanService.this, "azan stopped (3s after power button)");
                 stopSelf();
             }
         }, POWER_STOP_DELAY_MS);

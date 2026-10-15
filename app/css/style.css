@@ -469,6 +469,9 @@ button:active, .nav-btn:active, .note-card:active, .menu-row:active {
   font-size: 14px; cursor: pointer;
 }
 .city-row:active { background: var(--paper-alt); }
+#city-list { max-height: 52vh; -webkit-overflow-scrolling: touch; }
+.city-count { font-size: 12px; opacity: .7; padding: 4px 8px 8px; text-align: center; }
+.city-prov { position: sticky; top: 0; z-index: 1; background: var(--paper-alt); color: var(--gold); font-weight: 700; font-size: 13px; padding: 7px 10px; border-bottom: 1px solid var(--line); }
 
 /* Juz grid */
 .juz-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 10px; }

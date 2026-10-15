@@ -2333,36 +2333,65 @@ function setupLocation(skipLiveGPS) {
 }
 
 /* ---------- انتخاب شهر دستی ---------- */
+function cityKey(t) {
+  return String(t == null ? '' : t).replace(/[\u200c\u200d\u200f\u200e\s]+/g, '').replace(/[\u064a\u0649]/g, '\u06cc').replace(/\u0643/g, '\u06a9').replace(/[\u064b-\u065f\u0670]/g, '').toLowerCase();
+}
+function pickCity(c) {
+  state.manualCity = { name: c.name, lat: c.lat, lng: c.lng };
+  state.activeCityName = c.name;
+  localStorage.setItem('arefanejam_manual_city', JSON.stringify(state.manualCity));
+  state.coords = { lat: c.lat, lng: c.lng };
+  saveCoordsCache(state.coords, 'شهر انتخابی: ' + c.name);
+  setLocationLabel('شهر انتخابی: ' + c.name);
+  // بلافاصله و در پس‌زمینه به‌روزرسانی می‌شود؛ کاربر نیازی به بستن/بازکردن اپ ندارد
+  refreshQiblaCompassIfReady();
+  document.getElementById('city-modal').classList.add('hidden');
+  computePrayerTimes();
+  if (currentTab === 'qibla') {
+    autoStartQibla();
+    const qiblaCityBtn = document.getElementById('qibla-city-picker-btn');
+    if (qiblaCityBtn) {
+      qiblaCityBtn.classList.add('is-success');
+      setTimeout(() => qiblaCityBtn.classList.remove('is-success'), 650);
+    }
+  }
+}
+/* فهرست کامل شهرهای ایران (همهٔ شهرهای رسمی، بزرگ و کوچک) به‌صورت گروه‌بندی‌شده بر اساس استان؛
+   جست‌وجو هم روی نام شهر و هم روی نام استان کار می‌کند. بدون محدودیت تعداد. */
 function populateCityList(filter) {
   const listEl = document.getElementById('city-list');
+  const inp = document.getElementById('city-search-input');
+  if (!filter && inp) inp.value = '';
   listEl.innerHTML = '';
-  const cities = (window.IRAN_CITIES || []).filter((c) => !filter || c.name.includes(filter));
-  cities.slice(0, 60).forEach((c) => {
-    const row = document.createElement('div');
-    row.className = 'city-row';
-    row.textContent = c.name;
-    row.addEventListener('click', () => {
-      state.manualCity = c;
-      state.activeCityName = c.name;
-      localStorage.setItem('arefanejam_manual_city', JSON.stringify(c));
-      state.coords = { lat: c.lat, lng: c.lng };
-      saveCoordsCache(state.coords, 'شهر انتخابی: ' + c.name);
-      setLocationLabel('شهر انتخابی: ' + c.name);
-      // بلافاصله و در پس‌زمینه به‌روزرسانی می‌شود؛ کاربر نیازی به بستن/بازکردن اپ ندارد
-      refreshQiblaCompassIfReady();
-      document.getElementById('city-modal').classList.add('hidden');
-      computePrayerTimes();
-      if (currentTab === 'qibla') {
-        autoStartQibla();
-        const qiblaCityBtn = document.getElementById('qibla-city-picker-btn');
-        if (qiblaCityBtn) {
-          qiblaCityBtn.classList.add('is-success');
-          setTimeout(() => qiblaCityBtn.classList.remove('is-success'), 650);
-        }
-      }
-    });
-    listEl.appendChild(row);
+  const q = cityKey(filter);
+  const all = window.IRAN_CITIES || [];
+  const cities = all.filter((c) => !q || cityKey(c.name).includes(q) || cityKey(c.province).includes(q));
+  const frag = document.createDocumentFragment();
+  const info = document.createElement('div');
+  info.className = 'city-count';
+  info.textContent = cities.length ? (q ? cities.length + ' شهر پیدا شد' : 'همهٔ شهرهای ایران (' + all.length + ' شهر) — بر اساس استان') : 'شهری پیدا نشد. اگر شهر شما در فهرست نیست، از دکمهٔ GPS بالا استفاده کنید.';
+  frag.appendChild(info);
+  const byProv = new Map();
+  cities.forEach((c) => {
+    const p = c.province || 'سایر';
+    if (!byProv.has(p)) byProv.set(p, []);
+    byProv.get(p).push(c);
   });
+  Array.from(byProv.keys()).sort((a, b) => a.localeCompare(b, 'fa')).forEach((p) => {
+    const h = document.createElement('div');
+    h.className = 'city-prov';
+    h.textContent = 'استان ' + p + ' (' + byProv.get(p).length + ')';
+    frag.appendChild(h);
+    byProv.get(p).slice().sort((a, b) => (b.core ? 1 : 0) - (a.core ? 1 : 0) || a.name.localeCompare(b.name, 'fa')).forEach((c) => {
+      const row = document.createElement('div');
+      row.className = 'city-row';
+      row.textContent = c.name;
+      row.addEventListener('click', () => pickCity(c));
+      frag.appendChild(row);
+    });
+  });
+  listEl.appendChild(frag);
+  listEl.scrollTop = 0;
 }
 document.getElementById('city-picker-btn').addEventListener('click', () => {
   populateCityList('');
@@ -2419,11 +2448,15 @@ function renderAzanMethodList() {
 })();
 
 function findNearestCity(lat, lng) {
-  let nearest = null, minDist = Infinity;
+  // نزدیک‌ترین شهر از کل فهرست؛ ولی اگر یکی از شهرهای اصلی (core) تا ۲۰ کیلومتر نزدیک باشد همان برگردانده می‌شود
+  // تا نام‌های قبلی (جدول دقیق تربت‌جام و استثناهای پیشخوان) مثل قبل کار کنند.
+  let nearest = null, minDist = Infinity, core = null, coreDist = Infinity;
   (window.IRAN_CITIES || []).forEach((c) => {
-    const d = Math.pow(c.lat - lat, 2) + Math.pow(c.lng - lng, 2);
+    const d = Math.pow(c.lat - lat, 2) + Math.pow((c.lng - lng) * Math.cos(lat * Math.PI / 180), 2);
     if (d < minDist) { minDist = d; nearest = c; }
+    if (c.core && d < coreDist) { coreDist = d; core = c; }
   });
+  if (core && Math.sqrt(coreDist) * 111 <= 20) return core;
   return nearest;
 }
 
@@ -10193,6 +10226,7 @@ function selectShariqCategory(categoryId, chipEl) {
 }
 
 async function loadShariqList(categoryId) {
+  try { schCheck(false); } catch (e) {}
   const el = document.getElementById('shariq-list-content');
   el.innerHTML = '<p class="muted-text small" style="padding:0 18px">در حال بارگذاری...</p>';
   const cacheKey = 'list_' + (categoryId || 'all');
@@ -10416,9 +10450,34 @@ async function schApi(path, body) {
   if (!res.ok || !data) {
     const er = new Error((data && data.message) || 'خطا در ارتباط با سرور');
     er.status = res.status;
+    er.code = (data && data.code) || '';
     throw er;
   }
   return data;
+}
+// خطای ۴۰۱: ورود لازم است؛ اگر عالم توسط مدیر حذف شده باشد پیام حذف در همان گوشی نشان داده می‌شود (پاسخ‌های او در سایت می‌مانند)
+function schAuthFail(e) {
+  SCH.token = ''; schTokenSave('');
+  if (e && e.code === 'scholar_deleted') {
+    SCH.pending = []; SCH.mine = []; SCH.fatwas = [];
+    schClose();
+    try { window.alert(e.message || 'شما حذف شدید و اجازهٔ پاسخ‌دادن ندارید.'); } catch (er) {}
+    return;
+  }
+  schShow('login');
+}
+// بررسی بی‌صدای وضعیت حساب (فقط اگر عالم وارد شده باشد): با حذف عالم توسط مدیر، دکمهٔ ورود محو و پیام نمایش داده می‌شود
+let schCheckBusy = false, schCheckLast = 0;
+async function schCheck(force) {
+  if (schCheckBusy || !schTokenLoad()) return;
+  if (!force && Date.now() - schCheckLast < 30000) return;
+  schCheckBusy = true; schCheckLast = Date.now();
+  try {
+    SCH.token = schTokenLoad();
+    await schApi('/shariq/scholar/check', {});
+  } catch (e) {
+    if (e.status === 401) schAuthFail(e);
+  } finally { schCheckBusy = false; }
 }
 function schShow(which) {
   schEl('sch-login').classList.toggle('hidden', which !== 'login');
@@ -10447,7 +10506,7 @@ async function schReload(silentLoginOnFail) {
     schMsg('');
     schRender();
   } catch (e) {
-    if (e.status === 401) { SCH.token = ''; schTokenSave(''); schShow('login'); return; }
+    if (e.status === 401) { schAuthFail(e); return; }
     schEl('sch-list').innerHTML = '';
     schMsg(e.message, true);
   }
@@ -10505,7 +10564,7 @@ function schFatwaCard(f) {
       schRender();
     } catch (e) {
       btn.disabled = false; btn.textContent = old;
-      if (e.status === 401) { SCH.token = ''; schTokenSave(''); schShow('login'); return; }
+      if (e.status === 401) { schAuthFail(e); return; }
       er.textContent = e.message; er.classList.remove('hidden');
     }
   });
@@ -10518,7 +10577,7 @@ function schFatwaCard(f) {
       SCH.fatwas = d.fatwas || []; SCH.fcats = d.fcats || [];
       shariqCacheSet('fatwas', null);
       schRender();
-    } catch (e) { del.disabled = false; er.textContent = e.message; er.classList.remove('hidden'); }
+    } catch (e) { del.disabled = false; if (e.status === 401) { schAuthFail(e); return; } er.textContent = e.message; er.classList.remove('hidden'); }
   });
   return card;
 }
@@ -10576,7 +10635,7 @@ function schRender() {
         await schReloadKeepDrafts();
       } catch (e) {
         btn.disabled = false; btn.textContent = old;
-        if (e.status === 401) { SCH.token = ''; schTokenSave(''); schShow('login'); return; }
+        if (e.status === 401) { schAuthFail(e); return; }
         er.textContent = e.message; er.classList.remove('hidden');
         if (e.status === 409 || e.status === 404) schReloadKeepDrafts();
       }
@@ -10647,6 +10706,9 @@ schEl('sch-password').addEventListener('keydown', (e) => { if (e.key === 'Enter'
   const enter = document.getElementById('shariq-scholar-enter-btn');
   if (enter) enter.addEventListener('click', () => { schOpen(); });
   schSyncEnterBtn();
+  setTimeout(() => { schCheck(true); }, 5000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) schCheck(false); });
+  setInterval(() => { if (!document.hidden) schCheck(false); }, 60000);
 })();
 
 /* ---------- ختم قرآن (تقسیم قرآن به بخش‌ها و برداشتن بخش با تیک) ----------
