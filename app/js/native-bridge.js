@@ -1040,6 +1040,44 @@
     var h = document.getElementById('topbar-update-hint');
     if (b) b.classList.toggle('has-update', on);
     if (h) h.classList.toggle('show', on);
+    if (on) startUpdPulse(); else stopUpdPulse();
+  }
+
+  /* نمایش آرام و دوره‌ای: هر ۵ دقیقه یک‌بار دکمه می‌چرخد و متن می‌آید (۱۶ ثانیه، با ظاهر و محو شدن خیلی آرام)،
+     سپس ۵ دقیقه ساکن می‌ماند. زمان‌ها فقط در همین دو عدد تنظیم می‌شوند. */
+  var UPD_SHOW_MS = 16000;          // مدت یک نمایش (با CSS یکی باشد: 16s)
+  var UPD_GAP_MS = 5 * 60 * 1000;   // فاصلهٔ بین دو نمایش
+  var updTimer = null, updRunning = false;
+
+  function updSetShow(on) {
+    var b = document.getElementById('topbar-reload-btn');
+    var h = document.getElementById('topbar-update-hint');
+    if (b) b.classList.toggle('upd-show', on);
+    if (h) h.classList.toggle('upd-show', on);
+  }
+
+  function updCycle() {
+    updTimer = null;
+    if (!(updAvail.apk || updAvail.web)) { updRunning = false; updSetShow(false); return; }
+    updSetShow(false);
+    void document.body.offsetWidth; // انیمیشن از اول شروع شود
+    updSetShow(true);
+    updTimer = setTimeout(function () {
+      updSetShow(false);
+      updTimer = setTimeout(updCycle, UPD_GAP_MS);
+    }, UPD_SHOW_MS);
+  }
+
+  function startUpdPulse() {
+    if (updRunning) return;
+    updRunning = true;
+    updTimer = setTimeout(updCycle, 1500);
+  }
+
+  function stopUpdPulse() {
+    updRunning = false;
+    if (updTimer) { clearTimeout(updTimer); updTimer = null; }
+    updSetShow(false);
   }
 
   function setUpdateAvail(kind, val) {
