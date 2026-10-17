@@ -15996,21 +15996,33 @@ async function cnOpen() {
   cnS.locked = false; cnS.answers = []; cnS.round = null; cnS.leagueId = 0;
   if (!navigator.onLine) { cnShowOffline(); return; }
   cnS.phase = 'loading';
-  cnRoot().innerHTML = '<div class="ga-card cn-card"><p class="muted-text">در حال بارگذاری…</p></div>';
+  // نمایش فوری آخرین وضعیت ذخیره‌شده (تا منتظر سرور نمانید)، بعد به‌روزرسانی از سرور
+  let cached = null;
+  try { cached = JSON.parse(localStorage.getItem('arefCnHome') || 'null'); } catch (e) { cached = null; }
+  if (cached && cached.me && cached.settings) {
+    cnS.settings = cached.settings; cnS.me = cached.me; cnS.season = cached.season || null; cnS.phase = 'home';
+    cnRenderHome(false);
+  } else {
+    cnRoot().innerHTML = '<div class="ga-card cn-card"><p class="muted-text">در حال بارگذاری…</p></div>';
+  }
   let res;
   try {
     cnS.device = await ensureDeviceId();
     res = await cnPost('/contest/join', { device_id: cnS.device });
   } catch (e) {
     if (currentTab !== 'contest') return;
+    if (cached && cnS.phase === 'home') return; // همان وضعیت ذخیره‌شده می‌ماند
     cnS.phase = 'error';
     cnRoot().innerHTML = cnOfflineHtml('ارتباط برقرار نشد', cnErrText(e));
     document.getElementById('cn-retry-btn').addEventListener('click', cnOpen);
     return;
   }
   if (currentTab !== 'contest') return;
+  try { localStorage.setItem('arefCnHome', JSON.stringify({ settings: res.settings, me: res.me, season: res.season || null })); } catch (e) {}
+  if (cached && cnS.phase !== 'home') return; // کاربر همین حالا وارد جای دیگری شده
+  const same = cached && JSON.stringify(cached.me) === JSON.stringify(res.me) && JSON.stringify(cached.settings) === JSON.stringify(res.settings);
   cnS.settings = res.settings; cnS.me = res.me; cnS.season = res.season || null; cnS.phase = 'home';
-  cnRenderHome(false);
+  if (!same) cnRenderHome(false);
 }
 
 function cnLeagueClass(i) { return 'cn-l' + Math.max(0, Math.min(2, i | 0)); }
