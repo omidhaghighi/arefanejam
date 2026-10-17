@@ -333,12 +333,13 @@ function secureUrl(u) {
 function apiFetch(path, options = {}) {
   const headers = Object.assign({ 'Content-Type': 'application/json' }, options.headers || {});
   const isGet = !options.method || String(options.method).toUpperCase() === 'GET';
-  const basePath = String(path).split('?')[0];
+  const origPath = String(path);                    // آدرس اصلی (قبل از افزودن _t) برای کلید ذخیرهٔ آفلاین
+  const basePath = origPath.split('?')[0];
   if (isGet && !options.cache) options = Object.assign({}, options, { cache: 'no-store' });
   if (isGet && !/^\/(settings|charity|food-items)(\?|$)/.test(path)) {
     path += (path.indexOf('?') === -1 ? '?' : '&') + '_t=' + Date.now();
   }
-  const cacheKey = isGet ? apiCacheKey(basePath) : '';
+  const cacheKey = isGet ? apiCacheKey(basePath, origPath) : '';
   // مهلت ۲۰ ثانیه برای درخواست‌های خواندنی: اینترنتِ «وصل ولی بی‌داده/خیلی کند» دیگر اپ را بی‌پایان منتظر نگه نمی‌دارد؛
   // بعد از مهلت، همان آخرین نسخهٔ ذخیره‌شدهٔ گوشی (اگر باشد) نمایش داده می‌شود.
   let toTimer = null;
@@ -351,26 +352,32 @@ function apiFetch(path, options = {}) {
   return fetch(state.apiUrl.replace(/\/$/, '') + path, Object.assign({}, options, { headers }))
     .then(async (res) => {
       if (toTimer) { clearTimeout(toTimer); toTimer = null; }
-      let parsed = true;
-      const data = await res.json().catch(() => { parsed = false; return {}; });
-      if (res.status >= 500 && cacheKey) {
-        const old = apiCacheRead(cacheKey);
-        if (old !== null) return old; // خطای سرور: آخرین نسخهٔ سالم
+      const raw = await res.text().catch(() => '');
+      let parsed = true, data = {};
+      try { data = JSON.parse(raw); } catch (e) { parsed = false; data = {}; }
+      // «سایت در دسترس نیست»: خطای سرور (۵xx، مثل ۵۰۹ اتمام ترافیک)، یا پاسخی که JSON نیست
+      // (صفحهٔ HTML تعلیق/محدودیت هاست یا فایروال، حتی با کد ۲۰۰). در این حالت هیچ‌وقت «{}» خالی نشان داده
+      // یا ذخیره نمی‌شود؛ آخرین نسخهٔ سالمِ گوشی (حافظه یا کش پشتیبان) برمی‌گردد.
+      const htmlLike = !parsed && /^\s*</.test(raw);
+      const unavailable = isGet && (res.status >= 500 || (!parsed && (htmlLike || !res.ok)));
+      if (unavailable) {
+        const old = cacheKey ? await apiStale(cacheKey) : null;
+        if (old !== null) return old;
+        if (res.status < 500) { const ue = new Error('site_unavailable'); throw ue; } // بدون httpError: بالادستی مثل «اینترنت نیست» رفتار می‌کند
       }
       if (!res.ok) { const he = new Error(data.message || 'خطا در ارتباط با سرور'); he.httpError = true; throw he; }
       if (cacheKey && parsed) {
         apiCacheWrite(cacheKey, data);
-        if (/^\/(mokatib\/|shariq\/settings)/.test(basePath)) setTimeout(() => { prefetchSiteImages(collectImageUrls(data)); }, 1500);
-        else if (basePath === '/activities') setTimeout(() => { prefetchSiteImages(actCollectImages(data)); }, 1500);
-        else if (basePath === '/ads-page' || basePath === '/ad-banners') setTimeout(() => { prefetchSiteImages(collectImageUrls(data)); }, 1500);
+        if (basePath === '/activities') setTimeout(() => { prefetchSiteImages(actCollectImages(data)); }, 1500);
+        else if (/^\/(mokatib\/|shariq\/settings|ads-page|ad-banners)/.test(basePath)) setTimeout(() => { prefetchSiteImages(collectImageUrls(data)); }, 1500);
       }
       return data;
     })
-    .catch((err) => {
+    .catch(async (err) => {
       if (toTimer) { clearTimeout(toTimer); toTimer = null; }
       // بدون اینترنت / قطع ارتباط: آخرین نسخهٔ ذخیره‌شدهٔ همین اطلاعات از حافظهٔ گوشی (خطای ۴xx سرور مستثناست)
       if (cacheKey && !(err && err.httpError)) {
-        const old = apiCacheRead(cacheKey);
+        const old = await apiStale(cacheKey);
         if (old !== null) return old;
       }
       throw err;
@@ -383,8 +390,14 @@ function apiFetch(path, options = {}) {
 var moreIconsData = { shape: 'round', icons: {} }; // بیشتر: تصویر دلخواه آیکون‌ها (بالای فایل تعریف شده تا هر کدی بتواند هر زمان صدایش کند)
 var moreIconsLastLoad = 0;
 const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|hamburger-menu|more-icons|social-links|theme|shariq\/settings|khatm\/settings|feedback\/settings|zakat|activities|ads-page|ad-banners|bottom-nav|students\/settings)$/;
-function apiCacheKey(basePath) {
-  return API_OFFLINE_CACHE_RE.test(basePath) ? ('arefanejam_api_cache:' + basePath) : '';
+// مسیرهایی که پارامتر آدرس (مثل league یا device_id) جزو هویتشان است؛ کلید ذخیره با کل آدرس ساخته می‌شود
+const API_OFFLINE_QUERY_RE = /^\/(contest\/(settings|board|season)|khatm\/list|shariq\/categories|app-share)$/;
+// نسخهٔ پشتیبان همهٔ این اطلاعات در «کش» گوشی (نه localStorage): ظرفیتش بزرگ است و با پر شدن localStorage از بین نمی‌رود.
+const API_MIRROR_CACHE_NAME = 'arefanejam-api-mirror-v1';
+function apiCacheKey(basePath, fullPath) {
+  if (API_OFFLINE_CACHE_RE.test(basePath)) return 'arefanejam_api_cache:' + basePath;
+  if (API_OFFLINE_QUERY_RE.test(basePath)) return 'arefanejam_api_cache:' + String(fullPath || basePath);
+  return '';
 }
 function apiCacheRead(key) {
   try {
@@ -395,12 +408,71 @@ function apiCacheRead(key) {
   } catch (e) { return null; }
 }
 function apiCacheWrite(key, data) {
-  try {
-    const raw = JSON.stringify({ t: Date.now(), data: data });
-    if (raw.length > 1500000) return; // خیلی بزرگ: حافظهٔ محدود localStorage پر نشود
-    localStorage.setItem(key, raw);
-  } catch (e) { /* حافظه پر بود؛ مهم نیست */ }
+  let raw;
+  try { raw = JSON.stringify({ t: Date.now(), data: data }); } catch (e) { return; }
+  apiMirrorWrite(key, raw);            // همیشه یک نسخهٔ پشتیبان در کش گوشی
+  if (raw.length > 1500000) return;    // خیلی بزرگ: حافظهٔ محدود localStorage پر نشود (نسخهٔ پشتیبان بالا ذخیره شد)
+  try { localStorage.setItem(key, raw); }
+  catch (e) {
+    // حافظهٔ localStorage پر است: قدیمی‌ترین اطلاعات ذخیره‌شده را کنار می‌گذارد و یک‌بار دوباره تلاش می‌کند
+    try { apiCacheEvict(key, 6); localStorage.setItem(key, raw); } catch (e2) { /* مهم نیست؛ نسخهٔ پشتیبان هست */ }
+  }
 }
+function apiCacheEvict(except, n) {
+  const rows = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k || k === except || k.indexOf('arefanejam_api_cache:') !== 0) continue;
+    let t = 0; try { t = (JSON.parse(localStorage.getItem(k)) || {}).t || 0; } catch (e) {}
+    rows.push([t, k]);
+  }
+  rows.sort((a, b) => a[0] - b[0]);
+  rows.slice(0, n).forEach((r) => { try { localStorage.removeItem(r[1]); } catch (e) {} });
+}
+function apiMirrorUrl(key) { return 'https://offline.arefanejam.invalid/' + encodeURIComponent(key); }
+function apiMirrorWrite(key, raw) {
+  try {
+    if (!window.caches || raw.length > 8000000) return;
+    caches.open(API_MIRROR_CACHE_NAME)
+      .then((c) => c.put(apiMirrorUrl(key), new Response(raw, { headers: { 'Content-Type': 'application/json' } })))
+      .catch(() => {});
+  } catch (e) {}
+}
+async function apiMirrorRead(key) {
+  try {
+    if (!window.caches) return null;
+    const c = await caches.open(API_MIRROR_CACHE_NAME);
+    const r = await c.match(apiMirrorUrl(key));
+    if (!r) return null;
+    const o = JSON.parse(await r.text());
+    return (o && Object.prototype.hasOwnProperty.call(o, 'data')) ? o.data : null;
+  } catch (e) { return null; }
+}
+// آخرین نسخهٔ سالم: اول حافظهٔ سریع، بعد نسخهٔ پشتیبان
+async function apiStale(key) {
+  const a = apiCacheRead(key);
+  if (a !== null) return a;
+  return apiMirrorRead(key);
+}
+// اگر localStorage پاک یا کم شده بود، از نسخهٔ پشتیبان برمی‌گردد تا اپ سریع و آفلاین مثل قبل کار کند
+async function apiMirrorRestore() {
+  try {
+    if (!window.caches) return;
+    const c = await caches.open(API_MIRROR_CACHE_NAME);
+    const reqs = await c.keys();
+    for (const rq of reqs) {
+      let key; try { key = decodeURIComponent(new URL(rq.url).pathname.slice(1)); } catch (e) { continue; }
+      if (!key || key.indexOf('arefanejam_api_cache:') !== 0 || localStorage.getItem(key) !== null) continue;
+      const r = await c.match(rq); if (!r) continue;
+      const raw = await r.text();
+      if (raw.length > 1500000) continue;
+      try { localStorage.setItem(key, raw); } catch (e) { break; }
+    }
+  } catch (e) {}
+}
+setTimeout(apiMirrorRestore, 1500);
+// درخواست «ذخیرهٔ ماندگار» تا اندروید در کمبود حافظه این اطلاعات را اول از همه پاک نکند
+try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) {}
 
 /* ---------- نمایش فوریِ آخرین نسخهٔ ذخیره‌شده + تازه‌سازی بی‌صدا (Stale-While-Revalidate) ----------
  * اول همان لحظه آخرین اطلاعاتِ ذخیره‌شدهٔ گوشی نمایش داده می‌شود (بدون انتظار برای اینترنت)،
@@ -1840,6 +1912,8 @@ function loadSettings() {
   }
   // 2) تنظیمات تازه از سایت (در پس‌زمینه اگر نسخهٔ ذخیره‌شده داریم)
   const fresh = apiFetch('/settings').then((data) => {
+    // پاسخ خالی/نامعتبر (مثلاً صفحهٔ محدودیت هاست) هرگز جای تنظیمات سالمِ گوشی را نگیرد
+    if (!data || typeof data !== 'object' || Object.keys(data).length < 3) throw new Error('bad_settings');
     state.settings = data;
     applyReciterNames();
     applyMoreTiles(data);
@@ -2183,9 +2257,16 @@ function checkForNewServerAlarm() {
   showAlarmModal(a.title || 'اعلان جدید', a.body || '', a.link || '', 'server_alarm_clicked');
 }
 
-setInterval(async () => {
+// کم‌کردن فشار روی سایت: تنظیمات فقط وقتی اپ روی صفحه است و هر ۲ دقیقه پرسیده می‌شود
+// (و یک‌بار هم وقتی کاربر به اپ برمی‌گردد، اگر از آخرین پرسیدن بیش از ۳۰ ثانیه گذشته باشد).
+let settingsPollLast = 0;
+async function pollSettingsNow() {
+  if (document.hidden) return;
+  settingsPollLast = Date.now();
   try {
-    state.settings = await apiFetch('/settings');
+    const fresh = await apiFetch('/settings');
+    if (!fresh || typeof fresh !== 'object' || Object.keys(fresh).length < 3) return;
+    state.settings = fresh;
     try { localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(state.settings)); } catch (e) {}
     applyReciterNames();
     prefetchAzanAudioForOffline();
@@ -2194,7 +2275,11 @@ setInterval(async () => {
     checkQuranInvitePopup();
     checkQuranInactivityPopup();
   } catch (e) {}
-}, 20000);
+}
+setInterval(pollSettingsNow, 120000);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && Date.now() - settingsPollLast > 30000) pollSettingsNow();
+});
 
 function renderAboutPage() {
   const s = state.settings || {};
@@ -10382,7 +10467,24 @@ function shariqSetWrap(wrap, open) {
   }
 }
 // درخواست ساده (بدون هدر Content-Type تا نیازی به preflight نباشد) + پارامتر زمان تا هیچ کشی وسط راه جواب قدیمی ندهد
+// اطلاعات عمومیِ مسابقه/ختم/دسته‌بندی‌ها: اگر سایت در دسترس نبود، آخرین نسخهٔ سالم نمایش داده می‌شود
 async function shariqGet(path) {
+  const staleKey = apiCacheKey(String(path).split('?')[0], String(path)) || '';
+  const cacheable = staleKey && API_OFFLINE_QUERY_RE.test(String(path).split('?')[0]);
+  try {
+    const data = await shariqGetRaw(path);
+    if (cacheable) apiCacheWrite(staleKey, data);
+    return data;
+  } catch (e) {
+    const c = (e && e.code) || '';
+    if (cacheable && (c === 'network' || c === 'bad_json' || /^http_5/.test(c) || (e && e.nonJson))) {
+      const old = await apiStale(staleKey);
+      if (old !== null) return old;
+    }
+    throw e;
+  }
+}
+async function shariqGetRaw(path) {
   const sep = path.indexOf('?') === -1 ? '?' : '&';
   const url = state.apiUrl.replace(/\/$/, '') + path + sep + '_t=' + Date.now();
   const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
@@ -10400,7 +10502,7 @@ async function shariqGet(path) {
     const i = text.search(/[\[{]/);
     if (i > 0) { try { data = JSON.parse(text.slice(i)); } catch (e2) { data = null; } }
   }
-  if (!res.ok) { const err = new Error((data && data.message) || ('HTTP ' + res.status)); err.code = 'http_' + res.status; throw err; }
+  if (!res.ok) { const err = new Error((data && data.message) || ('HTTP ' + res.status)); err.code = 'http_' + res.status; err.nonJson = (data === null); throw err; }
   if (data === null) { const err = new Error('bad_json'); err.code = 'bad_json'; throw err; }
   return data;
 }
@@ -12606,7 +12708,7 @@ if ('serviceWorker' in navigator) {
     // کش‌های «پخش آفلاین اذان» و «پوستهٔ اصلی اپ» حذف نشوند؛ قبلاً این خط با هر بار
     // باز شدن اپ همهٔ کش‌ها را پاک می‌کرد و در نتیجه چیزی برای کارکرد آفلاین باقی نمی‌ماند.
     caches.keys().then((keys) => keys.forEach((k) => {
-      if (k !== AZAN_OFFLINE_CACHE_NAME && k !== APP_SHELL_CACHE_NAME && k !== QURAN_AUDIO_CACHE_NAME && k !== ANNOUNCEMENT_AUDIO_CACHE_NAME && k !== CHARITY_MEDIA_CACHE_NAME && k !== SITE_MEDIA_CACHE_NAME && k !== EID_AUDIO_CACHE_NAME) caches.delete(k);
+      if (k !== AZAN_OFFLINE_CACHE_NAME && k !== APP_SHELL_CACHE_NAME && k !== QURAN_AUDIO_CACHE_NAME && k !== ANNOUNCEMENT_AUDIO_CACHE_NAME && k !== CHARITY_MEDIA_CACHE_NAME && k !== SITE_MEDIA_CACHE_NAME && k !== API_MIRROR_CACHE_NAME && k !== EID_AUDIO_CACHE_NAME) caches.delete(k);
     }));
   }
 }

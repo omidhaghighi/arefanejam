@@ -20,7 +20,7 @@ const CHARITY_MEDIA_CACHE = 'arefanejam-charity-media-v1';
 // کش عکس‌هایی که مدیر در پیشخوان گذاشته (مکاتب، چارت، اسلایدر، گالری ...)؛ هر عکسِ آپلودهای سایت که
 // یک بار با اینترنت دیده شود اینجا می‌ماند و آفلاین هم نمایش داده می‌شود. باید با SITE_MEDIA_CACHE_NAME در js/app.js یکی باشد.
 const SITE_MEDIA_CACHE = 'arefanejam-site-media-v1';
-const SITE_MEDIA_MAX = 120;
+const SITE_MEDIA_MAX = 300;
 
 // دو جایگاه ثابت و جدا در نوار اعلانات:
 // ۱) STICKY_TAG: تاریخ امروز + اذان بعدی — همیشه به‌روزرسانی می‌شود، بی‌صدا
@@ -237,7 +237,18 @@ function networkFirstThenCache(request, cacheName, isShell) {
     ? new Request(request.url, { headers: request.headers, credentials: request.credentials, cache: 'reload' })
     : request;
   return fetch(fetchReq)
-    .then((response) => {
+    .then(async (response) => {
+      // برای اطلاعات سایت (تنظیمات و ...): خطای سرور (۵xx، مثل اتمام ترافیک) یا صفحهٔ HTML به‌جای JSON
+      // «پاسخ بد» حساب می‌شود؛ نه ذخیره می‌شود و نه جای نسخهٔ سالم را می‌گیرد، و اگر نسخهٔ سالم داریم همان برمی‌گردد.
+      if (!isShell && response) {
+        const ct = (response.headers && response.headers.get('content-type')) || '';
+        const bad = response.status >= 500 || (response.status === 200 && ct.indexOf('json') === -1);
+        if (bad) {
+          const good = await caches.match(request);
+          if (good) return good;
+          return response;
+        }
+      }
       if (response && response.status === 200) {
         const copy = response.clone();
         caches.open(cacheName).then((cache) => cache.put(request, copy)).catch(() => {});
