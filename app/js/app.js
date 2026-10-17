@@ -3654,6 +3654,9 @@ function updateStickyNotification(upcoming) {
         next: upcoming ? 'اذان بعدی: ' + upcoming.label + ' — ساعت ' + formatTime(upcoming.time) : '',
         nextName: upcoming ? String(upcoming.label) : '',
         nextTime: upcoming ? formatTime(upcoming.time) : '',
+        // برای کد بومی (وقتی اپ بسته است): منطقهٔ زمانی تاریخ کارت (۲۱۰ = وقت ایران؛ نبودن = ساعت گوشی) و لحظهٔ اذان بعدی
+        tzMin: (typeof iranFixedNow === 'function' && iranFixedNow()) ? IRAN_TZ_MIN : undefined,
+        nextAt: (upcoming && upcoming.time && typeof upcoming.time.getTime === 'function') ? upcoming.time.getTime() : 0,
         bgUrl: stkBgUrl,
         tileUrl: stkTileUrl,
         iconUrl: stkIconUrl,
@@ -16515,12 +16518,13 @@ async function cnFlNew() {
     <select id="cn-new-days" class="cn-input">${[1, 2, 3, 4, 5].map((n) => `<option value="${n}">${cnFa(n)} روز</option>`).join('')}</select>
     <label class="cn-lbl">حداکثر تعداد افراد (۲ تا ۱۰۰)</label>
     <input type="number" id="cn-new-max" class="cn-input" min="2" max="100" value="10" inputmode="numeric">
+    <p class="muted-text small">توجه: جایزهٔ لیگ اصلی فقط وقتی داده می‌شود که حداقل ۲۰ نفر در این لیگ بازی کنند.</p>
     <label class="cn-lbl">محدودهٔ سؤال‌ها (مثلاً برای کلاس یا مدرسه)</label>
     ${cnScopeHtml('nw')}
     <label class="cn-lbl">آی‌دی دوستان برای دعوت (اختیاری)</label>
     <textarea id="cn-new-inv" class="cn-input" rows="3" dir="ltr" placeholder="Kami47 Zafo88 Rili12"></textarea>
     <p class="muted-text small">آی‌دی‌ها را با فاصله یا ویرگول جدا کنید. هر دعوت‌شده باید در لیگ خودش «پذیرش» بزند. بقیه هم می‌توانند از «لیگ‌های باز» درخواست بدهند و شما تأیید می‌کنید.</p>
-    <p class="muted-text small">جایزه: ${cnFlAwardsText(f)} (برای نفرات ۱ تا ۳؛ فقط وقتی حداقل ${cnFa(f.award_min || 3)} نفر در لیگ بازی کرده باشند).</p>
+    <p class="muted-text small">جایزه: ${cnFlAwardsText(f)} (برای نفرات ۱ تا ۳؛ فقط وقتی حداقل ${cnFa(f.award_min || 20)} نفر در لیگ بازی کرده باشند).</p>
     <p class="cn-note cn-warn hidden" id="cn-new-err"></p>
     <button class="secondary-btn ga-start" id="cn-new-go">ثبت و شروع لیگ</button>
     <button class="ghost-btn" id="cn-new-back" style="width:100%;margin-top:8px">انصراف</button>
@@ -16600,7 +16604,7 @@ async function cnFlView(id) {
   }
   let status;
   if (active) status = '⏳ ' + cnFlTime(l.left) + ' مانده';
-  else status = '🏁 پایان یافته' + (d.finalized ? (d.board.some((r) => r.place) ? ' — جایزه‌ها داده شد' : ' — جایزه‌ای داده نشد (تعداد شرکت‌کنندگان کم بود)') : '');
+  else status = '🏁 پایان یافته' + (d.finalized ? (d.board.some((r) => r.place) ? ' — جایزه‌ها داده شد' : ' — جایزه‌ای داده نشد (برای جایزه حداقل ۲۰ نفر باید در لیگ بازی کنند)') : '');
   cnRoot().innerHTML = `
   <div class="ga-card cn-card">
     <h3 class="cn-h">${cnEsc(l.title)} ${cnFlMyBadge(l)}</h3>

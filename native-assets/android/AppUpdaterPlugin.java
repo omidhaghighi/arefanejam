@@ -1401,6 +1401,14 @@ public class AppUpdaterPlugin extends Plugin {
             Integer tileAlphaV = call.getInt("tileAlpha", 35);
             int bgDim = bgDimV == null ? 45 : bgDimV.intValue();
             int tileAlpha = tileAlphaV == null ? 35 : tileAlphaV.intValue();
+            // منطقهٔ زمانی تاریخ کارت (۲۱۰ = وقت ایران؛ نبودن = ساعت خود گوشی) و لحظهٔ «اذان بعدی» (برای تشخیص کهنه‌شدن)
+            int tzMin = STK_TZ_LOCAL;
+            long nextAt = 0L;
+            try {
+                org.json.JSONObject cd = call.getData();
+                tzMin = cd.optInt("tzMin", STK_TZ_LOCAL);
+                nextAt = cd.optLong("nextAt", 0L);
+            } catch (Throwable ignore) { }
             // آخرین مشخصات کارت را نگه می‌داریم تا بعد از هر اذان، بدون باز شدن اپ و بدون اینترنت،
             // «اذان بعدی» روی کارت از فهرست ذخیره‌شدهٔ اذان‌ها به‌روز شود (stkRefreshNext)
             try {
@@ -1410,6 +1418,7 @@ public class AppUpdaterPlugin extends Plugin {
                 sv.put("next", next); sv.put("nextName", nextName); sv.put("nextTime", nextTime);
                 sv.put("bgUrl", bgUrl); sv.put("tileUrl", tileUrl); sv.put("iconUrl", iconUrl); sv.put("smallIconUrl", smallIconUrl);
                 sv.put("bgDim", bgDim); sv.put("tileAlpha", tileAlpha);
+                sv.put("tzMin", tzMin); sv.put("nextT", nextAt);
                 ctx.getSharedPreferences(STK_PREFS, Context.MODE_PRIVATE).edit().putString("card", sv.toString()).apply();
             } catch (Throwable ignore) { }
             stkRender(ctx, brand, weekday, day, month, jalali, hijri, greg, custom, next, nextName, nextTime,
@@ -1510,9 +1519,108 @@ public class AppUpdaterPlugin extends Plugin {
         return sb.toString();
     }
 
+    /* ===== تاریخ و «اذان بعدی» کارت ثابت، کاملاً بومی (بدون اپ و بدون اینترنت) =====
+       الگوریتم‌ها عیناً همان app.js هستند (gregorianToJalali، islamicFromJulianDay و نام ماه‌ها)، تا متن کارت
+       وقتی اپ بسته است دقیقاً مثل وقتی اپ باز است نوشته شود. بدون java.time (برای اندروید قدیمی). */
+    private static final int STK_TZ_LOCAL = -100000;
+    private static final String[] STK_JM = { "\u0641\u0631\u0648\u0631\u062f\u06cc\u0646", "\u0627\u0631\u062f\u06cc\u0628\u0647\u0634\u062a", "\u062e\u0631\u062f\u0627\u062f", "\u062a\u06cc\u0631", "\u0645\u0631\u062f\u0627\u062f", "\u0634\u0647\u0631\u06cc\u0648\u0631", "\u0645\u0647\u0631", "\u0622\u0628\u0627\u0646", "\u0622\u0630\u0631", "\u062f\u06cc", "\u0628\u0647\u0645\u0646", "\u0627\u0633\u0641\u0646\u062f" };
+    private static final String[] STK_HM = { "\u0645\u062d\u0631\u0645", "\u0635\u0641\u0631", "\u0631\u0628\u06cc\u0639\u200c\u0627\u0644\u0627\u0648\u0644", "\u0631\u0628\u06cc\u0639\u200c\u0627\u0644\u062b\u0627\u0646\u06cc", "\u062c\u0645\u0627\u062f\u06cc\u200c\u0627\u0644\u0627\u0648\u0644", "\u062c\u0645\u0627\u062f\u06cc\u200c\u0627\u0644\u062b\u0627\u0646\u06cc", "\u0631\u062c\u0628", "\u0634\u0639\u0628\u0627\u0646", "\u0631\u0645\u0636\u0627\u0646", "\u0634\u0648\u0627\u0644", "\u0630\u06cc\u200c\u0627\u0644\u0642\u0639\u062f\u0647", "\u0630\u06cc\u200c\u0627\u0644\u062d\u062c\u0647" };
+    private static final String[] STK_GM = { "\u0698\u0627\u0646\u0648\u06cc\u0647", "\u0641\u0648\u0631\u06cc\u0647", "\u0645\u0627\u0631\u0633", "\u0622\u0648\u0631\u06cc\u0644", "\u0645\u0647", "\u0698\u0648\u0626\u0646", "\u0698\u0648\u0626\u06cc\u0647", "\u0627\u0648\u062a", "\u0633\u067e\u062a\u0627\u0645\u0628\u0631", "\u0627\u06a9\u062a\u0628\u0631", "\u0646\u0648\u0627\u0645\u0628\u0631", "\u062f\u0633\u0627\u0645\u0628\u0631" };
+    private static final String[] STK_WD = { "\u06cc\u06a9\u0634\u0646\u0628\u0647", "\u062f\u0648\u0634\u0646\u0628\u0647", "\u0633\u0647\u200c\u0634\u0646\u0628\u0647", "\u0686\u0647\u0627\u0631\u0634\u0646\u0628\u0647", "\u067e\u0646\u062c\u0634\u0646\u0628\u0647", "\u062c\u0645\u0639\u0647", "\u0634\u0646\u0628\u0647" };
+
+    private static long stkFloorDiv(long a, long b) {
+        long q = a / b;
+        if ((a % b != 0) && ((a < 0) != (b < 0))) q--;
+        return q;
+    }
+
+    private static java.util.GregorianCalendar stkCal(long ms, int tzMin) {
+        java.util.TimeZone tz = tzMin == STK_TZ_LOCAL ? java.util.TimeZone.getDefault()
+                : new java.util.SimpleTimeZone(tzMin * 60000, "stk");
+        java.util.GregorianCalendar c = new java.util.GregorianCalendar(tz);
+        c.setTimeInMillis(ms);
+        return c;
+    }
+
+    private static long[] stkJalali(int gy, int gm, int gd) {
+        int[] gdm = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+        int gy2 = gm > 2 ? gy + 1 : gy;
+        long days = 355666L + 365L * gy + (gy2 + 3) / 4 - (gy2 + 99) / 100 + (gy2 + 399) / 400 + gd;
+        for (int i = 0; i < gm - 1; i++) days += gdm[i];
+        long jy = -1595L + 33L * (days / 12053L);
+        days %= 12053L;
+        jy += 4L * (days / 1461L);
+        days %= 1461L;
+        if (days > 365) { jy += (days - 1) / 365L; days = (days - 1) % 365L; }
+        long jm, jd;
+        if (days < 186) { jm = 1 + days / 31; jd = 1 + (days % 31); }
+        else { jm = 7 + (days - 186) / 30; jd = 1 + ((days - 186) % 30); }
+        return new long[] { jy, jm, jd };
+    }
+
+    private static long stkJulianDay(int gy, int gm, int gd) {
+        long a = (14 - gm) / 12;
+        long y = gy + 4800 - a;
+        long m = gm + 12 * a - 3;
+        return gd + (153 * m + 2) / 5 + 365 * y + y / 4 - y / 100 + y / 400 - 32045;
+    }
+
+    private static long[] stkIslamic(long jdn) {
+        long l = jdn - 1948439L + 10632L;
+        long n = stkFloorDiv(l - 1, 10631L);
+        l = l - 10631L * n + 354L;
+        long j = stkFloorDiv(10985L - l, 5316L) * stkFloorDiv(50L * l, 17719L)
+               + stkFloorDiv(l, 5670L) * stkFloorDiv(43L * l, 15238L);
+        l = l - stkFloorDiv(30L - j, 15L) * stkFloorDiv(17719L * j, 50L)
+              - stkFloorDiv(j, 16L) * stkFloorDiv(15238L * j, 43L) + 29L;
+        long month = stkFloorDiv(24L * l, 709L);
+        long day = l - stkFloorDiv(709L * month, 24L);
+        long year = 30L * n + j - 30L;
+        return new long[] { year, month, day };
+    }
+
+    /** {روز هفته، روز شمسی، ماه شمسی، تاریخ شمسی، تاریخ قمری، تاریخ میلادی} برای لحظهٔ ms (مثل getCalendarStrings در app.js). */
+    static String[] stkDateStrings(long ms, int tzMin) {
+        java.util.GregorianCalendar c = stkCal(ms, tzMin);
+        int gy = c.get(java.util.Calendar.YEAR), gm = c.get(java.util.Calendar.MONTH) + 1, gd = c.get(java.util.Calendar.DAY_OF_MONTH);
+        String wd = STK_WD[c.get(java.util.Calendar.DAY_OF_WEEK) - 1];
+        long[] j = stkJalali(gy, gm, gd);
+        long[] h = stkIslamic(stkJulianDay(gy, gm, gd));
+        String jMonth = STK_JM[(int) j[1] - 1];
+        int hm = (int) h[1];
+        String hMonth = (hm >= 1 && hm <= 12) ? STK_HM[hm - 1] : "";
+        return new String[] {
+            wd,
+            stkFa(String.valueOf(j[2])),
+            jMonth,
+            wd + " " + stkFa(String.valueOf(j[2])) + " " + jMonth + " " + stkFa(String.valueOf(j[0])),
+            wd + " " + stkFa(String.valueOf(h[2])) + " " + hMonth + " " + stkFa(String.valueOf(h[0])),
+            wd + " " + stkFa(String.valueOf(gd)) + " " + STK_GM[gm - 1] + " " + stkFa(String.valueOf(gy))
+        };
+    }
+
+    /** لحظهٔ شروع روز بعد (به وقت منطقهٔ کارت) + ۲ ثانیه؛ ۰ اگر کارتی روی گوشی ثبت نشده. برای آلارم نیمه‌شب (AzanReceiver.armSticky). */
+    static long stkNextDayChange(Context ctx) {
+        try {
+            String raw = ctx.getSharedPreferences(STK_PREFS, Context.MODE_PRIVATE).getString("card", "");
+            if (raw == null || raw.length() == 0) return 0L;
+            int tz = new JSONObject(raw).optInt("tzMin", STK_TZ_LOCAL);
+            java.util.GregorianCalendar c = stkCal(System.currentTimeMillis(), tz);
+            c.set(java.util.Calendar.HOUR_OF_DAY, 0);
+            c.set(java.util.Calendar.MINUTE, 0);
+            c.set(java.util.Calendar.SECOND, 0);
+            c.set(java.util.Calendar.MILLISECOND, 0);
+            c.add(java.util.Calendar.DAY_OF_MONTH, 1);
+            return c.getTimeInMillis() + 2000L;
+        } catch (Throwable t) {
+            return 0L;
+        }
+    }
+
     /**
-     * بعد از هر اذان (یا بوت/تغییر ساعت) از AzanReceiver صدا زده می‌شود: «اذان بعدی» کارت را از فهرست اذان‌های
-     * ذخیره‌شدهٔ خود گوشی می‌خواند و کارت را دوباره می‌کشد. نه اپ باز لازم است نه اینترنت.
+     * بعد از هر اذان، نیمه‌شب، بوت، بروزرسانی اپ و هر ~۵ دقیقه (آلارم صندوق ارسال) از AzanReceiver صدا زده می‌شود:
+     * هم «تاریخ‌ها» (شمسی/قمری/میلادی/روز هفته/کاشی) و هم «اذان بعدی» را از ساعت و فهرست ۳۰ روزهٔ داخل خود گوشی
+     * دوباره حساب می‌کند و فقط اگر چیزی عوض شده باشد کارت را دوباره می‌کشد. نه اپ باز لازم است نه اینترنت.
      * فقط وقتی کارت هنوز روی گوشی هست به‌روز می‌کند (اگر کاربر کنارش زده باشد دوباره ساخته نمی‌شود).
      */
     static void stkRefreshNext(Context ctx) { stkRefreshNext(ctx, false); }
@@ -1538,6 +1646,18 @@ public class AppUpdaterPlugin extends Plugin {
             }
             JSONObject o = new JSONObject(raw);
             long now = System.currentTimeMillis();
+            int tz = o.optInt("tzMin", STK_TZ_LOCAL);
+            boolean changed = force;
+
+            // ۱) تاریخ امروز (هر بار از ساعت گوشی؛ تا کارت بعد از نیمه‌شب هم درست بماند)
+            String[] d = stkDateStrings(now, tz);
+            String[] keys = { "weekday", "day", "month", "jalali", "hijri", "gregorian" };
+            String[] dkeys = { d[0], d[1], d[2], d[3], d[4], d[5] };
+            for (int i = 0; i < keys.length; i++) {
+                if (!dkeys[i].equals(o.optString(keys[i], ""))) { changed = true; o.put(keys[i], dkeys[i]); }
+            }
+
+            // ۲) اذان بعدی از فهرست ذخیره‌شدهٔ اذان‌ها
             long bestT = 0;
             String bestLabel = "";
             org.json.JSONArray arr = new org.json.JSONArray(AzanReceiver.prefs(ctx).getString("items", "[]"));
@@ -1549,18 +1669,23 @@ public class AppUpdaterPlugin extends Plugin {
             String next = o.optString("next", "");
             String nextName = o.optString("nextName", "");
             String nextTime = o.optString("nextTime", "");
+            long nextT = o.optLong("nextT", 0L);
             if (bestT > 0) {
-                java.util.Calendar cal = java.util.Calendar.getInstance();
-                cal.setTimeInMillis(bestT);
-                nextTime = stkFa(String.format(java.util.Locale.US, "%02d:%02d", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE)));
-                nextName = bestLabel;
-                next = "\u0627\u0630\u0627\u0646 \u0628\u0639\u062f\u06cc: " + bestLabel + " \u2014 \u0633\u0627\u0639\u062a " + nextTime;
-                if (!force && nextName.equals(o.optString("nextName", "")) && nextTime.equals(o.optString("nextTime", ""))) return; // تغییری نکرده
-                o.put("next", next); o.put("nextName", nextName); o.put("nextTime", nextTime);
-                sp.edit().putString("card", o.toString()).apply();
-            } else if (!force) {
-                return; // فهرستی در گوشی نیست؛ همان کارت قبلی بماند
+                java.util.GregorianCalendar cal = stkCal(bestT, tz);
+                String nt = stkFa(String.format(java.util.Locale.US, "%02d:%02d", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE)));
+                String nn = bestLabel;
+                String nx = "\u0627\u0630\u0627\u0646 \u0628\u0639\u062f\u06cc: " + nn + " \u2014 \u0633\u0627\u0639\u062a " + nt;
+                if (!nn.equals(nextName) || !nt.equals(nextTime) || bestT != nextT) changed = true;
+                next = nx; nextName = nn; nextTime = nt; nextT = bestT;
+            } else if (nextT > 0 && nextT <= now) {
+                // فهرست اذان‌های گوشی تمام شده (چند هفته بدون باز شدن اپ) و آخرین اذان نشان‌داده‌شده گذشته است:
+                // به‌جای ساعتِ کهنه و غلط، بخش «اذان بعدی» فعلاً خالی می‌شود (با باز شدن اپ دوباره پر می‌شود)
+                if (next.length() > 0 || nextName.length() > 0 || nextTime.length() > 0) changed = true;
+                next = ""; nextName = ""; nextTime = ""; nextT = 0L;
             }
+            if (!changed) return; // چیزی عوض نشده؛ کارت را دوباره نکش
+            o.put("next", next); o.put("nextName", nextName); o.put("nextTime", nextTime); o.put("nextT", nextT);
+            sp.edit().putString("card", o.toString()).apply();
             stkRender(ctx, o.optString("brand", ""), o.optString("weekday", ""), o.optString("day", ""), o.optString("month", ""),
                       o.optString("jalali", ""), o.optString("hijri", ""), o.optString("gregorian", ""), o.optString("custom", ""),
                       next, nextName, nextTime, o.optString("bgUrl", ""), o.optString("tileUrl", ""), o.optString("iconUrl", ""), o.optString("smallIconUrl", ""),

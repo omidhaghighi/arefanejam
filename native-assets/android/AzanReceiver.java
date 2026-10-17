@@ -84,6 +84,15 @@ public class AzanReceiver extends BroadcastReceiver {
             // the 5-minute alarm: re-arms itself, then reads the inbox (works with the phone locked and the app closed)
             BroadcastReceiver.PendingResult prPoll = null;
             try { prPoll = goAsync(); } catch (Throwable ignore) { }
+            // پشتیبان: اگر گوشی آلارم کارت را عقب انداخته بود، تاریخ و «اذان بعدی» کارت همین‌جا (فقط در صورت تغییر) تازه می‌شود
+            try {
+                final Context appCtx = ctx.getApplicationContext();
+                new Thread(new Runnable() {
+                    @Override public void run() {
+                        try { AppUpdaterPlugin.stkRefreshNext(appCtx, false); } catch (Throwable ignore) { }
+                    }
+                }).start();
+            } catch (Throwable ignore) { }
             try { UpdateJobService.runInboxNow(ctx, prPoll, true); }
             catch (Throwable t) { try { if (prPoll != null) prPoll.finish(); } catch (Throwable ignore) { } }
             return;
@@ -329,9 +338,9 @@ public class AzanReceiver extends BroadcastReceiver {
     }
 
     /**
-     * One extra alarm (independent of the azan on/off switch): 3 seconds after the next prayer time it wakes the
-     * receiver so the "next azan" on the sticky card moves on to the following prayer, even with the app closed
-     * and no internet.
+     * One extra alarm (independent of the azan on/off switch): 3 seconds after the next prayer time, or just after
+     * midnight (whichever is first), it wakes the receiver so the "next azan" and the dates on the sticky card move
+     * on, even with the app closed and no internet.
      */
     static void armSticky(Context ctx, AlarmManager am) {
         int sf = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0);
@@ -348,8 +357,12 @@ public class AzanReceiver extends BroadcastReceiver {
                 if (t > now && (bestT == 0 || t < bestT)) bestT = t;
             }
         } catch (Throwable ignore) { }
-        if (bestT == 0) return;
-        long at = bestT + 3000L;
+        // همین آلارم یک‌بار هم سر نیمه‌شب (تغییر روز) بیدار می‌شود تا تاریخ‌های کارت بدون باز شدن اپ و بدون اینترنت عوض شوند
+        long dayAt = 0L;
+        try { dayAt = AppUpdaterPlugin.stkNextDayChange(ctx); } catch (Throwable ignore) { }
+        long at = bestT > 0 ? bestT + 3000L : 0L;
+        if (dayAt > now && (at == 0L || dayAt < at)) at = dayAt;
+        if (at == 0L) return;
         try {
             am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
         } catch (Throwable e) {
