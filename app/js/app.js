@@ -521,6 +521,9 @@ function switchToTab(tabName, opts) {
   pvOnTabSwitch(tabName);
   if (tabName !== 'game-ayah') gaStopTimer();
   if (tabName === 'game-ayah') gaOpen();
+  if (tabName !== 'contest') { try { cnLeave(); } catch (e) {} }
+  if (tabName === 'contest') cnOpen();
+  if (tabName === 'fun') { try { loadContestSettings(); } catch (e) {} }
 }
 
 /* دکمه‌های نوار پایین: یک شنوندهٔ مشترک روی خود نوار (تا دکمه‌های ساخته‌شده از پیشخوان ← «منوی پایین اپ» هم کار کنند).
@@ -620,6 +623,8 @@ function handleHardwareBack() {
     if (typeof qpMenuIsOpen === 'function' && qpMenuIsOpen()) { qpMenuClose(); return; }
     const lb = document.getElementById('gallery-lightbox');
     if (lb && !lb.classList.contains('hidden')) { closeGalleryLightbox(); return; }
+    if (currentTab === 'contest' && typeof cnInGame === 'function' && cnInGame()) { cnConfirmExit(); return; }
+    if (currentTab === 'contest' && (cnS.phase === 'fl' || cnS.phase === 'review' || cnS.phase === 'season' || cnS.phase === 'prac')) { cnOpen(); return; }
     if (currentTab === 'game-ayah' && typeof gaGame !== 'undefined' && gaGame) { gaOpen(); return; }
     if (currentTab === 'shariq' && shariqState && shariqState.activeCategory != null) {
       document.querySelectorAll('#shariq-cats-row .shariq-chip').forEach((c) => c.classList.remove('active'));
@@ -15895,5 +15900,920 @@ bnrLoad();
     loadSettings();
   } catch (e) { try { console.error('students', e); } catch (e2) {} }
 })();
+
+/* ======================================================================
+   مسابقهٔ آنلاین قرآنی + لیگ (سرگرمی ← مسابقه)
+   - آنلاین: بدون اینترنت اجازهٔ شروع نمی‌دهد؛ اگر وسط ۱۰ سؤال اینترنت قطع شود دور لغو می‌شود و هیچ چیزی ارسال نمی‌شود.
+   - فقط دو درخواست برای هر دور: /contest/start (گرفتن ۱۰ سؤال) و /contest/submit (ارسال همهٔ پاسخ‌ها، فقط با دکمهٔ «ارسال» در سؤال ۱۰).
+   - کاربر به سؤال قبل برنمی‌گردد؛ هر سؤال فقط «seconds» ثانیه (از پیشخوان، پیش‌فرض ۱۵) وقت دارد (ساعت دیواری، با رفتن به پس‌زمینه متوقف نمی‌شود).
+   - سؤال‌ها و جواب‌ها را سرور می‌سازد/تصحیح می‌کند؛ جواب درست هرگز قبل از ارسال داخل گوشی نیست.
+   - متغیرها عمداً با var تعریف شده‌اند (switchToTab ممکن است قبل از رسیدن اجرا به این خط‌ها صدا زده شود؛ با let خطای TDZ می‌دهد).
+   ====================================================================== */
+var cnS = { phase: 'idle', settings: null, me: null, round: null, device: '', i: 0, answers: [], qStart: 0, deadline: 0, limitMs: 15000, locked: false, board: 0 };
+var cnTimer = null, cnAdvance = null;
+
+function cnRoot() { return document.getElementById('cn-root'); }
+function cnEsc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function cnFa(n) { return toPersianDigits(n); }
+function cnStopTimers() {
+  if (cnTimer) { clearInterval(cnTimer); cnTimer = null; }
+  if (cnAdvance) { clearTimeout(cnAdvance); cnAdvance = null; }
+}
+function cnSetPlaying(on) { try { document.getElementById('tab-contest').classList.toggle('cn-playing', !!on); } catch (e) {} }
+function cnInGame() { return cnS.phase === 'count' || cnS.phase === 'play' || cnS.phase === 'send' || cnS.phase === 'sending'; }
+
+// خروج از صفحه (یا لغو): هیچ چیزی ارسال نمی‌شود
+function cnLeave() {
+  if (cnS.phase === 'idle') return;
+  cnStopTimers();
+  cnS.phase = 'idle'; cnS.answers = []; cnS.round = null; cnS.locked = false;
+  cnSetPlaying(false);
+}
+
+async function cnPost(path, body) {
+  const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), 25000) : null;
+  let res;
+  try {
+    res = await fetch(state.apiUrl.replace(/\/$/, '') + path, {
+      method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}), signal: ctrl ? ctrl.signal : undefined
+    });
+  } catch (e) {
+    const err = new Error('network'); err.code = 'network'; throw err;
+  } finally { if (timer) clearTimeout(timer); }
+  const text = await res.text();
+  let data = null;
+  try { data = JSON.parse(text); } catch (e) {
+    const i = text.search(/[\[{]/);
+    if (i > 0) { try { data = JSON.parse(text.slice(i)); } catch (e2) { data = null; } }
+  }
+  if (!res.ok) {
+    const err = new Error((data && data.message) || ('HTTP ' + res.status));
+    err.code = 'http_' + res.status; err.serverMsg = !!(data && data.message); throw err;
+  }
+  if (data === null) { const err = new Error('bad_json'); err.code = 'bad_json'; throw err; }
+  return data;
+}
+function cnErrText(e) {
+  if (e && e.serverMsg) return e.message;
+  return 'ارتباط با سرور برقرار نشد. اینترنت را بررسی کنید و دوباره تلاش کنید.';
+}
+
+/* نام بخش و پنهان‌کردن کاشی (فقط وقتی صفحهٔ «سرگرمی» باز می‌شود؛ برای کم‌کردن ترافیک) */
+async function loadContestSettings() {
+  if (!navigator.onLine) return;
+  try {
+    const s = await shariqGet('/contest/settings');
+    const tile = document.getElementById('contest-more-tile');
+    if (tile) tile.classList.toggle('hidden', s && s.enabled === false);
+    if (s && s.nav_label) {
+      const a = document.getElementById('contest-tile-label'); if (a) a.textContent = s.nav_label;
+      const b = document.getElementById('cn-page-title'); if (b) b.textContent = s.nav_label;
+    }
+  } catch (e) { /* بدون اینترنت: نام پیش‌فرض */ }
+}
+
+function cnOfflineHtml(title, text) {
+  return `<div class="ga-card cn-card">
+    <div class="ga-hero">📡</div>
+    <h3 class="ga-title">${cnEsc(title)}</h3>
+    <p class="cn-note">${cnEsc(text)}</p>
+    <button class="secondary-btn ga-start" id="cn-retry-btn">تلاش دوباره</button>
+  </div>`;
+}
+function cnShowOffline() {
+  cnStopTimers();
+  cnS.phase = 'offline';
+  cnRoot().innerHTML = cnOfflineHtml('اینترنت شما خاموش است', 'برای انجام مسابقه اینترنت خود را روشن کنید.');
+  document.getElementById('cn-retry-btn').addEventListener('click', cnOpen);
+  try { appAlert('contest_offline', null, { text: 'برای انجام مسابقه اینترنت خود را روشن کنید.', title: 'اینترنت قطع است', icon: '📡', tone: 'warn' }); } catch (e) {}
+}
+
+/* ---------- صفحهٔ اصلی مسابقه ---------- */
+async function cnOpen() {
+  cnStopTimers(); cnSetPlaying(false);
+  cnS.locked = false; cnS.answers = []; cnS.round = null; cnS.leagueId = 0;
+  if (!navigator.onLine) { cnShowOffline(); return; }
+  cnS.phase = 'loading';
+  cnRoot().innerHTML = '<div class="ga-card cn-card"><p class="muted-text">در حال بارگذاری…</p></div>';
+  let res;
+  try {
+    cnS.device = await ensureDeviceId();
+    res = await cnPost('/contest/join', { device_id: cnS.device });
+  } catch (e) {
+    if (currentTab !== 'contest') return;
+    cnS.phase = 'error';
+    cnRoot().innerHTML = cnOfflineHtml('ارتباط برقرار نشد', cnErrText(e));
+    document.getElementById('cn-retry-btn').addEventListener('click', cnOpen);
+    return;
+  }
+  if (currentTab !== 'contest') return;
+  cnS.settings = res.settings; cnS.me = res.me; cnS.season = res.season || null; cnS.phase = 'home';
+  cnRenderHome(false);
+}
+
+function cnLeagueClass(i) { return 'cn-l' + Math.max(0, Math.min(2, i | 0)); }
+
+function cnRenderHome(scrollBoard) {
+  const s = cnS.settings || {}, me = cnS.me || {};
+  const lg = s.leagues || [];
+  let nextTxt = '';
+  if (me.next) nextTxt = `تا «${cnEsc(me.next.name)}» <b>${cnFa(me.next.need)}</b> امتیاز مانده`;
+  else nextTxt = 'شما در بالاترین لیگ هستید 👑';
+  let plays;
+  if (me.plays_left < 0) plays = '';
+  else if (me.plays_left === 0) plays = `<p class="cn-note cn-warn">سهمیهٔ امروز شما تمام شد؛ فردا دوباره بیایید.</p>`;
+  else plays = `<p class="cn-note">دورهای باقی‌ماندهٔ امروز: <b>${cnFa(me.plays_left)}</b> از ${cnFa(s.daily_limit)}</p>`;
+  const canPlay = me.plays_left !== 0;
+  let chips = '';
+  lg.forEach((l, i) => {
+    chips += `<button type="button" class="cn-chip ${cnLeagueClass(i)}" data-l="${i}">${cnEsc(l.name)}${i === me.league ? ' ⭐' : ''}</button>`;
+  });
+  cnRoot().innerHTML = `
+  <div class="ga-card cn-card cn-profile">
+    <div class="cn-hero">🏆</div>
+    <div class="cn-yourname">نام شما در مسابقه</div>
+    <div class="cn-nick" dir="ltr">${cnEsc(me.nick)}</div>
+    <div class="cn-badge ${cnLeagueClass(me.league)}">${cnEsc(me.league_name)}</div>
+    ${(me.gold || me.silver || me.bronze) ? `<div class="cn-troph">جایزه‌های لیگ دوستان:${cnTroph(me.gold, me.silver, me.bronze)}</div>` : ''}
+    <div class="cn-stats">
+      <div><b>${cnNum(me.points)}</b><span>امتیاز</span></div>
+      <div><b>${cnFa(me.rank)}</b><span>رتبه از ${cnFa(me.league_size)}</span></div>
+      <div><b>${cnFa(me.rounds)}</b><span>دور</span></div>
+      <div><b>${cnFa(me.avg)}</b><span>میانگین دور</span></div>
+    </div>
+    <p class="cn-note">${nextTxt}</p>
+    ${plays}
+    <button class="secondary-btn ga-start" id="cn-start-btn" ${canPlay ? '' : 'disabled'}>🚀 شروع مسابقه (${cnFa(s.questions || 10)} سؤال)</button>
+  </div>
+  ${cnSeasonCardHtml(me)}
+  <div class="ga-card cn-card cn-prac">
+    <h3 class="cn-h">📖 تمرین آزاد و مرور من</h3>
+    <p class="cn-note">بدون امتیاز و بدون محدودیت؛ فقط برای یادگیری. محدودهٔ دلخواه (جزء یا سوره) را انتخاب کنید.</p>
+    ${cnScopeHtml('pr')}
+    <button class="secondary-btn ga-start" id="cn-prac-btn">🎯 شروع تمرین (۱۰ سؤال)</button>
+    <button class="ghost-btn" id="cn-mis-btn" style="width:100%;margin-top:8px">📝 مرور من (${cnFa(cnMisList().length)} اشتباه ذخیره‌شده)</button>
+  </div>
+  <div class="ga-card cn-card cn-friend">
+    <h3 class="cn-h">👥 لیگ دوستان</h3>
+    <p class="cn-note">با دوستانتان یک لیگ جدا بسازید یا وارد لیگ‌های باز شوید. نفرات اول تا سوم هر لیگ دوستان، در لیگ اصلی هم امتیاز می‌گیرند.</p>
+    <p class="cn-note">آی‌دی شما برای دعوت: <b dir="ltr">${cnEsc(me.nick)}</b></p>
+    <button class="secondary-btn ga-start" id="cn-fl-btn">👥 لیگ‌های دوستان${me.invites ? ' 🔴 ' + cnFa(me.invites) + ' دعوت' : ''}</button>
+  </div>
+  <div class="ga-card cn-card cn-rules">
+    <h3 class="cn-h">قوانین</h3>
+    <ul class="ga-rules">
+      <li>هر دور <b>${cnFa(s.questions || 10)} سؤال</b> است: «آیهٔ بعد از این آیه چیست؟» با ۴ گزینه (فقط ۳ کلمهٔ اول آیه).</li>
+      <li>برای هر سؤال فقط <b>${cnFa(s.seconds || 15)} ثانیه</b> وقت دارید و به سؤال قبلی <b>برنمی‌گردید</b>.</li>
+      <li>پاسخ درست ۶۰ تا ۱۰۰ امتیاز دارد (هرچه سریع‌تر، بیشتر)؛ پاسخ غلط یا بی‌پاسخ ۰. امتیاز دور = <b>میانگین ${cnFa(s.questions || 10)} سؤال</b> (۰ تا ۱۰۰).</li>
+      <li>پاسخ‌ها فقط در سؤال آخر با دکمهٔ «ارسال» یک‌جا فرستاده می‌شود. مجموع امتیاز دورها، لیگ شما را مشخص می‌کند.</li>
+      <li>مسابقه آنلاین است؛ اگر وسط بازی اینترنت قطع شود، دور لغو می‌شود و چیزی ثبت نمی‌شود.</li>
+    </ul>
+  </div>
+  <div class="ga-card cn-card" id="cn-board-card">
+    <h3 class="cn-h">🏅 جدول رده‌بندی لیگ‌ها</h3>
+    <div class="cn-chips">${chips}</div>
+    <p class="muted-text small" id="cn-league-note"></p>
+    <div id="cn-board"></div>
+  </div>`;
+  document.getElementById('cn-start-btn').addEventListener('click', cnStart);
+  document.getElementById('cn-fl-btn').addEventListener('click', () => cnFlHome());
+  cnScopeWire('pr');
+  document.getElementById('cn-prac-btn').addEventListener('click', cnPracStart);
+  document.getElementById('cn-mis-btn').addEventListener('click', cnMisOpen);
+  const sb = document.getElementById('cn-season-btn'); if (sb) sb.addEventListener('click', cnSeasonOpen);
+  cnRoot().querySelectorAll('.cn-chip').forEach((b) => b.addEventListener('click', () => cnLoadBoard(Number(b.dataset.l))));
+  cnLoadBoard(typeof me.league === 'number' ? me.league : 0);
+  if (scrollBoard) { try { document.getElementById('cn-board-card').scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} }
+}
+
+async function cnLoadBoard(idx) {
+  cnS.board = idx;
+  const box = document.getElementById('cn-board');
+  if (!box) return;
+  document.querySelectorAll('#cn-board-card .cn-chip').forEach((b) => b.classList.toggle('on', Number(b.dataset.l) === idx));
+  const lg = ((cnS.settings || {}).leagues || [])[idx];
+  const note = document.getElementById('cn-league-note');
+  if (note && lg) note.textContent = idx === 0 ? 'از همان ابتدا' : `از ${toPersianDigits(lg.min)} امتیاز به بالا`;
+  box.innerHTML = '<p class="muted-text small">در حال بارگذاری…</p>';
+  try {
+    const d = await shariqGet('/contest/board?league=' + idx + '&device_id=' + encodeURIComponent(cnS.device));
+    if (cnS.board !== idx || !document.getElementById('cn-board')) return;
+    if (d && d.me) { cnS.me = Object.assign({}, cnS.me || {}, d.me); }
+    if (d && d.season) cnS.season = d.season;
+    if (!d.rows || !d.rows.length) { box.innerHTML = '<p class="muted-text small" style="text-align:center;padding:10px">هنوز کسی در این لیگ نیست.</p>'; return; }
+    const medal = ['🥇', '🥈', '🥉'];
+    let h = '<div class="cn-table"><div class="cn-tr cn-th"><span>#</span><span>نام</span><span>امتیاز</span><span>دور</span></div>';
+    let meShown = false;
+    d.rows.forEach((r) => {
+      if (r.me) meShown = true;
+      h += `<div class="cn-tr${r.me ? ' me' : ''}"><span>${r.rank <= 3 ? medal[r.rank - 1] : cnFa(r.rank)}</span><span class="cn-rn" dir="ltr">${cnEsc(r.nick)}${r.me ? ' (شما)' : ''}${cnTroph(r.g, r.s, r.b) ? '<small class="cn-tr-t">' + cnTroph(r.g, r.s, r.b) + '</small>' : ''}</span><span>${cnNum(r.points)}</span><span>${cnFa(r.rounds)}</span></div>`;
+    });
+    h += '</div>';
+    if (d.me && d.me.league === idx && !meShown) {
+      h += `<div class="cn-table cn-table-me"><div class="cn-tr me"><span>${cnFa(d.me.rank)}</span><span class="cn-rn" dir="ltr">${cnEsc(d.me.nick)} (شما)</span><span>${cnNum(d.me.points)}</span><span>${cnFa(d.me.rounds)}</span></div></div>`;
+    }
+    h += `<p class="muted-text small" style="text-align:center;margin-top:8px">${cnFa(d.size)} نفر در «${cnEsc(d.name)}» · جدول هر نیم‌دقیقه به‌روز می‌شود</p>`;
+    box.innerHTML = h;
+  } catch (e) {
+    if (document.getElementById('cn-board')) box.innerHTML = '<p class="muted-text small" style="text-align:center">' + cnEsc(cnErrText(e)) + '</p>';
+  }
+}
+
+/* ---------- شروع دور ---------- */
+async function cnStart() {
+  if (cnS.phase !== 'home' && cnS.phase !== 'fl') return;
+  if (!navigator.onLine) { cnShowOffline(); return; }
+  const btn = document.getElementById('cn-start-btn') || document.getElementById('cn-fl-start');
+  if (btn) { btn.dataset.t = btn.textContent; btn.disabled = true; btn.textContent = 'در حال آماده‌سازی…'; }
+  let res;
+  try {
+    res = await cnPost('/contest/start', { device_id: cnS.device, league_id: cnS.leagueId || 0 });
+  } catch (e) {
+    if (currentTab !== 'contest') return;
+    if (btn) { btn.disabled = false; btn.textContent = btn.dataset.t || 'شروع'; }
+    try { appAlert('contest_start_err', null, { text: cnErrText(e), title: 'شروع نشد', icon: '⚠️', tone: 'warn' }); } catch (e2) {}
+    return;
+  }
+  if (currentTab !== 'contest') return;
+  cnS.round = res; cnS.i = 0; cnS.answers = []; cnS.locked = true;
+  cnS.limitMs = (Number(res.seconds) || 15) * 1000;
+  cnS.phase = 'count';
+  cnSetPlaying(true);
+  cnCountdown(3);
+}
+function cnCountdown(n) {
+  if (cnS.phase !== 'count') return;
+  if (!navigator.onLine) { cnAbort(); return; }
+  if (n <= 0) { cnShowQuestion(); return; }
+  cnRoot().innerHTML = `<div class="ga-card cn-card cn-ready"><p class="cn-note">آماده باشید…</p><div class="cn-big">${cnFa(n)}</div>
+    <p class="muted-text small">هر سؤال ${cnFa(cnS.limitMs / 1000)} ثانیه · بدون برگشت به سؤال قبل</p></div>`;
+  cnAdvance = setTimeout(() => cnCountdown(n - 1), 1000);
+}
+
+/* ---------- نمایش سؤال ---------- */
+function cnDots() {
+  let h = '<div class="ga-dots">';
+  const n = cnS.round.questions.length;
+  for (let k = 0; k < n; k++) h += `<span class="ga-dot${k < cnS.i ? ' ok' : ''}${k === cnS.i ? ' cur' : ''}"></span>`;
+  return h + '</div>';
+}
+function cnShowQuestion() {
+  cnStopTimers();
+  if (!navigator.onLine) { cnAbort(); return; }
+  const r = cnS.round, q = r.questions[cnS.i];
+  cnS.phase = 'play'; cnS.locked = false;
+  const last = cnS.i === r.questions.length - 1;
+  let opts = '';
+  q.options.forEach((o, k) => { opts += `<button type="button" class="cn-opt" data-k="${k}"><span class="cn-opt-n">${cnFa(k + 1)}</span><span class="cn-opt-t" dir="rtl">${cnEsc(o)} …</span></button>`; });
+  cnRoot().innerHTML = `
+  <div class="ga-head"><span class="ga-head-q">سؤال ${cnFa(cnS.i + 1)} از ${cnFa(r.questions.length)}</span><span class="cn-time" id="cn-time">${cnFa(cnS.limitMs / 1000)}</span></div>
+  <div class="cn-bar"><i id="cn-bar-fill"></i></div>
+  ${cnDots()}
+  <div class="ga-card cn-card cn-qcard">
+    <p class="cn-qtitle">آیهٔ بعد از این آیه چیست؟</p>
+    <div class="cn-verse" dir="rtl">${cnEsc(q.text)}</div>
+    <div class="cn-opts" id="cn-opts">${opts}</div>
+    <div id="cn-after"></div>
+  </div>`;
+  cnRoot().querySelectorAll('.cn-opt').forEach((b) => b.addEventListener('click', () => cnPick(Number(b.dataset.k))));
+  cnS.qStart = Date.now();
+  cnS.deadline = cnS.qStart + cnS.limitMs;
+  cnTick();
+  cnTimer = setInterval(cnTick, 100);
+  try { window.scrollTo(0, 0); const sc = document.querySelector('.tab-panel.active'); if (sc) sc.scrollTop = 0; } catch (e) {}
+}
+function cnTick() {
+  if (cnS.phase !== 'play' || cnS.locked) return;
+  const left = cnS.deadline - Date.now();
+  if (left <= 0) { cnTimeout(); return; }
+  const fill = document.getElementById('cn-bar-fill'), tm = document.getElementById('cn-time');
+  if (fill) { fill.style.width = (100 * left / cnS.limitMs).toFixed(1) + '%'; fill.classList.toggle('urgent', left <= 5000); }
+  if (tm) { tm.textContent = cnFa(Math.ceil(left / 1000)); tm.classList.toggle('urgent', left <= 5000); }
+}
+function cnLock(choice, ms, timedOut) {
+  cnS.locked = true;
+  if (cnTimer) { clearInterval(cnTimer); cnTimer = null; }
+  cnS.answers.push({ c: choice, t: Math.max(0, Math.min(cnS.limitMs, Math.round(ms))) });
+  document.querySelectorAll('#cn-opts .cn-opt').forEach((b) => {
+    b.disabled = true;
+    if (Number(b.dataset.k) === choice) b.classList.add('sel');
+  });
+  const last = cnS.i === cnS.round.questions.length - 1;
+  const fill = document.getElementById('cn-bar-fill'); if (fill && timedOut) fill.style.width = '0%';
+  if (last) {
+    cnS.phase = 'send';
+    const after = document.getElementById('cn-after');
+    if (after) after.innerHTML = `
+      <p class="cn-note ${timedOut ? 'cn-warn' : ''}">${timedOut ? '⏱ زمان این سؤال تمام شد. ' : '✅ '}پاسخ هر ${cnFa(cnS.round.questions.length)} سؤال ثبت شد. برای دریافت نتیجه، پاسخ‌ها را ارسال کنید.</p>
+      <p class="cn-note cn-warn hidden" id="cn-send-msg"></p>
+      <button class="secondary-btn ga-start" id="cn-send-btn">📤 ارسال پاسخ‌ها</button>`;
+    const sb = document.getElementById('cn-send-btn'); if (sb) sb.addEventListener('click', cnSend);
+  } else {
+    cnAdvance = setTimeout(() => { cnS.i++; cnShowQuestion(); }, timedOut ? 700 : 350);
+  }
+}
+function cnPick(k) {
+  if (cnS.phase !== 'play' || cnS.locked) return;
+  const now = Date.now();
+  if (now > cnS.deadline + 150) { cnTimeout(); return; }
+  cnLock(k, now - cnS.qStart, false);
+}
+function cnTimeout() {
+  if (cnS.phase !== 'play' || cnS.locked) return;
+  const fill = document.getElementById('cn-time'); if (fill) fill.textContent = cnFa(0);
+  cnLock(-1, cnS.limitMs, true);
+}
+
+/* ---------- قطع اینترنت وسط بازی: لغو، بدون هیچ ارسالی ---------- */
+function cnAbort() {
+  cnStopTimers(); cnSetPlaying(false);
+  cnS.phase = 'aborted'; cnS.answers = []; cnS.round = null; cnS.locked = false;
+  if (currentTab !== 'contest') return;
+  cnRoot().innerHTML = `<div class="ga-card cn-card">
+    <div class="ga-hero">📡</div>
+    <h3 class="ga-title">اینترنت قطع شد</h3>
+    <p class="cn-note">این دور لغو شد و <b>هیچ پاسخی ارسال و هیچ امتیازی ثبت نشد</b> (از سهمیهٔ امروز هم کم نمی‌شود). اینترنت را روشن کنید و دوباره شروع کنید.</p>
+    <button class="secondary-btn ga-start" id="cn-back-btn">بازگشت به مسابقه</button>
+  </div>`;
+  document.getElementById('cn-back-btn').addEventListener('click', cnOpen);
+  try { appAlert('contest_aborted', null, { text: 'اینترنت قطع شد؛ این دور لغو شد و هیچ پاسخی ارسال نشد.', title: 'مسابقه لغو شد', icon: '📡', tone: 'warn' }); } catch (e) {}
+}
+window.addEventListener('offline', () => {
+  if (currentTab !== 'contest') return;
+  if (cnS.phase === 'play' || cnS.phase === 'count') { cnAbort(); return; }
+  if (cnS.phase === 'send') {
+    const m = document.getElementById('cn-send-msg');
+    if (m) { m.textContent = 'اینترنت قطع است؛ پاسخ‌ها ارسال نشد. بعد از وصل‌شدن اینترنت، «ارسال پاسخ‌ها» را بزنید.'; m.classList.remove('hidden'); }
+  }
+});
+window.addEventListener('online', () => {
+  if (currentTab !== 'contest') return;
+  if (cnS.phase === 'offline' || cnS.phase === 'error') cnOpen();
+  if (cnS.phase === 'send') { const m = document.getElementById('cn-send-msg'); if (m) m.classList.add('hidden'); }
+});
+
+/* ---------- ارسال پاسخ‌ها (فقط با دکمه در سؤال آخر) ---------- */
+async function cnSend() {
+  if (cnS.phase !== 'send') return;
+  const msg = document.getElementById('cn-send-msg'), btn = document.getElementById('cn-send-btn');
+  if (!navigator.onLine) {
+    if (msg) { msg.textContent = 'اینترنت وصل نیست؛ پاسخ‌ها ارسال نشد. اینترنت را روشن کنید و دوباره بزنید.'; msg.classList.remove('hidden'); }
+    return;
+  }
+  cnS.phase = 'sending';
+  if (msg) msg.classList.add('hidden');
+  if (btn) { btn.disabled = true; btn.textContent = 'در حال ارسال…'; }
+  let res;
+  try {
+    res = await cnPost('/contest/submit', { device_id: cnS.device, round_id: cnS.round.round_id, answers: cnS.answers });
+  } catch (e) {
+    if (currentTab !== 'contest') return;
+    if (e.code === 'network' || e.code === 'bad_json' || /^http_5/.test(e.code || '')) {
+      cnS.phase = 'send';
+      if (btn) { btn.disabled = false; btn.textContent = '📤 ارسال پاسخ‌ها'; }
+      if (msg) { msg.textContent = 'ارسال انجام نشد (ارتباط با سرور). اینترنت را بررسی کنید و دوباره «ارسال پاسخ‌ها» را بزنید؛ پاسخ‌های شما نگه داشته شده است.'; msg.classList.remove('hidden'); }
+      return;
+    }
+    cnS.phase = 'error2'; cnSetPlaying(false);
+    cnRoot().innerHTML = `<div class="ga-card cn-card"><div class="ga-hero">⚠️</div><h3 class="ga-title">ثبت نشد</h3>
+      <p class="cn-note">${cnEsc(cnErrText(e))}</p><button class="secondary-btn ga-start" id="cn-back-btn">بازگشت به مسابقه</button></div>`;
+    document.getElementById('cn-back-btn').addEventListener('click', cnOpen);
+    return;
+  }
+  if (currentTab !== 'contest') return;
+  cnShowResult(res);
+}
+
+function cnShowResult(res) {
+  cnStopTimers(); cnSetPlaying(false);
+  const me = res.me || cnS.me || {};
+  cnS.me = me; cnS.phase = 'result'; cnS.round = null; cnS.answers = [];
+  cnMisAdd(res.detail);
+  const sc = Number(res.score) || 0;
+  const emoji = sc >= 85 ? '🏆' : sc >= 60 ? '🎉' : sc >= 30 ? '👍' : '💪';
+  let rev = '';
+  (res.detail || []).forEach((d, i) => {
+    rev += `<div class="cn-rev ${d.ok ? 'ok' : 'bad'}">
+      <div class="cn-rev-h"><b>${cnFa(i + 1)}</b> ${d.ok ? '✅' : (d.chosen ? '❌' : '⏱')} <span>${d.pts ? '+' + cnFa(d.pts) : '۰'}</span></div>
+      <div class="cn-rev-v" dir="rtl">${cnEsc(d.text)}</div>
+      <div class="cn-rev-a" dir="rtl"><small>آیهٔ بعد:</small> ${cnEsc(d.correct)} …</div>
+      ${(!d.ok) ? `<div class="cn-rev-c" dir="rtl"><small>${d.chosen ? 'پاسخ شما:' : 'بی‌پاسخ'}</small> ${d.chosen ? cnEsc(d.chosen) + ' …' : ''}</div>` : ''}
+    </div>`;
+  });
+  if (res.league) { cnRenderLeagueResult(res, rev); return; }
+  const canAgain = me.plays_left !== 0;
+  cnRoot().innerHTML = `
+  <div class="ga-card cn-card cn-result">
+    <div class="ga-hero">${emoji}</div>
+    <p class="cn-note">امتیاز این دور (میانگین ${cnFa((res.detail || []).length)} سؤال)</p>
+    <div class="ga-score"><b>${cnFa(sc)}</b> از ۱۰۰</div>
+    <p class="cn-note">✅ ${cnFa(res.correct)} پاسخ درست از ${cnFa((res.detail || []).length)}</p>
+    ${res.promoted ? `<p class="cn-promo">🎉 تبریک! به «${cnEsc(me.league_name)}» رسیدید!</p>` : ''}
+    <div class="cn-stats">
+      <div><b>${cnNum(me.points)}</b><span>مجموع امتیاز</span></div>
+      <div><b>${cnFa(me.rank)}</b><span>رتبه از ${cnFa(me.league_size)}</span></div>
+    </div>
+    <p class="cn-note"><span class="cn-badge ${cnLeagueClass(me.league)}">${cnEsc(me.league_name)}</span></p>
+    ${me.plays_left === 0 ? '<p class="cn-note cn-warn">سهمیهٔ امروز شما تمام شد؛ فردا دوباره بیایید.</p>' : (me.plays_left > 0 ? `<p class="cn-note">دورهای باقی‌ماندهٔ امروز: <b>${cnFa(me.plays_left)}</b></p>` : '')}
+    <div class="ga-result-btns">
+      ${canAgain ? '<button class="secondary-btn" id="cn-again-btn">🔁 دور جدید</button>' : ''}
+      <button class="ghost-btn" id="cn-board-btn">🏅 جدول رده‌بندی</button>
+    </div>
+  </div>
+  <div class="ga-card cn-card cn-review"><h3 class="cn-h">مرور سؤال‌ها</h3>${rev}</div>`;
+  const ag = document.getElementById('cn-again-btn');
+  if (ag) ag.addEventListener('click', async () => { await cnOpen(); if (cnS.phase === 'home') cnStart(); });
+  document.getElementById('cn-board-btn').addEventListener('click', async () => { await cnOpen(); if (cnS.phase === 'home') { try { document.getElementById('cn-board-card').scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} } });
+  try { window.scrollTo(0, 0); } catch (e) {}
+}
+
+/* ======================================================================
+   لیگ دوستان (لیگ جدا برای ۲ تا ۱۰۰ نفر، ۱ تا ۵ روز)
+   - دورهای این لیگ‌ها جدا حساب می‌شوند و به امتیاز لیگ اصلی اضافه نمی‌شوند؛ فقط نفرات ۱ تا ۳ در پایان لیگ جایزهٔ امتیاز می‌گیرند (سرور می‌دهد).
+   - عضویت: دعوت با «آی‌دی» (همان نام لاتین) ← تأیید دعوت‌شده؛ یا درخواست عضویت ← تأیید سازنده.
+   ====================================================================== */
+cnS.leagueId = 0; cnS.flTab = 'mine';
+
+function cnTroph(g, s, b) {
+  let t = '';
+  if (g) t += ' 🥇' + cnFa(g);
+  if (s) t += ' 🥈' + cnFa(s);
+  if (b) t += ' 🥉' + cnFa(b);
+  return t;
+}
+function cnFlTime(sec) {
+  sec = Math.max(0, Number(sec) || 0);
+  const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
+  if (d > 0) return cnFa(d) + ' روز و ' + cnFa(h) + ' ساعت';
+  if (h > 0) return cnFa(h) + ' ساعت و ' + cnFa(m) + ' دقیقه';
+  return cnFa(Math.max(1, m)) + ' دقیقه';
+}
+function cnFlMyBadge(l) {
+  const m = { owner: '👑 سازندهٔ لیگ', member: '✅ عضو', invited: '📩 دعوت‌شده', requested: '⏳ در انتظار تأیید' }[l.my];
+  return m ? `<span class="cn-fl-badge ${l.my}">${m}</span>` : '';
+}
+function cnFlAwardsText(f) {
+  const a = (f && f.award) || [0, 0, 0];
+  return `🥇 ${cnFa(a[0])}+ &nbsp; 🥈 ${cnFa(a[1])}+ &nbsp; 🥉 ${cnFa(a[2])}+ امتیاز در لیگ اصلی`;
+}
+async function cnFlDo(act, body) {
+  if (!navigator.onLine) { cnShowOffline(); return null; }
+  try { return await cnPost('/contest/fl/' + act, Object.assign({ device_id: cnS.device }, body || {})); }
+  catch (e) {
+    try { appAlert('contest_fl_err', null, { text: cnErrText(e), title: 'انجام نشد', icon: '⚠️', tone: 'warn' }); } catch (e2) {}
+    return null;
+  }
+}
+function cnFlErrCard(e, retry) {
+  cnRoot().innerHTML = cnOfflineHtml('ارتباط برقرار نشد', cnErrText(e));
+  document.getElementById('cn-retry-btn').addEventListener('click', retry);
+}
+
+/* ---------- فهرست لیگ‌ها ---------- */
+async function cnFlHome(tab) {
+  cnStopTimers(); cnSetPlaying(false);
+  cnS.phase = 'fl'; cnS.leagueId = 0;
+  if (!navigator.onLine) { cnShowOffline(); return; }
+  if (tab) cnS.flTab = tab;
+  cnRoot().innerHTML = '<div class="ga-card cn-card"><p class="muted-text">در حال بارگذاری…</p></div>';
+  let d;
+  try { d = await shariqGet('/contest/fl/list?device_id=' + encodeURIComponent(cnS.device)); }
+  catch (e) { if (currentTab === 'contest') cnFlErrCard(e, () => cnFlHome()); return; }
+  if (currentTab !== 'contest' || cnS.phase !== 'fl') return;
+  cnS.fl = d;
+  const list = cnS.flTab === 'open' ? (d.open || []) : (d.mine || []);
+  let cards = '';
+  list.forEach((l) => {
+    const ended = l.status !== 'active' || l.left <= 0;
+    let btns = `<button type="button" class="ghost-btn small-btn" data-act="view" data-id="${l.id}">مشاهده</button>`;
+    if (!ended && l.my === 'invited') btns = `<button type="button" class="secondary-btn small-btn" data-act="accept" data-id="${l.id}">✅ پذیرش دعوت</button><button type="button" class="ghost-btn small-btn" data-act="decline" data-id="${l.id}">رد</button>` + btns;
+    else if (!ended && !l.my && l.members < l.max) btns = `<button type="button" class="secondary-btn small-btn" data-act="join" data-id="${l.id}">🙋 درخواست عضویت</button>` + btns;
+    cards += `<div class="cn-fl-card${ended ? ' ended' : ''}">
+      <div class="cn-fl-t">${cnEsc(l.title)} ${cnFlMyBadge(l)}</div>
+      <div class="cn-fl-m"><span>👑 <bdi dir="ltr">${cnEsc(l.owner)}</bdi></span><span>👥 ${cnFa(l.members)} از ${cnFa(l.max)}</span><span>${ended ? '🏁 پایان یافته' : '⏳ ' + cnFlTime(l.left)}</span><span>📚 ${cnScopeLabel(l.scope)}</span></div>
+      <div class="cn-fl-b">${btns}</div></div>`;
+  });
+  if (!cards) cards = `<p class="muted-text small" style="text-align:center;padding:14px 4px">${cnS.flTab === 'open' ? 'فعلاً لیگ بازی وجود ندارد.' : 'هنوز در هیچ لیگی نیستید. یک لیگ بسازید یا از «لیگ‌های باز» درخواست بدهید.'}</p>`;
+  cnRoot().innerHTML = `
+  <div class="ga-card cn-card">
+    <h3 class="cn-h">👥 لیگ دوستان</h3>
+    <p class="cn-note">با دوستانتان یک لیگ جدا (۱ تا ۵ روز، ۲ تا ۱۰۰ نفر) بسازید. دورهای این لیگ‌ها فقط برای همان لیگ حساب می‌شود؛ ولی <b>نفرات اول تا سوم</b> هر لیگ در لیگ اصلی هم امتیاز می‌گیرند:<br>${cnFlAwardsText(d.friend)}</p>
+    <p class="cn-note">آی‌دی شما برای دعوت: <b dir="ltr">${cnEsc((cnS.me || {}).nick)}</b></p>
+    <button class="secondary-btn ga-start" id="cn-fl-new">➕ ساخت لیگ جدید</button>
+    <button class="ghost-btn" id="cn-fl-back" style="width:100%;margin-top:8px">↩ بازگشت به مسابقه</button>
+  </div>
+  <div class="ga-card cn-card">
+    <div class="cn-chips">
+      <button type="button" class="cn-chip cn-l0${cnS.flTab === 'mine' ? ' on' : ''}" data-tab="mine">لیگ‌های من${d.invites ? ' 🔴' + cnFa(d.invites) : ''}</button>
+      <button type="button" class="cn-chip cn-l1${cnS.flTab === 'open' ? ' on' : ''}" data-tab="open">لیگ‌های باز</button>
+    </div>
+    <div id="cn-fl-list">${cards}</div>
+  </div>`;
+  document.getElementById('cn-fl-new').addEventListener('click', cnFlNew);
+  document.getElementById('cn-fl-back').addEventListener('click', cnOpen);
+  cnRoot().querySelectorAll('.cn-chip[data-tab]').forEach((b) => b.addEventListener('click', () => cnFlHome(b.dataset.tab)));
+  document.getElementById('cn-fl-list').addEventListener('click', async (e) => {
+    const b = e.target.closest ? e.target.closest('button[data-act]') : null;
+    if (!b) return;
+    const id = Number(b.dataset.id), act = b.dataset.act;
+    if (act === 'view') { cnFlView(id); return; }
+    b.disabled = true;
+    const r = await cnFlDo(act === 'join' ? 'join' : 'respond', { league_id: id, action: act });
+    if (r && act === 'join') { try { appAlert('contest_fl_ok', null, { text: r.status === 'member' ? 'عضو لیگ شدید.' : 'درخواست شما برای سازندهٔ لیگ ارسال شد. بعد از تأیید او وارد لیگ می‌شوید.', title: 'انجام شد', icon: '✅', tone: 'success' }); } catch (e2) {} }
+    if (currentTab === 'contest' && cnS.phase === 'fl') cnFlHome(r && act === 'join' ? 'mine' : undefined);
+  });
+}
+
+/* ---------- ساخت لیگ ---------- */
+async function cnFlNew() {
+  cnS.phase = 'fl';
+  await cnSurahNames();
+  const f = (cnS.fl && cnS.fl.friend) || {};
+  cnRoot().innerHTML = `<div class="ga-card cn-card cn-form">
+    <h3 class="cn-h">➕ ساخت لیگ دوستان</h3>
+    <label class="cn-lbl">نام لیگ</label>
+    <input type="text" id="cn-new-title" class="cn-input" maxlength="40" placeholder="مثلاً: دوستان مسجد">
+    <label class="cn-lbl">مدت لیگ</label>
+    <select id="cn-new-days" class="cn-input">${[1, 2, 3, 4, 5].map((n) => `<option value="${n}">${cnFa(n)} روز</option>`).join('')}</select>
+    <label class="cn-lbl">حداکثر تعداد افراد (۲ تا ۱۰۰)</label>
+    <input type="number" id="cn-new-max" class="cn-input" min="2" max="100" value="10" inputmode="numeric">
+    <label class="cn-lbl">محدودهٔ سؤال‌ها (مثلاً برای کلاس یا مدرسه)</label>
+    ${cnScopeHtml('nw')}
+    <label class="cn-lbl">آی‌دی دوستان برای دعوت (اختیاری)</label>
+    <textarea id="cn-new-inv" class="cn-input" rows="3" dir="ltr" placeholder="Kami47 Zafo88 Rili12"></textarea>
+    <p class="muted-text small">آی‌دی‌ها را با فاصله یا ویرگول جدا کنید. هر دعوت‌شده باید در لیگ خودش «پذیرش» بزند. بقیه هم می‌توانند از «لیگ‌های باز» درخواست بدهند و شما تأیید می‌کنید.</p>
+    <p class="muted-text small">جایزه: ${cnFlAwardsText(f)} (برای نفرات ۱ تا ۳؛ فقط وقتی حداقل ${cnFa(f.award_min || 3)} نفر در لیگ بازی کرده باشند).</p>
+    <p class="cn-note cn-warn hidden" id="cn-new-err"></p>
+    <button class="secondary-btn ga-start" id="cn-new-go">ثبت و شروع لیگ</button>
+    <button class="ghost-btn" id="cn-new-back" style="width:100%;margin-top:8px">انصراف</button>
+  </div>`;
+  cnScopeWire('nw');
+  document.getElementById('cn-new-back').addEventListener('click', () => cnFlHome());
+  document.getElementById('cn-new-go').addEventListener('click', async () => {
+    const err = document.getElementById('cn-new-err'); err.classList.add('hidden');
+    const title = document.getElementById('cn-new-title').value.trim();
+    const max = parseInt(document.getElementById('cn-new-max').value, 10);
+    if (title.length < 3) { err.textContent = 'نام لیگ حداقل ۳ حرف باشد.'; err.classList.remove('hidden'); return; }
+    if (!(max >= 2 && max <= 100)) { err.textContent = 'تعداد افراد باید بین ۲ تا ۱۰۰ باشد.'; err.classList.remove('hidden'); return; }
+    const btn = document.getElementById('cn-new-go'); btn.disabled = true; btn.textContent = 'در حال ساخت…';
+    const r = await cnFlDo('create', Object.assign({ title, days: Number(document.getElementById('cn-new-days').value), max, invites: document.getElementById('cn-new-inv').value }, cnScopeRead('nw')));
+    if (!r) { btn.disabled = false; btn.textContent = 'ثبت و شروع لیگ'; return; }
+    let msg = 'لیگ ساخته شد.';
+    if (r.invited && r.invited.length) msg += ' دعوت برای ' + r.invited.length + ' نفر ارسال شد.';
+    if (r.unknown && r.unknown.length) msg += ' آی‌دی‌های پیدا‌نشده: ' + r.unknown.join('، ');
+    try { appAlert('contest_fl_ok', null, { text: msg, title: 'انجام شد', icon: '✅', tone: 'success' }); } catch (e) {}
+    cnFlView(r.league_id);
+  });
+}
+
+/* ---------- صفحهٔ یک لیگ ---------- */
+async function cnFlView(id) {
+  cnStopTimers(); cnSetPlaying(false);
+  cnS.phase = 'fl'; cnS.leagueId = 0; cnS.flId = id;
+  if (!navigator.onLine) { cnShowOffline(); return; }
+  cnRoot().innerHTML = '<div class="ga-card cn-card"><p class="muted-text">در حال بارگذاری…</p></div>';
+  let d;
+  try { d = await shariqGet('/contest/fl/view?league_id=' + id + '&device_id=' + encodeURIComponent(cnS.device)); }
+  catch (e) {
+    if (currentTab !== 'contest') return;
+    if (e.serverMsg) { try { appAlert('contest_fl_err', null, { text: e.message, title: 'لیگ', icon: '⚠️', tone: 'warn' }); } catch (e2) {} cnFlHome(); }
+    else cnFlErrCard(e, () => cnFlView(id));
+    return;
+  }
+  if (currentTab !== 'contest' || cnS.phase !== 'fl') return;
+  const l = d.league, st = d.state, my = l.my, f = d.friend || {};
+  const active = d.active;
+  const medal = ['🥇', '🥈', '🥉'];
+  let rows = '<div class="cn-table"><div class="cn-tr cn-th"><span>#</span><span>نام</span><span>امتیاز</span><span>دور</span></div>';
+  d.board.forEach((r) => {
+    const ico = (!active && r.place) ? medal[r.place - 1] : (r.rank <= 3 && r.rounds > 0 ? medal[r.rank - 1] : cnFa(r.rank));
+    rows += `<div class="cn-tr${r.me ? ' me' : ''}"><span>${ico}</span><span class="cn-rn" dir="ltr">${cnEsc(r.nick)}${r.owner ? ' 👑' : ''}${r.me ? ' (شما)' : ''}</span><span>${cnFa(r.points)}${r.award ? '<small class="cn-aw"> +' + cnFa(r.award) + '</small>' : ''}</span><span>${cnFa(r.rounds)}</span></div>`;
+  });
+  rows += '</div>';
+  let action = '';
+  if (active && my === 'owner' || active && my === 'member') {
+    const pl = st ? st.plays_left : -1;
+    action = `<p class="cn-note">امتیاز شما در این لیگ: <b>${cnFa(st ? st.points : 0)}</b> · رتبه ${cnFa(st ? st.rank : '-')} از ${cnFa(st ? st.size : '-')}</p>
+      ${pl === 0 ? '<p class="cn-note cn-warn">سهمیهٔ امروز شما در این لیگ تمام شد؛ فردا دوباره بیایید.</p>' : (pl > 0 ? `<p class="cn-note">دورهای باقی‌ماندهٔ امروز: <b>${cnFa(pl)}</b></p>` : '')}
+      <button class="secondary-btn ga-start" id="cn-fl-start" ${pl === 0 ? 'disabled' : ''}>🚀 شروع دور برای این لیگ</button>
+      <p class="muted-text small">امتیاز این دورها فقط برای همین لیگ است.</p>`;
+  } else if (active && my === 'invited') {
+    action = `<p class="cn-note">شما به این لیگ دعوت شده‌اید.</p><button class="secondary-btn ga-start" id="cn-fl-accept">✅ پذیرش دعوت</button><button class="ghost-btn" id="cn-fl-decline" style="width:100%;margin-top:8px">رد دعوت</button>`;
+  } else if (active && my === 'requested') {
+    action = `<p class="cn-note">⏳ درخواست شما ارسال شده؛ منتظر تأیید سازندهٔ لیگ باشید.</p><button class="ghost-btn" id="cn-fl-leave" style="width:100%">لغو درخواست</button>`;
+  } else if (active && !my) {
+    action = l.members >= l.max ? '<p class="cn-note cn-warn">ظرفیت این لیگ تکمیل است.</p>' : `<button class="secondary-btn ga-start" id="cn-fl-join">🙋 درخواست عضویت</button>`;
+  }
+  if (active && my === 'member') action += `<button class="ghost-btn" id="cn-fl-leave" style="width:100%;margin-top:8px">خروج از لیگ</button>`;
+  let ownerBox = '';
+  if (my === 'owner' && active) {
+    let pend = '';
+    (d.pending || []).forEach((p) => {
+      pend += `<div class="cn-pend"><span dir="ltr">${cnEsc(p.nick)}</span><em>${p.status === 'requested' ? 'درخواست عضویت' : 'دعوت‌شده (منتظر پذیرش)'}</em>
+        ${p.status === 'requested' ? `<button type="button" class="secondary-btn small-btn" data-d="approve" data-mid="${p.mid}">تأیید</button>` : ''}
+        <button type="button" class="ghost-btn small-btn" data-d="reject" data-mid="${p.mid}">${p.status === 'requested' ? 'رد' : 'حذف'}</button></div>`;
+    });
+    ownerBox = `<div class="ga-card cn-card cn-owner"><h3 class="cn-h">👑 مدیریت لیگ</h3>
+      <div id="cn-pend">${pend || '<p class="muted-text small">درخواست یا دعوت در انتظاری نیست.</p>'}</div>
+      <label class="cn-lbl">دعوت با آی‌دی</label>
+      <input type="text" id="cn-inv-in" class="cn-input" dir="ltr" placeholder="Kami47 Zafo88">
+      <button class="secondary-btn" id="cn-inv-go" style="width:100%;margin-top:6px">ارسال دعوت</button>
+      <button class="ghost-btn" id="cn-fl-cancel" style="width:100%;margin-top:14px;color:var(--danger)">لغو کامل لیگ</button></div>`;
+  }
+  let status;
+  if (active) status = '⏳ ' + cnFlTime(l.left) + ' مانده';
+  else status = '🏁 پایان یافته' + (d.finalized ? (d.board.some((r) => r.place) ? ' — جایزه‌ها داده شد' : ' — جایزه‌ای داده نشد (تعداد شرکت‌کنندگان کم بود)') : '');
+  cnRoot().innerHTML = `
+  <div class="ga-card cn-card">
+    <h3 class="cn-h">${cnEsc(l.title)} ${cnFlMyBadge(l)}</h3>
+    <div class="cn-fl-m"><span>👑 <bdi dir="ltr">${cnEsc(l.owner)}</bdi></span><span>👥 ${cnFa(l.members)} از ${cnFa(l.max)}</span><span>📅 ${cnFa(l.days)} روزه</span><span>📚 ${cnScopeLabel(l.scope)}</span></div>
+    <p class="cn-note"><b>${status}</b></p>
+    <p class="cn-note">جایزهٔ نفرات ۱ تا ۳ در لیگ اصلی:<br>${cnFlAwardsText(f)}</p>
+    ${action}
+  </div>
+  ${ownerBox}
+  <div class="ga-card cn-card"><h3 class="cn-h">🏅 رده‌بندی این لیگ</h3>${d.board.length ? rows : '<p class="muted-text small">هنوز عضوی نیست.</p>'}</div>
+  <button class="ghost-btn" id="cn-fl-home" style="width:100%;margin:6px 0 4px">↩ فهرست لیگ‌ها</button>
+  <button class="ghost-btn" id="cn-fl-refresh" style="width:100%;margin:0 0 4px">🔄 به‌روزرسانی</button>`;
+  const on = (sel, fn) => { const el = document.getElementById(sel); if (el) el.addEventListener('click', fn); };
+  const after = async (act, body, okText) => {
+    const r = await cnFlDo(act, Object.assign({ league_id: id }, body || {}));
+    if (r && okText) { try { appAlert('contest_fl_ok', null, { text: okText, title: 'انجام شد', icon: '✅', tone: 'success' }); } catch (e) {} }
+    if (currentTab === 'contest' && cnS.phase === 'fl') { if (r && (act === 'leave' || act === 'cancel')) cnFlHome(); else cnFlView(id); }
+    return r;
+  };
+  on('cn-fl-home', () => cnFlHome());
+  on('cn-fl-refresh', () => cnFlView(id));
+  on('cn-fl-start', () => { cnS.leagueId = id; cnStart(); });
+  on('cn-fl-join', () => after('join', {}, 'درخواست شما برای سازندهٔ لیگ ارسال شد. بعد از تأیید او وارد لیگ می‌شوید.'));
+  on('cn-fl-accept', () => after('respond', { action: 'accept' }));
+  on('cn-fl-decline', () => after('respond', { action: 'decline' }).then(() => {}));
+  on('cn-fl-leave', async () => { if (await appConfirm('contest_fl_leave', null, { text: 'از این لیگ خارج می‌شوید؟', title: 'خروج', icon: '❓', tone: 'question' })) after('leave', {}); });
+  on('cn-fl-cancel', async () => { if (await appConfirm('contest_fl_cancel', null, { text: 'لیگ به‌طور کامل لغو می‌شود و جایزه‌ای داده نمی‌شود. مطمئنید؟', title: 'لغو لیگ', icon: '⚠️', tone: 'warn' })) after('cancel', {}); });
+  on('cn-inv-go', () => {
+    const v = (document.getElementById('cn-inv-in').value || '').trim();
+    if (!v) return;
+    cnFlDo('invite', { league_id: id, nicks: v }).then((r) => {
+      if (!r) return;
+      let msg = r.invited.length ? 'دعوت برای ' + r.invited.length + ' نفر ارسال شد.' : 'دعوتی ارسال نشد.';
+      if (r.unknown.length) msg += ' آی‌دی‌های پیدا‌نشده: ' + r.unknown.join('، ');
+      if (r.skipped.length) msg += ' قبلاً عضو/دعوت‌شده یا ظرفیت پر: ' + r.skipped.join('، ');
+      try { appAlert('contest_fl_ok', null, { text: msg, title: 'نتیجهٔ دعوت', icon: 'ℹ️', tone: 'info' }); } catch (e) {}
+      if (currentTab === 'contest' && cnS.phase === 'fl') cnFlView(id);
+    });
+  });
+  const pend = document.getElementById('cn-pend');
+  if (pend) pend.addEventListener('click', (e) => {
+    const b = e.target.closest ? e.target.closest('button[data-d]') : null;
+    if (!b) return;
+    b.disabled = true;
+    after('decide', { mid: Number(b.dataset.mid), action: b.dataset.d });
+  });
+}
+
+/* نتیجهٔ دور لیگ دوستان */
+function cnRenderLeagueResult(res, rev) {
+  const lg = res.league, sc = Number(res.score) || 0;
+  cnS.phase = 'result'; cnS.round = null; cnS.answers = [];
+  const emoji = sc >= 85 ? '🏆' : sc >= 60 ? '🎉' : sc >= 30 ? '👍' : '💪';
+  const canAgain = lg.plays_left !== 0;
+  cnRoot().innerHTML = `
+  <div class="ga-card cn-card cn-result">
+    <div class="ga-hero">${emoji}</div>
+    <p class="cn-note">امتیاز این دور (میانگین ${cnFa((res.detail || []).length)} سؤال)</p>
+    <div class="ga-score"><b>${cnFa(sc)}</b> از ۱۰۰</div>
+    <p class="cn-note">✅ ${cnFa(res.correct)} پاسخ درست از ${cnFa((res.detail || []).length)}</p>
+    <p class="cn-note">این دور فقط برای «<b>${cnEsc(lg.title)}</b>» حساب شد و به امتیاز لیگ اصلی اضافه نمی‌شود. جایزهٔ لیگ اصلی فقط به نفرات ۱ تا ۳ پایان لیگ می‌رسد.</p>
+    <div class="cn-stats">
+      <div><b>${cnFa(lg.points)}</b><span>امتیاز در این لیگ</span></div>
+      <div><b>${cnFa(lg.rank)}</b><span>رتبه از ${cnFa(lg.size)}</span></div>
+    </div>
+    ${lg.plays_left === 0 ? '<p class="cn-note cn-warn">سهمیهٔ امروز شما در این لیگ تمام شد.</p>' : (lg.plays_left > 0 ? `<p class="cn-note">دورهای باقی‌ماندهٔ امروز: <b>${cnFa(lg.plays_left)}</b></p>` : '')}
+    <div class="ga-result-btns">
+      ${canAgain ? '<button class="secondary-btn" id="cn-again-btn">🔁 دور دیگر برای این لیگ</button>' : ''}
+      <button class="ghost-btn" id="cn-board-btn">🏅 رده‌بندی این لیگ</button>
+    </div>
+  </div>
+  <div class="ga-card cn-card cn-review"><h3 class="cn-h">مرور سؤال‌ها</h3>${rev}</div>`;
+  const ag = document.getElementById('cn-again-btn');
+  if (ag) ag.addEventListener('click', async () => { await cnFlView(lg.id); if (cnS.phase === 'fl') { cnS.leagueId = lg.id; cnStart(); } });
+  document.getElementById('cn-board-btn').addEventListener('click', () => cnFlView(lg.id));
+  try { window.scrollTo(0, 0); } catch (e) {}
+}
+
+// دکمهٔ برگشت گوشی وسط بازی: تأیید خروج (با خروج، دور لغو می‌شود و چیزی ارسال نمی‌شود)
+function cnConfirmExit() {
+  appConfirm('contest_exit', null, { text: 'اگر خارج شوید این دور لغو می‌شود و هیچ پاسخی ارسال نمی‌شود. خارج می‌شوید؟', title: 'خروج از مسابقه', icon: '⚠️', tone: 'warn' })
+    .then((yes) => { if (yes && cnInGame()) { cnLeave(); goBackInApp(); } });
+}
+
+/* ======================================================================
+   فصل (سیزن)، محدودهٔ جزء/سوره، تمرین آزاد و «مرور من»
+   - امتیاز کل هیچ‌وقت صفر نمی‌شود؛ در پایان فصل مدال/جایزه، صعود و سقوط (با کسر امتیاز) اعمال می‌شود (سرور).
+   - «مرور من»: اشتباهات خود کاربر روی همین گوشی ذخیره می‌شود (localStorage)؛ تمرینش بدون امتیاز است.
+   ====================================================================== */
+function cnNum(n) {
+  n = Number(n) || 0;
+  return '<span dir="ltr">' + (n < 0 ? '−' : '') + cnFa(Math.abs(n)) + '</span>';
+}
+var cnSNames = null;
+async function cnSurahNames() {
+  if (cnSNames) return cnSNames;
+  try {
+    const all = await getOfflineQuranText();
+    if (Array.isArray(all) && all.length === 114) cnSNames = all.map((sr) => sr.name);
+  } catch (e) {}
+  return cnSNames;
+}
+function cnScopeLabel(sc) {
+  if (!sc || !sc.t) return 'کل قرآن';
+  if (sc.t === 'juz') return sc.a === sc.b ? 'جزء ' + cnFa(sc.a) : 'جزء ' + cnFa(sc.a) + ' تا ' + cnFa(sc.b);
+  const nm = (n) => (cnSNames && cnSNames[n - 1]) ? cnSNames[n - 1] : 'سورهٔ ' + cnFa(n);
+  return sc.a === sc.b ? nm(sc.a) : nm(sc.a) + ' تا ' + nm(sc.b);
+}
+function cnScopeHtml(p) {
+  const jz = (sel) => { let h = ''; for (let i = 1; i <= 30; i++) h += `<option value="${i}"${i === sel ? ' selected' : ''}>جزء ${cnFa(i)}</option>`; return h; };
+  const sr = (sel) => { let h = ''; for (let i = 1; i <= 114; i++) h += `<option value="${i}"${i === sel ? ' selected' : ''}>${cnFa(i)}. ${cnEsc((cnSNames && cnSNames[i - 1]) || 'سوره')}</option>`; return h; };
+  return `<select id="cn-${p}-t" class="cn-input"><option value="">کل قرآن</option><option value="juz">محدودهٔ جزء</option><option value="surah">محدودهٔ سوره</option></select>
+  <div id="cn-${p}-juz" class="cn-scope hidden"><span>از</span><select id="cn-${p}-ja" class="cn-input">${jz(1)}</select><span>تا</span><select id="cn-${p}-jb" class="cn-input">${jz(1)}</select></div>
+  <div id="cn-${p}-surah" class="cn-scope hidden"><span>از</span><select id="cn-${p}-sa" class="cn-input">${sr(1)}</select><span>تا</span><select id="cn-${p}-sb" class="cn-input">${sr(1)}</select></div>`;
+}
+function cnScopeWire(p) {
+  const t = document.getElementById('cn-' + p + '-t'); if (!t) return;
+  const upd = () => {
+    document.getElementById('cn-' + p + '-juz').classList.toggle('hidden', t.value !== 'juz');
+    document.getElementById('cn-' + p + '-surah').classList.toggle('hidden', t.value !== 'surah');
+  };
+  t.addEventListener('change', upd); upd();
+  // اگر «تا» کوچک‌تر از «از» شد، یکسان شود
+  [['ja', 'jb'], ['sa', 'sb']].forEach((pr) => {
+    const a = document.getElementById('cn-' + p + '-' + pr[0]), b = document.getElementById('cn-' + p + '-' + pr[1]);
+    if (!a || !b) return;
+    a.addEventListener('change', () => { if (Number(b.value) < Number(a.value)) b.value = a.value; });
+    b.addEventListener('change', () => { if (Number(b.value) < Number(a.value)) a.value = b.value; });
+  });
+}
+function cnScopeRead(p) {
+  const t = (document.getElementById('cn-' + p + '-t') || {}).value || '';
+  if (t === 'juz') return { scope_type: 'juz', scope_a: Number(document.getElementById('cn-' + p + '-ja').value), scope_b: Number(document.getElementById('cn-' + p + '-jb').value) };
+  if (t === 'surah') return { scope_type: 'surah', scope_a: Number(document.getElementById('cn-' + p + '-sa').value), scope_b: Number(document.getElementById('cn-' + p + '-sb').value) };
+  return {};
+}
+
+/* ---------- فصل ---------- */
+function cnSeasonLeft(sec) { return sec < 0 ? 'پایان فصل با اعلام مدیر' : (sec <= 0 ? 'در حال پایان' : cnFlTime(sec) + ' مانده'); }
+function cnSeasonCardHtml(me) {
+  const se = cnS.season;
+  if (!se) return '';
+  return `<div class="ga-card cn-card cn-season">
+    <h3 class="cn-h">📅 فصل ${cnFa(se.no)}</h3>
+    <p class="cn-note">⏳ ${cnSeasonLeft(se.left)}</p>
+    <div class="cn-stats"><div><b>${cnNum(me.gain || 0)}</b><span>امتیاز این فصل</span></div>
+      <div><b>${cnFa((me.sg || 0) + (me.ss || 0) + (me.sb || 0))}</b><span>مدال فصل‌ها</span></div></div>
+    ${(me.sg || me.ss || me.sb) ? `<div class="cn-troph">مدال‌های همیشگی:${cnTroph(me.sg, me.ss, me.sb)}</div>` : ''}
+    <p class="cn-note">در پایان فصل برترین‌های هر لیگ مدال و جایزه می‌گیرند، نفرات برتر صعود و نفرات آخر سقوط می‌کنند.</p>
+    <button class="ghost-btn" id="cn-season-btn" style="width:100%">🏆 جزئیات فصل</button>
+  </div>`;
+}
+async function cnSeasonOpen() {
+  cnStopTimers(); cnSetPlaying(false);
+  cnS.phase = 'season';
+  if (!navigator.onLine) { cnShowOffline(); return; }
+  cnRoot().innerHTML = '<div class="ga-card cn-card"><p class="muted-text">در حال بارگذاری…</p></div>';
+  let d;
+  try { d = await shariqGet('/contest/season?device_id=' + encodeURIComponent(cnS.device)); }
+  catch (e) { if (currentTab === 'contest') { cnS.phase = 'error'; cnRoot().innerHTML = cnOfflineHtml('ارتباط برقرار نشد', cnErrText(e)); document.getElementById('cn-retry-btn').addEventListener('click', cnSeasonOpen); } return; }
+  if (currentTab !== 'contest' || cnS.phase !== 'season') return;
+  const se = d.season, me = d.me, ru = d.rules;
+  const medal = ['🥇', '🥈', '🥉'];
+  let top = '';
+  (d.top || []).forEach((r) => {
+    top += `<div class="cn-tr${r.me ? ' me' : ''}"><span>${r.rank <= 3 ? medal[r.rank - 1] : cnFa(r.rank)}</span><span class="cn-rn" dir="ltr">${cnEsc(r.nick)}${r.me ? ' (شما)' : ''}${cnTroph(r.sg, r.ss, r.sb) ? '<small class="cn-tr-t">' + cnTroph(r.sg, r.ss, r.sb) + '</small>' : ''}</span><span>${cnNum(r.gain)}</span><span></span></div>`;
+  });
+  let hist = '';
+  (d.history || []).forEach((h) => {
+    const parts = [];
+    if (h.place) parts.push(medal[h.place - 1] + ' رتبهٔ ' + cnFa(h.place));
+    if (h.move === 1) parts.push('⬆️ صعود');
+    if (h.move === -1) parts.push('⬇️ سقوط');
+    if (h.bonus) parts.push((h.bonus > 0 ? '+' : '−') + cnFa(Math.abs(h.bonus)) + ' امتیاز');
+    hist += `<div class="cn-hist"><b>فصل ${cnFa(h.season)}</b> · ${cnEsc(h.league)}<br><span>${parts.join(' · ')}</span></div>`;
+  });
+  cnRoot().innerHTML = `
+  <div class="ga-card cn-card">
+    <h3 class="cn-h">📅 فصل ${cnFa(se.no)}</h3>
+    <p class="cn-note">⏳ ${cnSeasonLeft(se.left)}</p>
+    <div class="cn-stats"><div><b>${cnNum(me.gain)}</b><span>امتیاز این فصل</span></div><div><b>${cnFa(me.rank)}</b><span>رتبهٔ فصلی در «${cnEsc(me.league_name)}»</span></div></div>
+    ${(me.sg || me.ss || me.sb) ? `<div class="cn-troph">مدال‌های همیشگی شما:${cnTroph(me.sg, me.ss, me.sb)}</div>` : ''}
+  </div>
+  <div class="ga-card cn-card cn-rules"><h3 class="cn-h">قوانین پایان فصل</h3><ul class="ga-rules">
+    <li>امتیاز کل شما <b>هرگز صفر نمی‌شود</b>؛ فقط «امتیاز فصل» از ابتدای هر فصل شمرده می‌شود.</li>
+    <li>۳ نفر برتر هر لیگ (حداقل ${cnFa(ru.min)} بازیکن فعال) مدال همیشگی 🥇🥈🥉 و جایزهٔ ${cnFa(ru.award[0])} / ${cnFa(ru.award[1])} / ${cnFa(ru.award[2])} امتیاز می‌گیرند.</li>
+    ${ru.promo_n ? `<li>${cnFa(ru.promo_n)} نفر برتر هر لیگ <b>صعود</b> می‌کنند (+${cnFa(ru.promo_bonus)} امتیاز و ورود به لیگ بالاتر).</li>` : ''}
+    ${ru.demo_n ? `<li>${cnFa(ru.demo_n)} نفر آخر هر لیگ (از لیگ دوم به بعد) <b>سقوط</b> می‌کنند: ${cnFa(ru.demo_penalty)} امتیاز کم می‌شود و به لیگ پایین‌تر می‌روند. امتیاز در پایین‌ترین لیگ می‌تواند منفی شود.</li>` : ''}
+  </ul></div>
+  <div class="ga-card cn-card"><h3 class="cn-h">🏅 برترین‌های این فصل در «${cnEsc(me.league_name)}»</h3>
+    ${top ? `<div class="cn-table"><div class="cn-tr cn-th"><span>#</span><span>نام</span><span>امتیاز فصل</span><span></span></div>${top}</div>` : '<p class="muted-text small" style="text-align:center">هنوز کسی در این فصل امتیاز نگرفته است.</p>'}</div>
+  ${hist ? `<div class="ga-card cn-card"><h3 class="cn-h">📜 سابقهٔ شما در فصل‌ها</h3>${hist}</div>` : ''}
+  <button class="ghost-btn" id="cn-season-back" style="width:100%;margin:6px 0 4px">↩ بازگشت به مسابقه</button>`;
+  document.getElementById('cn-season-back').addEventListener('click', cnOpen);
+  try { window.scrollTo(0, 0); } catch (e) {}
+}
+
+/* ---------- مرور اشتباهات (ذخیره روی همین گوشی) ---------- */
+function cnMisList() {
+  try { const a = JSON.parse(localStorage.getItem('arefMistakes') || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; }
+}
+function cnMisSave(a) { try { localStorage.setItem('arefMistakes', JSON.stringify(a.slice(0, 100))); } catch (e) {} }
+function cnMisAdd(detail) {
+  if (!Array.isArray(detail)) return;
+  let a = cnMisList();
+  detail.forEach((d) => {
+    if (d.ok || !d.text || !Array.isArray(d.options) || typeof d.answer !== 'number') return;
+    a = a.filter((x) => x.t !== d.text);
+    a.unshift({ t: d.text, o: d.options, a: d.answer });
+  });
+  cnMisSave(a);
+}
+function cnMisOpen() {
+  cnStopTimers(); cnSetPlaying(false);
+  const list = cnMisList();
+  cnS.phase = 'review';
+  if (!list.length) {
+    cnRoot().innerHTML = `<div class="ga-card cn-card"><div class="ga-hero">🎉</div><h3 class="ga-title">اشتباهی ذخیره نشده</h3>
+      <p class="cn-note">سؤال‌هایی که در مسابقه یا تمرین اشتباه جواب بدهید اینجا جمع می‌شود تا دوباره تمرینشان کنید.</p>
+      <button class="secondary-btn ga-start" id="cn-mis-back">↩ بازگشت</button></div>`;
+    document.getElementById('cn-mis-back').addEventListener('click', cnOpen);
+    return;
+  }
+  const qs = list.slice().sort(() => Math.random() - 0.5).slice(0, 10).map((x) => ({ text: x.t, options: x.o, answer: x.a }));
+  cnRunPractice(qs, '📝 مرور من', true);
+}
+
+/* ---------- تمرین آزاد با محدوده (از سرور؛ بدون امتیاز) ---------- */
+async function cnPracStart() {
+  if (!navigator.onLine) { cnShowOffline(); return; }
+  const btn = document.getElementById('cn-prac-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'در حال آماده‌سازی…'; }
+  let res;
+  try { res = await cnPost('/contest/practice', Object.assign({ device_id: cnS.device }, cnScopeRead('pr'))); }
+  catch (e) {
+    if (currentTab !== 'contest') return;
+    if (btn) { btn.disabled = false; btn.textContent = '🎯 شروع تمرین (۱۰ سؤال)'; }
+    try { appAlert('contest_prac_err', null, { text: cnErrText(e), title: 'شروع نشد', icon: '⚠️', tone: 'warn' }); } catch (e2) {}
+    return;
+  }
+  if (currentTab !== 'contest') return;
+  cnRunPractice(res.questions || [], '🎯 تمرین آزاد', false);
+}
+
+/* اجرای تمرین: جواب هر سؤال همان لحظه نشان داده می‌شود؛ هیچ امتیازی ثبت نمی‌شود */
+function cnRunPractice(qs, title, isReview) {
+  cnS.phase = 'prac';
+  const st = { i: 0, ok: 0, wrongQs: [], rightTexts: [] };
+  const show = () => {
+    if (cnS.phase !== 'prac') return;
+    if (st.i >= qs.length) { done(); return; }
+    const q = qs[st.i];
+    cnRoot().innerHTML = `<div class="ga-card cn-card cn-qcard">
+      <div class="cn-fl-m"><span>${cnEsc(title)}</span><span>${cnFa(st.i + 1)} از ${cnFa(qs.length)}</span></div>
+      <p class="cn-note">آیهٔ بعد از این آیه کدام است؟ <small>(بدون امتیاز)</small></p>
+      <div class="cn-verse" dir="rtl">${cnEsc(q.text)}</div>
+      <div class="cn-opts">${q.options.map((o, k) => `<button type="button" class="cn-opt" data-k="${k}"><span class="cn-opt-n">${cnFa(k + 1)}</span><span class="cn-opt-t" dir="rtl">${cnEsc(o)} …</span></button>`).join('')}</div>
+      <button class="secondary-btn ga-start hidden" id="cn-prac-next">${st.i + 1 >= qs.length ? 'پایان' : 'سؤال بعدی ◀'}</button>
+      <button class="ghost-btn" id="cn-prac-quit" style="width:100%;margin-top:8px">خروج از تمرین</button></div>`;
+    let locked = false;
+    cnRoot().querySelectorAll('.cn-opt').forEach((b) => b.addEventListener('click', () => {
+      if (locked) return; locked = true;
+      const k = Number(b.dataset.k), good = (k === q.answer);
+      cnRoot().querySelectorAll('.cn-opt').forEach((x) => { x.disabled = true; if (Number(x.dataset.k) === q.answer) x.classList.add('right'); });
+      if (!good) b.classList.add('wrong');
+      if (good) { st.ok++; st.rightTexts.push(q.text); } else st.wrongQs.push(q);
+      document.getElementById('cn-prac-next').classList.remove('hidden');
+    }));
+    document.getElementById('cn-prac-next').addEventListener('click', () => { st.i++; show(); });
+    document.getElementById('cn-prac-quit').addEventListener('click', cnOpen);
+    try { window.scrollTo(0, 0); } catch (e) {}
+  };
+  const done = () => {
+    let a = cnMisList();
+    if (isReview) a = a.filter((x) => st.rightTexts.indexOf(x.t) < 0); // درست جواب‌داده‌شده‌ها از فهرست خارج می‌شوند
+    st.wrongQs.forEach((q) => { a = a.filter((x) => x.t !== q.text); a.unshift({ t: q.text, o: q.options, a: q.answer }); });
+    cnMisSave(a);
+    cnRoot().innerHTML = `<div class="ga-card cn-card cn-result"><div class="ga-hero">${st.ok === qs.length ? '🏆' : '👍'}</div>
+      <p class="cn-note">${cnEsc(title)} تمام شد (بدون امتیاز)</p>
+      <div class="ga-score"><b>${cnFa(st.ok)}</b> از ${cnFa(qs.length)}</div>
+      <p class="cn-note">${isReview ? `${cnFa(st.ok)} مورد از فهرست اشتباهات خارج شد؛ ${cnFa(a.length)} مورد باقی است.` : (st.wrongQs.length ? `${cnFa(st.wrongQs.length)} اشتباه به «مرور من» اضافه شد.` : 'همه را درست جواب دادید!')}</p>
+      <div class="ga-result-btns">
+        ${(isReview && a.length) ? '<button class="secondary-btn" id="cn-pr-again">🔁 مرور دوباره</button>' : ''}
+        <button class="ghost-btn" id="cn-pr-back">↩ بازگشت</button></div></div>`;
+    const ag = document.getElementById('cn-pr-again'); if (ag) ag.addEventListener('click', cnMisOpen);
+    document.getElementById('cn-pr-back').addEventListener('click', cnOpen);
+  };
+  show();
+}
+
 
 window.__arefBooted = true;

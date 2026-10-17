@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
-<link rel="stylesheet" href="css/style.css?v=139">
+<link rel="stylesheet" href="css/style.css?v=142">
 </head>
 <body>
 
@@ -1400,12 +1400,24 @@
           <span class="menu-tile-badge">🧩</span>
           <span class="menu-tile-label">حدس آیه قرآنی</span>
         </button>
+        <button class="menu-tile tile-fun-contest" id="contest-more-tile" data-goto="contest">
+          <span class="menu-tile-badge">🏆</span>
+          <span class="menu-tile-label" id="contest-tile-label">مسابقهٔ قرآنی</span>
+        </button>
       </div>
     </section>
 
     <!-- بازی حدس آیه -->
     <section id="tab-game-ayah" class="tab-panel">
       <div id="ga-root" class="ga-wrap"></div>
+    </section>
+
+    <!-- مسابقهٔ آنلاین قرآنی + لیگ -->
+    <section id="tab-contest" class="tab-panel">
+      <div class="section-block">
+        <h3 id="cn-page-title">مسابقهٔ قرآنی</h3>
+      </div>
+      <div id="cn-root" class="ga-wrap cn-wrap"></div>
     </section>
 
     <!-- ختم قرآن (بدون نام کاربری و رمز) -->
@@ -1544,8 +1556,8 @@
   }
   /* منوی پایین اپ: از پیشخوان ← «🧭 منوی پایین اپ» (مسیر /bottom-nav). اگر مدیر چیزی ذخیره نکرده باشد، همان شش دکمهٔ پیش‌فرض می‌ماند.
      کلیک دکمه‌ها در app.js (یک شنوندهٔ مشترک روی .bottom-nav) انجام می‌شود، پس بازسازی دکمه‌ها نیازی به اتصال دوباره ندارد. */
-  var BN_NAMES = { 'home':'خانه','quran-list':'قرآن','azan':'اذان','qibla':'قبله','shariq':'سوالات شرعی','more':'بیشتر','mokatib-public':'مکاتب','khatm':'ختم قرآن','feedback':'پشتیبانی','fun':'سرگرمی','ads':'تبلیغات','game-ayah':'حدس آیه','activities':'فعالیت‌ها','ramadan-countdown':'رمضان','charity':'خیرین','notes':'یادداشت‌ها','about':'درباره ما','news-list':'اخبار','social':'فضای مجازی','gallery':'گالری','books':'کتاب‌ها','lesson':'درس امروز','quran-search':'جست‌وجو','quran-bookmarks':'نشان‌شده‌ها','hifz-progress':'حفظ من','sajdah-list':'آیات سجده','prayer-checklist':'نماز','prayer-stats':'آمار نماز','daily-deeds':'اعمال','quran-report':'گزارش قرآن','tasbih':'تسبیح','zakat-calc':'زکات','date-converter':'مبدل تاریخ','group:quran':'قرآن و مطالعه','group:deeds':'اعمال','group:ibadah':'عبادت','group:personal':'شخصی','group:media':'اطلاع‌رسانی','students':'دانش‌آموزان' };
-  var BN_ICONS = { 'home':'🏠','quran-list':'📗','azan':'🕌','qibla':'🧭','shariq':'❓','more':'☰','mokatib-public':'🏛️','khatm':'📿','feedback':'💬','fun':'🎮','ads':'📢','game-ayah':'🎯','activities':'🌟','ramadan-countdown':'🌙','charity':'🤲','notes':'📝','about':'ℹ️','news-list':'📰','social':'🌐','gallery':'🖼️','books':'📚','lesson':'📖','quran-search':'🔍','quran-bookmarks':'🔖','hifz-progress':'📊','sajdah-list':'🕋','prayer-checklist':'✅','prayer-stats':'📈','daily-deeds':'🧮','quran-report':'📑','tasbih':'📿','zakat-calc':'💰','date-converter':'📅','students':'🎓' };
+  var BN_NAMES = { 'home':'خانه','quran-list':'قرآن','azan':'اذان','qibla':'قبله','shariq':'سوالات شرعی','more':'بیشتر','mokatib-public':'مکاتب','khatm':'ختم قرآن','feedback':'پشتیبانی','fun':'سرگرمی','ads':'تبلیغات','game-ayah':'حدس آیه','contest':'مسابقه','activities':'فعالیت‌ها','ramadan-countdown':'رمضان','charity':'خیرین','notes':'یادداشت‌ها','about':'درباره ما','news-list':'اخبار','social':'فضای مجازی','gallery':'گالری','books':'کتاب‌ها','lesson':'درس امروز','quran-search':'جست‌وجو','quran-bookmarks':'نشان‌شده‌ها','hifz-progress':'حفظ من','sajdah-list':'آیات سجده','prayer-checklist':'نماز','prayer-stats':'آمار نماز','daily-deeds':'اعمال','quran-report':'گزارش قرآن','tasbih':'تسبیح','zakat-calc':'زکات','date-converter':'مبدل تاریخ','group:quran':'قرآن و مطالعه','group:deeds':'اعمال','group:ibadah':'عبادت','group:personal':'شخصی','group:media':'اطلاع‌رسانی','students':'دانش‌آموزان' };
+  var BN_ICONS = { 'home':'🏠','quran-list':'📗','azan':'🕌','qibla':'🧭','shariq':'❓','more':'☰','mokatib-public':'🏛️','khatm':'📿','feedback':'💬','fun':'🎮','ads':'📢','game-ayah':'🎯','contest':'🏆','activities':'🌟','ramadan-countdown':'🌙','charity':'🤲','notes':'📝','about':'ℹ️','news-list':'📰','social':'🌐','gallery':'🖼️','books':'📚','lesson':'📖','quran-search':'🔍','quran-bookmarks':'🔖','hifz-progress':'📊','sajdah-list':'🕋','prayer-checklist':'✅','prayer-stats':'📈','daily-deeds':'🧮','quran-report':'📑','tasbih':'📿','zakat-calc':'💰','date-converter':'📅','students':'🎓' };
   var BN_DEFAULT = [ { tab:'home' }, { tab:'quran-list' }, { tab:'azan' }, { tab:'qibla' }, { tab:'shariq', inherit:true }, { tab:'more' } ];
   window.__bnavBuild = function (d) {
     try {
@@ -1923,7 +1935,7 @@
 /* native-bridge.js و app.js (به‌همین ترتیب) فقط بعد از پایان صفحهٔ شروع (ویدیو/عکس/گیف) بارگذاری می‌شوند.
    اگر صفحهٔ شروعی نباشد یا تمام شده باشد، بی‌درنگ بارگذاری می‌شوند. */
 (function () {
-  var list = ['js/native-bridge.js?v=34', 'js/app.js?v=207'], i = 0;
+  var list = ['js/native-bridge.js?v=34', 'js/app.js?v=211'], i = 0;
   function next() {
     if (i >= list.length) return;
     var el = document.createElement('script'); el.src = list[i++];

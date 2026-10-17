@@ -5046,3 +5046,119 @@ body.dark-mode .exm-score b { color: var(--gold-light); }
 .set-adj-val { flex: 1; text-align: center; font-size: 13.5px; }
 .set-step { width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line, #e2d8c0); background: var(--card-bg, #fff); color: inherit; font-size: 20px; line-height: 1; cursor: pointer; box-shadow: 0 2px 5px rgba(0,0,0,.1); }
 .set-step:active { transform: scale(.92); }
+
+
+/* ================= مسابقهٔ آنلاین قرآنی + لیگ ================= */
+.tile-fun-contest { --tile-c: #E0883F; --tile-cd: #A8561A; }
+.cn-wrap { padding-top: 0; }
+.cn-card { margin-top: 12px; }
+.cn-hero { font-size: 48px; line-height: 1.1; }
+.cn-yourname { font-size: 12px; opacity: .7; margin-top: 4px; color: var(--ink); }
+.cn-nick {
+  font-family: 'Courier New', monospace; font-size: 34px; font-weight: 800; letter-spacing: 2px;
+  color: var(--gold); margin: 2px 0 8px; text-align: center; direction: ltr; unicode-bidi: isolate;
+}
+.cn-badge {
+  display: inline-block; padding: 5px 16px; border-radius: 999px; font-weight: 800; font-size: 14px; color: #fff;
+  box-shadow: var(--raised-sm);
+}
+.cn-l0 { background: #B87333; } .cn-l1 { background: #7F8C99; } .cn-l2 { background: #C99A12; }
+.cn-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(70px, 1fr)); gap: 8px; margin: 14px 0 6px; }
+.cn-stats > div {
+  background: var(--paper-alt); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--well);
+  padding: 8px 4px; display: flex; flex-direction: column; gap: 2px;
+}
+.cn-stats b { font-size: 20px; color: var(--ink); }
+.cn-stats span { font-size: 11px; opacity: .75; color: var(--ink); }
+.cn-note { font-size: 14px; line-height: 1.9; color: var(--ink); margin: 8px 0; }
+.cn-note b { color: var(--gold); }
+.cn-warn { color: var(--danger); font-weight: 700; }
+.cn-h { margin: 0 0 8px; font-size: 16px; font-weight: 800; color: var(--ink); text-align: right; }
+.cn-card .ga-rules { margin-bottom: 4px; }
+.cn-card .ga-start:disabled { opacity: .5; }
+.cn-chips { display: flex; gap: 6px; margin: 4px 0 8px; }
+.cn-chip {
+  flex: 1; border: 2px solid transparent; border-radius: 12px; padding: 9px 2px; font-size: 13px; font-weight: 800; color: #fff;
+  cursor: pointer; font-family: var(--font-ui); opacity: .55; box-shadow: var(--raised-sm);
+}
+.cn-chip.on { opacity: 1; border-color: var(--gold-light); transform: translateY(-1px); }
+.cn-table { display: flex; flex-direction: column; gap: 4px; text-align: center; }
+.cn-tr {
+  display: grid; grid-template-columns: 38px 1fr 64px 44px; align-items: center; gap: 4px;
+  padding: 7px 6px; border-radius: 10px; background: var(--paper-alt); font-size: 14px; color: var(--ink);
+}
+.cn-th { background: transparent; font-size: 11px; opacity: .65; font-weight: 700; padding-top: 0; padding-bottom: 0; }
+.cn-tr.me { background: color-mix(in srgb, var(--gold) 28%, var(--card-bg)); border: 1px solid var(--gold); font-weight: 800; }
+.cn-rn { font-family: 'Courier New', monospace; font-weight: 700; text-align: left; direction: ltr; unicode-bidi: isolate; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cn-table-me { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.cn-ready .cn-big { font-size: 96px; font-weight: 800; color: var(--gold); line-height: 1.2; }
+.cn-time { font-size: 26px; font-weight: 800; color: var(--gold); min-width: 40px; text-align: left; }
+.cn-time.urgent { color: var(--danger); animation: ga-pulse .9s ease-in-out infinite; }
+.cn-bar { height: 10px; border-radius: 999px; background: var(--paper-alt); box-shadow: var(--well); margin: 8px 4px 2px; overflow: hidden; direction: ltr; }
+.cn-bar i { display: block; height: 100%; width: 100%; background: var(--gold); border-radius: 999px; }
+.cn-bar i.urgent { background: var(--danger); }
+.cn-qcard { margin-top: 6px; padding: 12px 12px 14px; }
+#tab-contest.cn-playing > .section-block { display: none; }
+#tab-contest.cn-playing .cn-wrap { padding-top: 12px; }
+#tab-contest .cn-wrap { padding-bottom: 90px; }
+.cn-qtitle { margin: 0 0 6px; font-weight: 800; font-size: 15px; color: var(--ink); }
+.cn-verse {
+  font-family: var(--font-quran); font-size: 23px; line-height: 2.05; color: var(--ink); text-align: center; text-align-last: center; text-justify: none;
+  background: var(--paper-alt); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--well);
+  padding: 6px 10px; margin-bottom: 10px;
+}
+.cn-opts { display: flex; flex-direction: column; gap: 7px; }
+.cn-opt {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: right; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 14px; padding: 2px 12px; background: var(--card-bg); color: var(--ink);
+  box-shadow: var(--raised-sm); font-family: var(--font-quran); font-size: 21px; line-height: 1.9;
+}
+.cn-opt:active:not(:disabled) { transform: scale(.98); box-shadow: var(--pressed); }
+.cn-opt:disabled { cursor: default; }
+.cn-opt-n { flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--paper-alt); color: var(--gold); font: 800 13px/26px var(--font-ui); text-align: center; }
+.cn-opt-t { flex: 1; }
+.cn-opt.sel { border: 2px solid var(--gold); background: color-mix(in srgb, var(--gold) 22%, var(--card-bg)); }
+.cn-opt.sel .cn-opt-n { background: var(--gold); color: #fff; }
+#cn-after { margin-top: 12px; }
+.cn-promo { font-size: 17px; font-weight: 800; color: #2FA67C; margin: 8px 0; }
+.cn-review { text-align: right; }
+.cn-rev { border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; margin-bottom: 8px; background: var(--paper-alt); }
+.cn-rev.ok { border-color: #2FA67C; } .cn-rev.bad { border-color: var(--danger); }
+.cn-rev-h { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--ink); }
+.cn-rev-h span { margin-right: auto; font-weight: 800; color: var(--gold); }
+.cn-rev-v { font-family: var(--font-quran); font-size: 19px; line-height: 2.1; color: var(--ink); margin: 4px 0; }
+.cn-rev-a, .cn-rev-c { font-family: var(--font-quran); font-size: 18px; line-height: 2; color: var(--ink); }
+.cn-rev-a { color: #2FA67C; } .cn-rev-c { color: var(--danger); }
+.cn-rev small { font-family: var(--font-ui); font-size: 11px; opacity: .8; }
+body.dark-mode .cn-opt { background: var(--card-bg); }
+@media (prefers-reduced-motion: reduce) { .cn-time.urgent { animation: none; } .cn-chip.on { transform: none; } }
+
+/* لیگ دوستان */
+.cn-troph { margin: 8px 0 0; font-size: 14px; font-weight: 700; color: var(--ink); }
+.cn-tr-t { margin-right: 4px; font-size: 11px; font-family: var(--font-ui); }
+.cn-aw { color: #2FA67C; font-weight: 800; }
+.cn-fl-card { text-align: right; border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; margin-bottom: 10px; background: var(--paper-alt); }
+.cn-fl-card.ended { opacity: .75; }
+.cn-fl-t { font-weight: 800; font-size: 15px; color: var(--ink); line-height: 1.9; }
+.cn-fl-m { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; color: var(--ink); opacity: .85; justify-content: center; margin: 4px 0; }
+.cn-fl-card .cn-fl-m { justify-content: flex-start; }
+.cn-fl-b { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.cn-fl-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--card-bg); border: 1px solid var(--gold); color: var(--ink); margin-right: 4px; }
+.cn-fl-badge.invited { border-color: #E0883F; } .cn-fl-badge.requested { border-color: #7F8C99; } .cn-fl-badge.member, .cn-fl-badge.owner { border-color: #2FA67C; }
+.cn-form { text-align: right; }
+.cn-lbl { display: block; margin: 12px 0 4px; font-weight: 700; font-size: 13px; color: var(--ink); }
+.cn-input { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card-bg); color: var(--ink); font-family: var(--font-ui); font-size: 15px; box-shadow: var(--well); }
+.cn-pend { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 13px; color: var(--ink); text-align: right; }
+.cn-pend span { font-weight: 800; font-family: 'Courier New', monospace; }
+.cn-pend em { font-style: normal; opacity: .75; flex: 1; font-size: 12px; }
+.cn-owner { text-align: right; }
+
+/* فصل، محدوده، تمرین و مرور */
+.cn-scope { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.cn-scope select { flex: 1; min-width: 0; margin: 0; }
+.cn-scope span { flex: none; font-size: 13px; color: var(--muted, #888); }
+.cn-opt.right { border: 2px solid #2e9e5b; background: color-mix(in srgb, #2e9e5b 20%, var(--card-bg)); }
+.cn-opt.wrong { border: 2px solid #d64545; background: color-mix(in srgb, #d64545 18%, var(--card-bg)); }
+.cn-hist { text-align: right; border-bottom: 1px dashed var(--line); padding: 8px 2px; font-size: 14px; }
+.cn-hist span { color: var(--muted, #888); font-size: 13px; }
+.cn-season .cn-stats, .cn-prac .cn-input { margin-top: 6px; }
