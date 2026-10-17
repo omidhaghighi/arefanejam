@@ -10354,6 +10354,21 @@ function shariqEsc(s) {
   return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 function shariqText(s) { return shariqEsc(s).replace(/\r?\n/g, '<br>'); }
+// باز/بسته کردن کادر پاسخ با انیمیشن، بدون سقف ارتفاع: پاسخ هر قدر بلند باشد کامل دیده می‌شود
+function shariqSetWrap(wrap, open) {
+  if (!wrap) return;
+  if (wrap._shT) { clearTimeout(wrap._shT); wrap._shT = null; }
+  if (open) {
+    wrap.classList.add('is-open');
+    wrap.style.maxHeight = wrap.scrollHeight + 'px';
+    wrap._shT = setTimeout(() => { wrap.style.maxHeight = 'none'; wrap._shT = null; }, 420);
+  } else if (wrap.classList.contains('is-open')) {
+    wrap.style.maxHeight = wrap.scrollHeight + 'px';
+    void wrap.offsetHeight;
+    wrap.classList.remove('is-open');
+    wrap.style.maxHeight = '';
+  }
+}
 // درخواست ساده (بدون هدر Content-Type تا نیازی به preflight نباشد) + پارامتر زمان تا هیچ کشی وسط راه جواب قدیمی ندهد
 async function shariqGet(path) {
   const sep = path.indexOf('?') === -1 ? '?' : '&';
@@ -10482,9 +10497,9 @@ async function loadShariqList(categoryId) {
     const wrap = card.querySelector('.shariq-a-wrap');
     qBtn.addEventListener('click', () => {
       const opening = !wrap.classList.contains('is-open');
-      el.querySelectorAll('.shariq-a-wrap').forEach((w) => w.classList.remove('is-open'));
+      el.querySelectorAll('.shariq-a-wrap').forEach((w) => { if (w !== wrap || !opening) shariqSetWrap(w, false); });
       el.querySelectorAll('.shariq-q').forEach((q) => q.classList.remove('is-open'));
-      if (opening) { wrap.classList.add('is-open'); qBtn.classList.add('is-open'); }
+      if (opening) { shariqSetWrap(wrap, true); qBtn.classList.add('is-open'); }
     });
     el.appendChild(card);
   });
@@ -10624,9 +10639,9 @@ function shariqRenderFatwas() {
     const qBtn = card.querySelector('.shariq-q'), wrap = card.querySelector('.shariq-a-wrap');
     qBtn.addEventListener('click', () => {
       const opening = !wrap.classList.contains('is-open');
-      el.querySelectorAll('.shariq-a-wrap').forEach((w) => w.classList.remove('is-open'));
+      el.querySelectorAll('.shariq-a-wrap').forEach((w) => { if (w !== wrap || !opening) shariqSetWrap(w, false); });
       el.querySelectorAll('.shariq-q').forEach((q) => q.classList.remove('is-open'));
-      if (opening) { wrap.classList.add('is-open'); qBtn.classList.add('is-open'); }
+      if (opening) { shariqSetWrap(wrap, true); qBtn.classList.add('is-open'); }
     });
     el.appendChild(card);
   });
@@ -10821,7 +10836,7 @@ function schRender() {
     card.innerHTML =
       '<p class="sch-q-text">' + shariqEsc(q.question_text) + '</p>' +
       '<p class="sch-q-meta">' + shariqEsc(pend ? (q.created_at || '') : (q.answered_at || '')) + '</p>' +
-      '<textarea class="sch-answer" rows="5" placeholder="پاسخ را بنویسید..." maxlength="6000"></textarea>' +
+      '<textarea class="sch-answer" rows="8" placeholder="پاسخ را بنویسید..."></textarea>' +
       '<select class="sch-cat">' + schCatOptions(pend ? '' : q.category_id) + '</select>' +
       '<input type="text" class="sch-newcat hidden" maxlength="80" placeholder="نام دسته‌بندی جدید (مثلاً: احکام نماز)">' +
       '<p class="muted-text small hidden sch-err" style="color:#a5473c"></p>' +
