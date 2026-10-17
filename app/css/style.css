@@ -5162,3 +5162,8 @@ body.dark-mode .cn-opt { background: var(--card-bg); }
 .cn-hist { text-align: right; border-bottom: 1px dashed var(--line); padding: 8px 2px; font-size: 14px; }
 .cn-hist span { color: var(--muted, #888); font-size: 13px; }
 .cn-season .cn-stats, .cn-prac .cn-input { margin-top: 6px; }
+
+/* دایرهٔ سؤال‌های اشتباه */
+.ga-dot.bad { background: #d64545; border-color: #d64545; }
+.cn-opt.right .cn-opt-n { background: #2e9e5b; color: #fff; }
+.cn-opt.wrong .cn-opt-n { background: #d64545; color: #fff; }

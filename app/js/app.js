@@ -15994,7 +15994,7 @@ function cnShowOffline() {
 async function cnOpen() {
   cnStopTimers(); cnSetPlaying(false);
   cnS.locked = false; cnS.answers = []; cnS.round = null; cnS.leagueId = 0;
-  if (!navigator.onLine) { cnShowOffline(); return; }
+  if (!navigator.onLine) { if (cnShowCachedOffline()) return; cnShowOffline(); return; }
   cnS.phase = 'loading';
   // نمایش فوری آخرین وضعیت ذخیره‌شده (تا منتظر سرور نمانید)، بعد به‌روزرسانی از سرور
   let cached = null;
@@ -16011,7 +16011,7 @@ async function cnOpen() {
     res = await cnPost('/contest/join', { device_id: cnS.device });
   } catch (e) {
     if (currentTab !== 'contest') return;
-    if (cached && cnS.phase === 'home') return; // همان وضعیت ذخیره‌شده می‌ماند
+    if (cached && cnS.phase === 'home') { cnOfflineBanner(); return; } // همان وضعیت ذخیره‌شده می‌ماند
     cnS.phase = 'error';
     cnRoot().innerHTML = cnOfflineHtml('ارتباط برقرار نشد', cnErrText(e));
     document.getElementById('cn-retry-btn').addEventListener('click', cnOpen);
@@ -16019,11 +16019,33 @@ async function cnOpen() {
   }
   if (currentTab !== 'contest') return;
   try { localStorage.setItem('arefCnHome', JSON.stringify({ settings: res.settings, me: res.me, season: res.season || null })); } catch (e) {}
+  const ob = document.getElementById('cn-off-banner'); if (ob) ob.remove();
   if (cached && cnS.phase !== 'home') return; // کاربر همین حالا وارد جای دیگری شده
   const same = cached && JSON.stringify(cached.me) === JSON.stringify(res.me) && JSON.stringify(cached.settings) === JSON.stringify(res.settings);
   cnS.settings = res.settings; cnS.me = res.me; cnS.season = res.season || null; cnS.phase = 'home';
   if (!same) cnRenderHome(false);
 }
+
+/* آفلاین: آخرین وضعیت و امتیاز ذخیره‌شده روی گوشی نمایش داده می‌شود (بازی کردن نیاز به اینترنت دارد) */
+function cnSaveHome() {
+  try { if (cnS.settings && cnS.me) localStorage.setItem('arefCnHome', JSON.stringify({ settings: cnS.settings, me: cnS.me, season: cnS.season || null })); } catch (e) {}
+}
+function cnOfflineBanner() {
+  const r = cnRoot(); if (!r || document.getElementById('cn-off-banner')) return;
+  r.insertAdjacentHTML('afterbegin', '<div class="ga-card cn-card cn-off" id="cn-off-banner"><p class="cn-note cn-warn">📡 اینترنت وصل نیست؛ آخرین وضعیت و امتیاز ذخیره‌شدهٔ شما نمایش داده می‌شود. برای بازی کردن اینترنت را روشن کنید.</p></div>');
+}
+function cnShowCachedOffline() {
+  let c = null;
+  try { c = JSON.parse(localStorage.getItem('arefCnHome') || 'null'); } catch (e) { c = null; }
+  if (!c || !c.me || !c.settings) return false;
+  cnS.settings = c.settings; cnS.me = c.me; cnS.season = c.season || null; cnS.phase = 'home';
+  cnRenderHome(false);
+  cnOfflineBanner();
+  return true;
+}
+window.addEventListener('online', () => {
+  if (currentTab === 'contest' && cnS.phase === 'home' && document.getElementById('cn-off-banner')) cnOpen();
+});
 
 function cnLeagueClass(i) { return 'cn-l' + Math.max(0, Math.min(2, i | 0)); }
 
@@ -16108,12 +16130,14 @@ async function cnLoadBoard(idx) {
   const lg = ((cnS.settings || {}).leagues || [])[idx];
   const note = document.getElementById('cn-league-note');
   if (note && lg) note.textContent = idx === 0 ? 'از همان ابتدا' : `از ${toPersianDigits(lg.min)} امتیاز به بالا`;
+  if (!navigator.onLine) { box.innerHTML = '<p class="muted-text small" style="text-align:center;padding:10px">برای دیدن جدول رده‌بندی اینترنت لازم است.</p>'; return; }
   box.innerHTML = '<p class="muted-text small">در حال بارگذاری…</p>';
   try {
     const d = await shariqGet('/contest/board?league=' + idx + '&device_id=' + encodeURIComponent(cnS.device));
     if (cnS.board !== idx || !document.getElementById('cn-board')) return;
     if (d && d.me) { cnS.me = Object.assign({}, cnS.me || {}, d.me); }
     if (d && d.season) cnS.season = d.season;
+    cnSaveHome();
     if (!d.rows || !d.rows.length) { box.innerHTML = '<p class="muted-text small" style="text-align:center;padding:10px">هنوز کسی در این لیگ نیست.</p>'; return; }
     const medal = ['🥇', '🥈', '🥉'];
     let h = '<div class="cn-table"><div class="cn-tr cn-th"><span>#</span><span>نام</span><span>امتیاز</span><span>دور</span></div>';
@@ -16149,7 +16173,7 @@ async function cnStart() {
     return;
   }
   if (currentTab !== 'contest') return;
-  cnS.round = res; cnS.i = 0; cnS.answers = []; cnS.locked = true;
+  cnS.round = res; cnS.i = 0; cnS.answers = []; cnS.okList = []; cnS.locked = true;
   cnS.limitMs = (Number(res.seconds) || 15) * 1000;
   cnS.phase = 'count';
   cnSetPlaying(true);
@@ -16168,7 +16192,10 @@ function cnCountdown(n) {
 function cnDots() {
   let h = '<div class="ga-dots">';
   const n = cnS.round.questions.length;
-  for (let k = 0; k < n; k++) h += `<span class="ga-dot${k < cnS.i ? ' ok' : ''}${k === cnS.i ? ' cur' : ''}"></span>`;
+  for (let k = 0; k < n; k++) {
+    const r = (cnS.okList || [])[k];
+    h += `<span class="ga-dot${r === true ? ' ok' : (r === false ? ' bad' : (k < cnS.i ? ' ok' : ''))}${k === cnS.i ? ' cur' : ''}"></span>`;
+  }
   return h + '</div>';
 }
 function cnShowQuestion() {
@@ -16208,10 +16235,23 @@ function cnLock(choice, ms, timedOut) {
   cnS.locked = true;
   if (cnTimer) { clearInterval(cnTimer); cnTimer = null; }
   cnS.answers.push({ c: choice, t: Math.max(0, Math.min(cnS.limitMs, Math.round(ms))) });
+  const qa = cnS.round.questions[cnS.i];
+  const known = qa && typeof qa.a === 'number';
   document.querySelectorAll('#cn-opts .cn-opt').forEach((b) => {
     b.disabled = true;
-    if (Number(b.dataset.k) === choice) b.classList.add('sel');
+    const k = Number(b.dataset.k);
+    if (known) {
+      // رنگ فوری: پاسخ درست سبز، پاسخ اشتباهِ انتخاب‌شده قرمز (و جواب درست سبز نشان داده می‌شود)
+      if (k === qa.a) b.classList.add('right');
+      else if (k === choice) b.classList.add('wrong');
+    } else if (k === choice) b.classList.add('sel');
   });
+  if (known) {
+    cnS.okList = cnS.okList || [];
+    cnS.okList[cnS.i] = (choice === qa.a);
+    const dots = document.querySelectorAll('.ga-dots .ga-dot');
+    if (dots[cnS.i]) { dots[cnS.i].classList.remove('cur'); dots[cnS.i].classList.add(choice === qa.a ? 'ok' : 'bad'); }
+  }
   const last = cnS.i === cnS.round.questions.length - 1;
   const fill = document.getElementById('cn-bar-fill'); if (fill && timedOut) fill.style.width = '0%';
   if (last) {
@@ -16223,7 +16263,7 @@ function cnLock(choice, ms, timedOut) {
       <button class="secondary-btn ga-start" id="cn-send-btn">📤 ارسال پاسخ‌ها</button>`;
     const sb = document.getElementById('cn-send-btn'); if (sb) sb.addEventListener('click', cnSend);
   } else {
-    cnAdvance = setTimeout(() => { cnS.i++; cnShowQuestion(); }, timedOut ? 700 : 350);
+    cnAdvance = setTimeout(() => { cnS.i++; cnShowQuestion(); }, timedOut ? 1100 : 900);
   }
 }
 function cnPick(k) {
@@ -16301,7 +16341,7 @@ async function cnSend() {
 function cnShowResult(res) {
   cnStopTimers(); cnSetPlaying(false);
   const me = res.me || cnS.me || {};
-  cnS.me = me; cnS.phase = 'result'; cnS.round = null; cnS.answers = [];
+  cnS.me = me; cnS.phase = 'result'; cnS.round = null; cnS.answers = []; cnSaveHome();
   cnMisAdd(res.detail);
   const sc = Number(res.score) || 0;
   const emoji = sc >= 85 ? '🏆' : sc >= 60 ? '🎉' : sc >= 30 ? '👍' : '💪';
