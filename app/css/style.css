@@ -5167,3 +5167,29 @@ body.dark-mode .cn-opt { background: var(--card-bg); }
 .ga-dot.bad { background: #d64545; border-color: #d64545; }
 .cn-opt.right .cn-opt-n { background: #2e9e5b; color: #fff; }
 .cn-opt.wrong .cn-opt-n { background: #d64545; color: #fff; }
+
+
+/* ---------- «بیشتر»: تعداد آیکون در هر ردیف (پیش‌فرض ۳؛ از پیشخوان ← آیکون‌های بیشتر)
+   همهٔ اندازه‌ها (کادر کمرنگ، گوشه‌ها، فاصله، آیکون، نوشته) با متغیرهای --mc-* تنظیم می‌شوند تا با ۲ تا ۵ ستون هیچ چیز روی هم نیفتد.
+   متغیرها روی html هستند (بدون :is و بدون ویژگی جدید، سازگار با وب‌ویوی قدیمی). ---------- */
+html { --more-cols: 3; --mc-gap: 10px; --mc-pad: 14px 4px 12px; --mc-min: 104px; --mc-r: 22px; --mc-badge: 56px; --mc-fs: 12px; --mc-in: 8px; }
+html[data-more-cols="2"] { --more-cols: 2; --mc-gap: 12px; --mc-pad: 16px 8px 14px; --mc-min: 112px; --mc-r: 24px; --mc-badge: 56px; --mc-fs: 13px; --mc-in: 10px; }
+html[data-more-cols="3"] { --more-cols: 3; }
+html[data-more-cols="4"] { --more-cols: 4; --mc-gap: 8px; --mc-pad: 10px 2px 9px; --mc-min: 92px; --mc-r: 18px; --mc-badge: 46px; --mc-fs: 11px; --mc-in: 6px; }
+html[data-more-cols="5"] { --more-cols: 5; --mc-gap: 6px; --mc-pad: 8px 1px 8px; --mc-min: 82px; --mc-r: 15px; --mc-badge: 38px; --mc-fs: 10px; --mc-in: 5px; }
+#tab-more .menu-grid, #tab-submenu .menu-grid, #tab-fun .menu-grid {
+  grid-template-columns: repeat(var(--more-cols), minmax(0, 1fr)); gap: var(--mc-gap);
+}
+#tab-more .menu-grid .menu-tile, #tab-submenu .menu-grid .menu-tile, #tab-fun .menu-grid .menu-tile,
+body.dark-mode #tab-more .menu-grid .menu-tile, body.dark-mode #tab-submenu .menu-grid .menu-tile, body.dark-mode #tab-fun .menu-grid .menu-tile {
+  min-width: 0; padding: var(--mc-pad); min-height: var(--mc-min); border-radius: var(--mc-r); gap: var(--mc-in);
+}
+#tab-more .menu-grid .menu-tile .menu-tile-badge, #tab-submenu .menu-grid .menu-tile .menu-tile-badge, #tab-fun .menu-grid .menu-tile .menu-tile-badge {
+  width: var(--mc-badge); height: var(--mc-badge); font-size: calc(var(--mc-badge) * 0.46); border-radius: calc(var(--mc-badge) * 0.36); flex-shrink: 0;
+}
+#tab-more .menu-grid .menu-tile .menu-tile-badge.has-custom-icon.cicon-free, #tab-submenu .menu-grid .menu-tile .menu-tile-badge.has-custom-icon.cicon-free, #tab-fun .menu-grid .menu-tile .menu-tile-badge.has-custom-icon.cicon-free {
+  width: calc(var(--mc-badge) + 2px); height: calc(var(--mc-badge) + 2px);
+}
+#tab-more .menu-tile-label, #tab-submenu .menu-tile-label, #tab-fun .menu-tile-label {
+  font-size: var(--mc-fs); line-height: 1.55; text-align: center; max-width: 100%; overflow-wrap: break-word;
+}

@@ -8554,6 +8554,14 @@ function applyMoreIconToTile(tile) {
 function applyMoreIcons() {
   document.querySelectorAll('#tab-more .menu-tile[data-ikey], #submenu-list .menu-tile[data-ikey]').forEach(applyMoreIconToTile);
 }
+// تعداد آیکون در هر ردیف «بیشتر» (۲ تا ۵؛ پیش‌فرض ۳). مقدار برای باز شدن بعدی (بدون چشمک‌زدن) در localStorage می‌ماند.
+function applyMoreCols(n) {
+  try {
+    n = parseInt(n, 10); if (!(n >= 2 && n <= 5)) n = 3;
+    document.documentElement.setAttribute('data-more-cols', String(n));
+    localStorage.setItem('arefanejam_more_cols', String(n));
+  } catch (e) {}
+}
 function loadMoreIcons(force) {
   if (!force && Date.now() - moreIconsLastLoad < 60000) return;
   moreIconsLastLoad = Date.now();
@@ -8562,6 +8570,7 @@ function loadMoreIcons(force) {
       if (!d || typeof d !== 'object') return;
       const icons = (d.icons && typeof d.icons === 'object' && !Array.isArray(d.icons)) ? d.icons : {};
       moreIconsData = { shape: d.shape === 'free' ? 'free' : 'round', icons: icons };
+      applyMoreCols(d.cols);
       applyMoreIcons();
       try { prefetchSiteImages(Object.keys(icons).map((k) => icons[k]).filter(Boolean)); } catch (e) {}
     }).catch(() => {});
