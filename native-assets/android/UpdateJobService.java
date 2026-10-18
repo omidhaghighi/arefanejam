@@ -55,11 +55,46 @@ public class UpdateJobService extends JobService {
     static final int JOB_NEWS = 4803;   // خبرهای امروز: هر بار که اینترنت وصل شود (حداکثر هر ۱۵ دقیقه یک بار)
     static final long NEWS_PERIOD_MS = 15L * 60L * 1000L;
     static final int JOB_INBOX = 4804;  // «اینترنت وصل شد»: بلافاصله اعلان‌ها/اخبار/مناسبت‌ها را از سایت بگیر
-    static final long INBOX_MIN_GAP_MS = 45L * 1000L;   // وصل و قطع‌های پشت‌سرهم، سایت را زیر فشار نگذارند
+    static final long INBOX_MIN_GAP_MS = 10L * 60L * 1000L;   // وصل و قطع‌های پشت‌سرهم، سایت را زیر فشار نگذارند (قبلاً ۴۵ ثانیه؛ برای ۲۰ هزار گوشی ۱۰ دقیقه)
     static final int INBOX_MAX_SEEN = 300;
     // «پرسش دوره‌ای با آلارم»: حتی با گوشی قفل/اپ بسته/اینترنت از قبل وصل، هر چند دقیقه صندوق را نگاه می‌کند
     static final int POLL_REQ = 4805;
-    static final long POLL_MS = 5L * 60L * 1000L;
+    // فاصلهٔ پرسیدن را سایت تعیین می‌کند (پیشخوان ← ترافیک ← «فاصلهٔ پرسیدن اعلان‌ها»؛ فیلد next در پاسخ /inbox).
+    // تا اولین پاسخ سایت، همین پیش‌فرض ۱۲۰ دقیقه است. کف ۵ دقیقه و سقف ۲۴ ساعت.
+    static final long POLL_MS = 120L * 60L * 1000L;
+    static final long POLL_MIN_MS = 5L * 60L * 1000L;
+    static final long POLL_MAX_MS = 24L * 3600L * 1000L;
+    static final long POLL_BACKOFF_MAX_MS = 6L * 3600L * 1000L;
+
+    /** فاصلهٔ فعلی پرسیدن (میلی‌ثانیه): آخرین مقداری که سایت داده، وگرنه پیش‌فرض */
+    static long pollMs(Context ctx) {
+        try {
+            long v = prefs(ctx.getApplicationContext()).getLong("poll_ms", POLL_MS);
+            return Math.max(POLL_MIN_MS, Math.min(POLL_MAX_MS, v));
+        } catch (Throwable t) { return POLL_MS; }
+    }
+
+    /** فاصلهٔ بعدی با ±۱۵٪ تأخیر تصادفی (که ۲۰ هزار گوشی هم‌زمان به سایت نخورند) و کندتر شدن اگر سایت جواب نمی‌دهد */
+    static long nextPollDelayMs(Context ctx) {
+        long base = pollMs(ctx);
+        int fails = 0;
+        try { fails = prefs(ctx.getApplicationContext()).getInt("poll_fail", 0); } catch (Throwable ignore) { }
+        if (fails > 0) {
+            // سایت جواب نمی‌دهد (ترافیک تمام شده، تعلیق، فایروال): ۲ برابر و بعد ۴ برابر کندتر، حداکثر تا ۶ ساعت (یا خود فاصله اگر بلندتر است)
+            long slow = base * (fails >= 2 ? 4L : 2L);
+            base = Math.min(slow, Math.max(base, POLL_BACKOFF_MAX_MS));
+        }
+        double jitter = 0.85 + Math.random() * 0.30;
+        return Math.max(POLL_MIN_MS, (long) (base * jitter));
+    }
+
+    /** برای کارهای پشتیبان (JobScheduler): اگر تازه پرسیده‌ایم دوباره نپرس */
+    static boolean inboxDue(Context ctx) {
+        try {
+            long last = prefs(ctx.getApplicationContext()).getLong("inbox_last", 0);
+            return System.currentTimeMillis() - last >= (long) (pollMs(ctx) * 0.9);
+        } catch (Throwable t) { return true; }
+    }
     static final String INBOX_CH = "arefanejam_inbox";
     static final String INBOX_GROUP = "arefanejam_inbox_group";
     static final String PREFS = "arefanejam_bg_update";
@@ -255,12 +290,12 @@ public class UpdateJobService extends JobService {
             Intent i = new Intent(app, AzanReceiver.class);
             i.setAction(AzanReceiver.ACTION_POLL);
             int base = Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0;
-            if (!force && next > now && next - now <= POLL_MS + 30000L
+            if (!force && next > now && next - now <= Math.max((long) (pollMs(app) * 4.6), POLL_BACKOFF_MAX_MS) + 30000L
                     && PendingIntent.getBroadcast(app, POLL_REQ, i, PendingIntent.FLAG_NO_CREATE | base) != null) return;   // already waiting
             PendingIntent pi = PendingIntent.getBroadcast(app, POLL_REQ, i, PendingIntent.FLAG_UPDATE_CURRENT | base);
             AlarmManager am = (AlarmManager) app.getSystemService(Context.ALARM_SERVICE);
             if (am == null) return;
-            long t = now + POLL_MS;
+            long t = now + nextPollDelayMs(app);
             try {
                 if (Build.VERSION.SDK_INT >= 31 && !am.canScheduleExactAlarms()) am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t, pi);
                 else if (Build.VERSION.SDK_INT >= 23) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t, pi);
@@ -289,9 +324,14 @@ public class UpdateJobService extends JobService {
                     try {
                         checkInbox(app, 8000, 10000);
                         SharedPreferences.Editor e = prefs(app).edit();
-                        e.putLong("poll_last", System.currentTimeMillis()).putInt("inbox_fail", 0).apply();
+                        e.putLong("poll_last", System.currentTimeMillis()).putInt("inbox_fail", 0).putInt("poll_fail", 0).apply();
                     } catch (IOException net) {
-                        // no internet right now / site not reachable: the next poll tries again; the "internet is back" path also falls back to the job
+                        // no internet right now / site not reachable: the next poll tries again (slower each time, see nextPollDelayMs);
+                        // the "internet is back" path also falls back to the job
+                        try {
+                            SharedPreferences spf = prefs(app);
+                            spf.edit().putInt("poll_fail", Math.min(5, spf.getInt("poll_fail", 0) + 1)).apply();
+                        } catch (Throwable ignore) { }
                         if (!poll) kickInbox(app);
                     } catch (Throwable t) {
                         log(app, "inbox error: " + t);
@@ -362,6 +402,8 @@ public class UpdateJobService extends JobService {
                     Context ctx = getApplicationContext();
                     boolean retry = false;
                     try {
+                        // JOB_NEWS (هر ۱۵ دقیقه) فقط پشتیبان آلارم است: اگر تازه پرسیده‌ایم، دوباره نپرس تا فاصلهٔ سایت رعایت شود
+                        if (jid == JOB_NEWS && !inboxDue(ctx)) { try { jobFinished(params, false); } catch (Throwable ignore) { } return; }
                         checkInbox(ctx);
                         prefs(ctx).edit().putInt("inbox_fail", 0).apply();
                     } catch (IOException net) {
@@ -391,7 +433,7 @@ public class UpdateJobService extends JobService {
                 try {
                     retry = doUpdate(ctx);
                     // هر بار که کار بروزرسانی هم اجرا می‌شود، اعلان‌ها هم یک‌بار نگاه می‌شود (بی‌ضرر؛ تکراری اعلان نمی‌دهد)
-                    try { checkInbox(ctx); } catch (IOException ignoreNet) { /* بدون اینترنت/سایت در دسترس نیست: بی‌صدا رد می‌شود */ } catch (Throwable t) { log(ctx, "inbox error: " + t); }
+                    try { if (inboxDue(ctx)) checkInbox(ctx); } catch (IOException ignoreNet) { /* بدون اینترنت/سایت در دسترس نیست: بی‌صدا رد می‌شود */ } catch (Throwable t) { log(ctx, "inbox error: " + t); }
                 } catch (Throwable t) {
                     log(ctx, "error: " + t);
                     retry = true;
@@ -478,8 +520,18 @@ public class UpdateJobService extends JobService {
             String dev = sp.getString("device", "");
             String q = "/inbox?t=" + System.currentTimeMillis();
             if (dev != null && dev.matches("[A-Za-z0-9_.\\-]{8,64}")) q += "&device_id=" + dev;
+            // «since»: زمان سرورِ آخرین پاسخِ کاملاً پردازش‌شده؛ سایت فقط موردهای تازه‌تر را می‌فرستد (پاسخ تقریباً خالی و کم‌حجم)
+            long since = sp.getLong("inbox_since", 0);
+            if (since > 0) q += "&since=" + since;
             JSONObject info = new JSONObject(httpText(api + q, connectMs, readMs));
             sp.edit().putLong("inbox_last", System.currentTimeMillis()).apply();
+            // فاصلهٔ پرسیدنِ بعدی را سایت تعیین می‌کند (ثانیه)
+            long nextS = info.optLong("next", 0);
+            if (nextS > 0) {
+                long ms = Math.max(POLL_MIN_MS, Math.min(POLL_MAX_MS, nextS * 1000L));
+                if (ms != sp.getLong("poll_ms", 0)) sp.edit().putLong("poll_ms", ms).apply();
+            }
+            final long serverNow = info.optLong("now", 0);
             if (!info.optBoolean("enabled", false)) return;
             JSONArray items = info.optJSONArray("items");
 
@@ -504,7 +556,7 @@ public class UpdateJobService extends JobService {
                 }
             }
             if (!init) sp.edit().putBoolean("inbox_init", true).apply();
-            if (fresh.isEmpty()) { saveSeen(sp, seen); return; }
+            if (fresh.isEmpty()) { saveSeen(sp, seen); if (serverNow > 0) sp.edit().putLong("inbox_since", serverNow).apply(); return; }
 
             // oldest first, so the newest ends up on top of the notification shade
             java.util.Collections.sort(fresh, new java.util.Comparator<JSONObject>() {
@@ -515,6 +567,7 @@ public class UpdateJobService extends JobService {
                 // the app is open: its own 20-second check shows the popup, a system notification would be a duplicate
                 for (JSONObject it : fresh) seen.add(it.optString("uid"));
                 saveSeen(sp, seen);
+                if (serverNow > 0) sp.edit().putLong("inbox_since", serverNow).apply();
                 log(ctx, "inbox: " + fresh.size() + " item(s) - app is on screen, shown inside the app");
                 return;
             }
@@ -522,6 +575,7 @@ public class UpdateJobService extends JobService {
             if (!showInboxNotifications(ctx, fresh)) { saveSeen(sp, seen); return; }   // not allowed now: try again next time
             for (JSONObject it : fresh) seen.add(it.optString("uid"));
             saveSeen(sp, seen);
+            if (serverNow > 0) sp.edit().putLong("inbox_since", serverNow).apply();   // فقط وقتی واقعاً نشان داده شد؛ وگرنه بعد از اجازهٔ اعلان همه دوباره می‌رسند
             log(ctx, "inbox: shown " + fresh.size() + " item(s)");
         }
     }
