@@ -199,6 +199,40 @@ jobs:
           echo "$OUT"
           echo "$OUT" | grep -q "SHA-256 digest: 1cbd5aa9164e55be62bb0f5ef62d8fe261eb961578ed602dfd10f269772ffbd8" || { echo "ERROR: APK is NOT signed with the fixed key"; exit 1; }
 
+      - name: Build Cafe Bazaar APK (no install permission, no self-update; same key, same package)
+        run: |
+          set -e
+          # نسخهٔ دوم فقط برای کافه‌بازار: مجوز REQUEST_INSTALL_PACKAGES حذف می‌شود و در اپ بروزرسانی APK/OTA خاموش می‌شود.
+          # APK اصلی (arefanejam.apk) بالا ساخته و امضا و بررسی شده و اینجا هیچ تغییری نمی‌کند.
+          M=android/app/src/main/AndroidManifest.xml
+          sed -i '/android.permission.REQUEST_INSTALL_PACKAGES/d' "$M"
+          if grep -q "REQUEST_INSTALL_PACKAGES" "$M"; then echo "ERROR: install permission is still in the manifest"; exit 1; fi
+          echo "window.NATIVE_STORE_BUILD = true;" >> app/js/native-config.js
+          npx cap sync android
+          cd android
+          ./gradlew assembleDebug --no-daemon
+          cd ..
+          cp android/app/build/outputs/apk/debug/app-debug.apk arefanejam-bazaar.apk
+
+      - name: Verify Cafe Bazaar APK (same fixed key, no install permission)
+        run: |
+          APKSIGNER=$(ls $ANDROID_HOME/build-tools/*/apksigner 2>/dev/null | sort -V | tail -n 1)
+          if [ -z "$APKSIGNER" ]; then echo "apksigner not found - skipping check"; exit 0; fi
+          OUT=$("$APKSIGNER" verify --print-certs arefanejam-bazaar.apk)
+          echo "$OUT"
+          echo "$OUT" | grep -q "SHA-256 digest: 1cbd5aa9164e55be62bb0f5ef62d8fe261eb961578ed602dfd10f269772ffbd8" || { echo "ERROR: Bazaar APK is NOT signed with the fixed key"; exit 1; }
+          AAPT=$(ls $ANDROID_HOME/build-tools/*/aapt2 2>/dev/null | sort -V | tail -n 1)
+          if [ -n "$AAPT" ]; then
+            "$AAPT" dump permissions arefanejam-bazaar.apk | tee bazaar-permissions.txt
+            if grep -q "REQUEST_INSTALL_PACKAGES" bazaar-permissions.txt; then echo "ERROR: Bazaar APK still asks for the install permission"; exit 1; fi
+          fi
+
+      - name: Upload Cafe Bazaar APK (only as a downloadable build file, NOT in the Release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: arefanejam-bazaar-apk
+          path: arefanejam-bazaar.apk
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
