@@ -1743,6 +1743,8 @@ const CHARITY_MEDIA_CACHE_NAME = 'arefanejam-charity-media-v1';
 // عکس‌هایی که مدیر در پیشخوان گذاشته (مکاتب، چارت، اسلایدر، گالری، ...) برای دیدن آفلاین؛
 // باید دقیقاً با SITE_MEDIA_CACHE در push-worker.js یکی باشد و از پاک‌سازی کش‌های قدیمی مستثنا بماند.
 const SITE_MEDIA_CACHE_NAME = 'arefanejam-site-media-v1';
+// ویدیوهایی که کاربر یک‌بار پخش کرده؛ کامل روی گوشی می‌مانند تا دفعهٔ بعد ترافیکی مصرف نشود. از پاک‌سازی کش‌های قدیمی مستثنا بماند.
+const VIDEO_CACHE_NAME = 'arefanejam-video-cache-v1';
 
 // فایل صوتی اذان را کامل (یک‌بار) دانلود و در حافظهٔ خودِ گوشی ذخیره می‌کند و آماده نگه می‌دارد؛
 // وقت اذان صدا از همین نسخهٔ محلی پخش می‌شود، پس بدون اینترنت هم کار می‌کند.
@@ -12826,7 +12828,7 @@ if ('serviceWorker' in navigator) {
     // کش‌های «پخش آفلاین اذان» و «پوستهٔ اصلی اپ» حذف نشوند؛ قبلاً این خط با هر بار
     // باز شدن اپ همهٔ کش‌ها را پاک می‌کرد و در نتیجه چیزی برای کارکرد آفلاین باقی نمی‌ماند.
     caches.keys().then((keys) => keys.forEach((k) => {
-      if (k !== AZAN_OFFLINE_CACHE_NAME && k !== APP_SHELL_CACHE_NAME && k !== QURAN_AUDIO_CACHE_NAME && k !== ANNOUNCEMENT_AUDIO_CACHE_NAME && k !== CHARITY_MEDIA_CACHE_NAME && k !== SITE_MEDIA_CACHE_NAME && k !== API_MIRROR_CACHE_NAME && k !== EID_AUDIO_CACHE_NAME) caches.delete(k);
+      if (k !== AZAN_OFFLINE_CACHE_NAME && k !== APP_SHELL_CACHE_NAME && k !== QURAN_AUDIO_CACHE_NAME && k !== ANNOUNCEMENT_AUDIO_CACHE_NAME && k !== CHARITY_MEDIA_CACHE_NAME && k !== SITE_MEDIA_CACHE_NAME && k !== API_MIRROR_CACHE_NAME && k !== EID_AUDIO_CACHE_NAME && k !== VIDEO_CACHE_NAME) caches.delete(k);
     }));
   }
 }
@@ -17119,5 +17121,269 @@ function cnRunPractice(qs, title, isReview) {
   show();
 }
 
+
+/* ---------- ذخیرهٔ خودکار ویدیوها روی گوشی (دانلود یک‌بار، دفعات بعد بدون ترافیک) ----------
+ * هر <video> که آدرس اینترنتی دارد (ویدیوهای بارگذاری‌شده در سایت: کمک‌های مردمی، رمضان ویژه، زکات، گالری، ...)
+ * با اولین «پخش» کامل روی گوشی ذخیره می‌شود (Cache Storage با اسم VIDEO_CACHE_NAME) و از همان لحظه
+ * همیشه از روی گوشی پخش می‌شود (بدون اینترنت و بدون ترافیک). دانلود فقط یک بار است و همان فایل پخش می‌شود،
+ * پس ترافیک دو برابر نمی‌شود. اگر ذخیره ممکن نشد (قطعی، جا نبود، سرور اجازه نداد) پخش مستقیمِ قبلی انجام می‌شود.
+ * سقف حافظه VC_MAX_BYTES است؛ از سقف که بگذرد قدیمی‌ترین ویدیوها خودکار پاک می‌شوند.
+ * ویدیوی تازه = آدرس تازه؛ اگر مدیر ویدیوی جدید بگذارد خودکار دوباره یک‌بار دانلود می‌شود. */
+(function videoCacheModule() {
+  try {
+    if (!window.caches || !window.ReadableStream || typeof TransformStream === 'undefined') return;
+    const IDX_KEY = 'arefanejam_video_cache_idx';
+    const VC_MAX_BYTES = 700 * 1024 * 1024;
+    const inflight = {};
+
+    function vcKey(u) { return String(u || '').replace(/#.*$/, '').replace(/^http:\/\//i, 'https://'); }
+    function vcMime(u) {
+      const m = /\.(mp4|webm|ogv|m4v|mov)(\?|#|$)/i.exec(String(u || ''));
+      const e = m ? m[1].toLowerCase() : 'mp4';
+      return e === 'webm' ? 'video/webm' : e === 'ogv' ? 'video/ogg' : e === 'mov' ? 'video/quicktime' : 'video/mp4';
+    }
+    function vcFa(n) { return (typeof toPersianDigits === 'function') ? toPersianDigits(String(n)) : String(n); }
+    function vcMb(b) { return vcFa((b / 1048576).toFixed(1).replace('.', '٫')); }
+    function idxRead() { try { return JSON.parse(localStorage.getItem(IDX_KEY) || '{}') || {}; } catch (e) { return {}; } }
+    function idxWrite(o) { try { localStorage.setItem(IDX_KEY, JSON.stringify(o)); } catch (e) {} }
+    function idxTouch(k) { const o = idxRead(); if (o[k]) { o[k].t = Date.now(); idxWrite(o); } }
+    function idxForget(k) { const o = idxRead(); if (o[k]) { delete o[k]; idxWrite(o); } }
+    async function evictIfNeeded(keepKey) {
+      try {
+        const o = idxRead();
+        let sum = 0; Object.keys(o).forEach((k) => { sum += (o[k].s || 0); });
+        if (sum <= VC_MAX_BYTES) return;
+        const cache = await caches.open(VIDEO_CACHE_NAME);
+        const order = Object.keys(o).filter((k) => k !== keepKey).sort((a, b) => (o[a].t || 0) - (o[b].t || 0));
+        for (const k of order) {
+          if (sum <= VC_MAX_BYTES) break;
+          sum -= (o[k].s || 0);
+          try { await cache.delete(k); } catch (e) {}
+          delete o[k];
+        }
+        idxWrite(o);
+      } catch (e) {}
+    }
+
+    /* ---- ظاهر: نوار کوچک زیر ویدیو ---- */
+    if (!document.getElementById('vc-style')) {
+      const st = document.createElement('style');
+      st.id = 'vc-style';
+      st.textContent = '.vc-bar{direction:rtl;text-align:center;font-size:12px;line-height:1.8;margin:4px 0 8px;padding:5px 10px;border-radius:10px;background:rgba(127,127,127,.12);color:inherit}'
+        + '.vc-bar.vc-ok{font-size:11px;opacity:.75;background:transparent;padding:2px 6px;margin:2px 0 6px}'
+        + '.vc-prog{height:5px;border-radius:3px;background:rgba(127,127,127,.3);overflow:hidden;margin:5px 0}'
+        + '.vc-prog i{display:block;height:100%;width:0;background:#1f8a70;transition:width .25s}'
+        + '.vc-bar button{font:inherit;font-size:12px;border:1px solid rgba(127,127,127,.5);background:transparent;color:inherit;border-radius:8px;padding:2px 10px;margin-top:2px}';
+      document.head.appendChild(st);
+    }
+    function barOf(v) {
+      let b = v.__vcBar;
+      if (!b || !b.isConnected) {
+        b = document.createElement('div');
+        b.className = 'vc-bar';
+        if (v.parentNode) v.insertAdjacentElement('afterend', b);
+        v.__vcBar = b;
+      }
+      return b;
+    }
+    function barText(v, text, ok) {
+      const b = barOf(v);
+      b.className = 'vc-bar' + (ok ? ' vc-ok' : '');
+      b.textContent = text;
+      return b;
+    }
+    function barClear(v) { if (v.__vcBar) { try { v.__vcBar.remove(); } catch (e) {} v.__vcBar = null; } }
+
+    /* ---- دانلود کامل داخل Cache Storage (مشترک بین چند ویدیوی هم‌آدرس) ---- */
+    function proxyUrl(orig) {
+      try {
+        const api = (typeof DEFAULT_API_URL === 'string' && DEFAULT_API_URL) ? DEFAULT_API_URL : '';
+        if (!api) return '';
+        if (new URL(orig).hostname !== new URL(api).hostname) return '';
+        return api.replace(/\/+$/, '') + '/media-file?u=' + encodeURIComponent(orig);
+      } catch (e) { return ''; }
+    }
+    function downloadOnce(key, orig) {
+      if (inflight[key]) return inflight[key];
+      const job = { listeners: [], ctl: new AbortController(), refs: 0 };
+      job.promise = (async () => {
+        try {
+          try {
+            if (navigator.storage && navigator.storage.estimate) {
+              const e = await navigator.storage.estimate();
+              if (e && e.quota && e.usage != null && (e.quota - e.usage) < 60 * 1048576) return false; // جای کافی نیست
+            }
+          } catch (e0) {}
+          const cache = await caches.open(VIDEO_CACHE_NAME);
+          const tries = [orig];
+          const px = proxyUrl(orig); if (px) tries.push(px);
+          for (const u of tries) {
+            let res;
+            try { res = await fetch(u, { mode: 'cors', credentials: 'omit', signal: job.ctl.signal }); }
+            catch (e1) { if (job.ctl.signal.aborted) return false; continue; }
+            if (!res || res.status !== 200 || !res.body) continue; // سرور CORS نداد یا فایل نبود؛ راه بعدی
+            const total = Number(res.headers.get('content-length')) || 0;
+            if (total > VC_MAX_BYTES) return false;
+            const enc = res.headers.get('content-encoding');
+            let loaded = 0;
+            const counter = new TransformStream({
+              transform(chunk, c) { loaded += chunk.byteLength; job.listeners.forEach((f) => { try { f(loaded, total); } catch (e2) {} }); c.enqueue(chunk); },
+            });
+            try {
+              await cache.put(key, new Response(res.body.pipeThrough(counter), { status: 200, headers: { 'Content-Type': vcMime(orig) } }));
+            } catch (e3) {
+              try { await cache.delete(key); } catch (e4) {}
+              if (job.ctl.signal.aborted) return false;
+              continue;
+            }
+            if (loaded < 1000 || (total && !enc && loaded !== total)) { try { await cache.delete(key); } catch (e5) {} continue; }
+            const o = idxRead(); o[key] = { s: loaded, t: Date.now() }; idxWrite(o);
+            evictIfNeeded(key);
+            return true;
+          }
+          return false;
+        } catch (e) { return false; }
+        finally { delete inflight[key]; }
+      })();
+      inflight[key] = job;
+      return job;
+    }
+
+    /* ---- جایگزینی آدرس اینترنتی با نسخهٔ ذخیره‌شدهٔ روی گوشی ---- */
+    async function useCached(v) {
+      const st = v.__vc;
+      if (!st) return false;
+      try {
+        const cache = await caches.open(VIDEO_CACHE_NAME);
+        const hit = await cache.match(st.key);
+        if (!hit) { idxForget(st.key); return false; }
+        const blob = await hit.blob();
+        if (!blob || blob.size < 1000) { try { await cache.delete(st.key); } catch (e) {} idxForget(st.key); return false; }
+        if (v.__vc !== st) return false; // در این فاصله آدرس ویدیو عوض شد
+        const typed = /^video\//.test(blob.type || '') ? blob : new Blob([blob], { type: vcMime(st.orig) });
+        if (st.blobUrl) { try { URL.revokeObjectURL(st.blobUrl); } catch (e) {} }
+        st.blobUrl = URL.createObjectURL(typed);
+        st.state = 'cached';
+        v.preload = 'metadata';
+        v.setAttribute('src', st.blobUrl);
+        idxTouch(st.key);
+        barText(v, '📱 روی گوشی ذخیره است؛ بدون اینترنت و بدون ترافیک پخش می‌شود', true);
+        return true;
+      } catch (e) { return false; }
+    }
+    function giveUpCached(v) {
+      const st = v.__vc; if (!st) return;
+      st.state = 'direct';
+      v.preload = 'metadata';
+      v.setAttribute('src', st.orig);
+    }
+
+    function setup(v) {
+      if (v.__vc) return;
+      const raw = v.getAttribute('src') || '';
+      if (!/^https?:\/\//i.test(raw)) return;
+      const st = { orig: raw, key: vcKey(raw), state: 'new', blobUrl: '' };
+      v.__vc = st;
+      if (idxRead()[st.key]) {
+        st.state = 'swapping';
+        v.preload = 'none'; // تا آماده شدن نسخهٔ گوشی، هیچ درخواستی به سایت نرود
+        useCached(v).then((ok) => { if (!ok && v.__vc === st) giveUpCached(v); });
+      }
+    }
+    function startDownload(v) {
+      const st = v.__vc;
+      st.state = 'downloading';
+      const job = downloadOnce(st.key, st.orig);
+      const bar = barText(v, '⬇️ در حال ذخیرهٔ ویدیو روی گوشی… (فقط همین یک بار)');
+      const prog = document.createElement('div'); prog.className = 'vc-prog'; const fill = document.createElement('i'); prog.appendChild(fill);
+      const lab = document.createElement('div');
+      const btn = document.createElement('button'); btn.type = 'button'; btn.textContent = '▶ پخش مستقیم بدون ذخیره';
+      bar.textContent = ''; bar.appendChild(document.createTextNode('⬇️ در حال ذخیرهٔ ویدیو روی گوشی (فقط همین یک بار)')); bar.appendChild(prog); bar.appendChild(lab); bar.appendChild(btn);
+      let cancelled = false;
+      const onProg = (loaded, total) => {
+        if (total) { const p = Math.min(100, Math.round(loaded * 100 / total)); fill.style.width = p + '%'; lab.textContent = vcFa(p) + '٪ — ' + vcMb(loaded) + ' از ' + vcMb(total) + ' مگابایت'; }
+        else { fill.style.width = '40%'; lab.textContent = vcMb(loaded) + ' مگابایت'; }
+      };
+      job.listeners.push(onProg);
+      job.refs++;
+      const direct = () => {
+        cancelled = true;
+        st.state = 'direct'; st.noCache = true;
+        job.refs--; if (job.refs <= 0) { try { job.ctl.abort(); } catch (e) {} }
+        barClear(v);
+        try { v.play(); } catch (e) {}
+      };
+      btn.addEventListener('click', direct);
+      job.promise.then(async (ok) => {
+        if (cancelled || v.__vc !== st) return;
+        job.refs--;
+        if (ok && await useCached(v)) {
+          try { await v.play(); } catch (e) { barText(v, '✅ روی گوشی ذخیره شد؛ دکمهٔ پخش را بزنید', true); }
+          return;
+        }
+        st.state = 'direct';
+        barText(v, 'ذخیره روی گوشی ممکن نشد؛ ویدیو مستقیم پخش می‌شود', true);
+        try { v.play(); } catch (e) {}
+      });
+    }
+
+    /* اولین «پخش» ویدیوی ذخیره‌نشده: متوقف، دانلود کامل، بعد پخش از روی گوشی */
+    document.addEventListener('play', (e) => {
+      const v = e.target;
+      if (!v || v.tagName !== 'VIDEO') return;
+      const st = v.__vc;
+      if (!st) return;
+      if (st.state === 'new') {
+        if (navigator.onLine === false) { st.state = 'direct'; return; }
+        e.stopImmediatePropagation();
+        try { v.pause(); } catch (e1) {}
+        startDownload(v);
+      } else if (st.state === 'downloading' || st.state === 'swapping') {
+        e.stopImmediatePropagation();
+        try { v.pause(); } catch (e2) {}
+      }
+    }, true);
+
+    function onSrcAttr(v) {
+      const raw = v.getAttribute('src') || '';
+      if (/^blob:/i.test(raw)) return;
+      const st = v.__vc;
+      if (st && raw === st.orig) return;
+      if (st) {
+        if (st.blobUrl) { try { URL.revokeObjectURL(st.blobUrl); } catch (e) {} }
+        barClear(v); v.__vc = null;
+      }
+      if (raw) setup(v);
+    }
+    function dropped(node) {
+      if (node.nodeType !== 1) return;
+      const list = node.tagName === 'VIDEO' ? [node] : (node.querySelectorAll ? Array.from(node.querySelectorAll('video')) : []);
+      list.forEach((v) => {
+        const st = v.__vc;
+        if (!st || !st.blobUrl) return;
+        setTimeout(() => { if (!v.isConnected && st.blobUrl) { try { URL.revokeObjectURL(st.blobUrl); } catch (e) {} st.blobUrl = ''; } }, 4000);
+      });
+    }
+    const mo = new MutationObserver((muts) => {
+      for (const m of muts) {
+        if (m.type === 'attributes') { if (m.target && m.target.tagName === 'VIDEO') onSrcAttr(m.target); continue; }
+        m.addedNodes.forEach((n) => {
+          if (n.nodeType !== 1) return;
+          if (n.tagName === 'VIDEO') setup(n);
+          else if (n.querySelectorAll) n.querySelectorAll('video').forEach(setup);
+        });
+        m.removedNodes.forEach(dropped);
+      }
+    });
+    mo.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] });
+    document.querySelectorAll('video').forEach(setup);
+
+    // برای آینده: اطلاع از حجم و پاک‌کردن ویدیوهای ذخیره‌شده
+    window.arefVideoCache = {
+      size() { const o = idxRead(); let s = 0; Object.keys(o).forEach((k) => { s += (o[k].s || 0); }); return s; },
+      async clear() { try { await caches.delete(VIDEO_CACHE_NAME); } catch (e) {} idxWrite({}); },
+    };
+  } catch (err) { /* این قابلیت اختیاری است؛ هر خطایی باعث توقف اپ نشود */ }
+})();
 
 window.__arefBooted = true;
