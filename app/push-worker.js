@@ -310,6 +310,9 @@ self.addEventListener('fetch', (event) => {
   const url = request.url;
   if (request.method !== 'GET') return;
 
+  // درخواست «تغییر نکرده» (_h): پاسخ ۱۲ بایتی نباید جای نسخهٔ کاملِ آفلاین بنشیند؛ مستقیم از شبکه
+  if (/[?&]_h=/.test(url)) return;
+
   if (isSettingsRequest(url)) {
     event.respondWith(networkFirstThenCache(request, AZAN_OFFLINE_CACHE, false));
     return;

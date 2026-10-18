@@ -1466,9 +1466,18 @@
     // یادآوری فعال‌سازی «اجازهٔ نصب» (هر ۳ روز)؛ کمی بعد از بررسی بروزرسانی تا پنجره‌ها روی هم نیایند
     setTimeout(permReminder, 14000);
     setInterval(permReminder, 3600 * 1000);
-    setInterval(function () { if (navigator.onLine !== false) webCheck(); }, RECHECK_MS);
+    // فاصلهٔ بررسی از «سطح صرفه‌جویی» پیشخوان (🚦 ترافیک) می‌آید؛ وقتی سایت قطع است پرسیده نمی‌شود
+    function recheckLoop() {
+      var m = 30;
+      try { var tp = JSON.parse(localStorage.getItem('arefanejam_traffic_prof') || 'null'); if (tp && Number(tp.upd_min) > 0) m = Number(tp.upd_min); } catch (e) {}
+      setTimeout(function () {
+        var down = false; try { down = !!(window.__arefSiteDown && window.__arefSiteDown()); } catch (e2) {}
+        if (navigator.onLine !== false && !down && document.visibilityState !== 'hidden') { webCheck(); check(false); }
+        recheckLoop();
+      }, Math.max(m, RECHECK_MS / 60000) * 60000);
+    }
+    recheckLoop();
     // اگر اپ مدت زیادی باز بماند یا از پس‌زمینه برگردد، دوباره از سایت می‌پرسد (بروزرسانی خودکار)
-    setInterval(function () { if (navigator.onLine !== false) check(false); }, RECHECK_MS);
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'visible' && navigator.onLine !== false && Date.now() - lastCheckTs > RESUME_MS) check(false);
     });

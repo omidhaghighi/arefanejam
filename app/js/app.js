@@ -328,6 +328,77 @@ function secureUrl(u) {
   if (!u || typeof u !== 'string') return u || '';
   return u.replace(/^http:\/\//i, 'https://');
 }
+/* ---------- صرفه‌جویی در ترافیک سایت ----------
+ * ۱) «سطح صرفه‌جویی» را مدیر از پیشخوان (🚦 ترافیک) تعیین می‌کند؛ مقدارها داخل /settings ← traffic می‌آیند،
+ *    در گوشی می‌مانند (arefanejam_traffic_prof) و فاصلهٔ پرسیدن‌های دوره‌ای اپ را بلندتر می‌کنند.
+ * ۲) «سایت قطع است» (خطای ۵xx / صفحهٔ HTML هاست / قطع شبکه): چند دقیقه هیچ پرسش دوره‌ای نمی‌فرستد و
+ *    همه‌چیز از آخرین نسخهٔ ذخیره‌شدهٔ گوشی نمایش داده می‌شود؛ بعد خودش دوباره امتحان می‌کند.
+ * ۳) اثر انگشت _h: اگر اطلاعات سایت عوض نشده باشد فقط {"__same":1} برمی‌گردد. */
+var TRAFFIC_PROF_KEY = 'arefanejam_traffic_prof';
+var TRAFFIC_DEFAULTS = { level: 0, settings_s: 120, hb_s: 60, fb_s: 90, pv_s: 0, upd_min: 30 };
+var trafficProfCache = null;
+function trafficProf() {
+  if (trafficProfCache) return trafficProfCache;
+  let p = null;
+  try { p = JSON.parse(localStorage.getItem(TRAFFIC_PROF_KEY) || 'null'); } catch (e) {}
+  trafficProfCache = Object.assign({}, TRAFFIC_DEFAULTS, (p && typeof p === 'object') ? p : {});
+  return trafficProfCache;
+}
+function trafficApply(t) {
+  if (!t || typeof t !== 'object') return;
+  const n = {};
+  Object.keys(TRAFFIC_DEFAULTS).forEach((k) => { const v = Number(t[k]); n[k] = (isFinite(v) && v >= 0) ? v : TRAFFIC_DEFAULTS[k]; });
+  trafficProfCache = n;
+  try { localStorage.setItem(TRAFFIC_PROF_KEY, JSON.stringify(n)); } catch (e) {}
+}
+function trafficSec(key, dflt) { const v = Number(trafficProf()[key]); return (isFinite(v) && v >= 0) ? v : dflt; }
+var sdUntil = 0, sdFails = 0, sdLastFail = 0;
+function siteDownNow() { return Date.now() < sdUntil; }
+function siteDownMark() {
+  const now = Date.now();
+  if (now - sdLastFail < 3000) return;   // ده‌ها درخواست هم‌زمان = یک شکست
+  sdLastFail = now; sdFails = Math.min(sdFails + 1, 6);
+  sdUntil = now + [0, 1, 2, 4, 8, 15, 30][sdFails] * 60000;
+}
+function siteDownClear() { sdFails = 0; sdUntil = 0; }
+window.__arefSiteDown = siteDownNow;
+// اجرای دوره‌ای با فاصلهٔ قابل‌تغییر (کلید در پروفایل ترافیک؛ ۰ = اجرا نشود)
+function tPeriodic(key, fn, defSec) {
+  (function loop() {
+    const sec = trafficSec(key, defSec);
+    setTimeout(() => {
+      try { if (sec > 0 && !document.hidden && !siteDownNow()) fn(); } catch (e) {}
+      loop();
+    }, sec > 0 ? sec * 1000 : 60000);
+  })();
+}
+async function apiSha16(text) {
+  try {
+    if (!window.crypto || !crypto.subtle || typeof TextEncoder === 'undefined') return '';
+    const b = new Uint8Array(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(text)));
+    let h = '';
+    for (let i = 0; i < 8; i++) h += (b[i] < 16 ? '0' : '') + b[i].toString(16);
+    return h;
+  } catch (e) { return ''; }
+}
+function settingsStale() {
+  try { const d = JSON.parse(localStorage.getItem('arefanejam_settings_cache') || 'null'); return (d && typeof d === 'object') ? d : null; } catch (e) { return null; }
+}
+function apiSameSource(basePath, cacheKey) {
+  try {
+    if (basePath === '/settings') {
+      const h = localStorage.getItem('arefanejam_settings_h') || '';
+      const d = settingsStale();
+      return (h && d) ? { h: h, data: d } : null;
+    }
+    if (!cacheKey) return null;
+    const raw = localStorage.getItem(cacheKey);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    if (o && o.h && Object.prototype.hasOwnProperty.call(o, 'data')) return { h: String(o.h), data: o.data };
+  } catch (e) {}
+  return null;
+}
 // پاسخ‌های API از کش HTTP گوشی نیایند تا تغییرات پیشخوان به همه برسد.
 // settings / charity / food-items عمداً بدون پارامتر اضافه می‌مانند چون سرویس‌ورکر برای حالت آفلاین با همین آدرس کش می‌کند.
 function apiFetch(path, options = {}) {
@@ -336,16 +407,28 @@ function apiFetch(path, options = {}) {
   const origPath = String(path);                    // آدرس اصلی (قبل از افزودن _t) برای کلید ذخیرهٔ آفلاین
   const basePath = origPath.split('?')[0];
   if (isGet && !options.cache) options = Object.assign({}, options, { cache: 'no-store' });
+  const optsBase = options;                         // بدون signal؛ برای تلاش دوباره
   if (isGet && !/^\/(settings|charity|food-items)(\?|$)/.test(path)) {
     path += (path.indexOf('?') === -1 ? '?' : '&') + '_t=' + Date.now();
   }
   const cacheKey = isGet ? apiCacheKey(basePath, origPath) : '';
+  const cacheable = !!(cacheKey || (isGet && basePath === '/settings'));
+  // سایت قطع است: بدون پرسیدن از سایت، همان آخرین نسخهٔ ذخیره‌شده (مگر کاربر عمداً بخواهد: options.force)
+  if (cacheable && !options.force && siteDownNow()) {
+    return (async () => {
+      const old = basePath === '/settings' ? settingsStale() : await apiStale(cacheKey);
+      if (old !== null && old !== undefined) return old;
+      return apiFetch(origPath, Object.assign({}, optsBase, { force: true }));
+    })();
+  }
+  const same = (cacheable && !options.noSame) ? apiSameSource(basePath, cacheKey) : null;
+  if (same && /^[0-9a-f]{16}$/.test(same.h)) path += (path.indexOf('?') === -1 ? '?' : '&') + '_h=' + same.h;
   // مهلت ۲۰ ثانیه برای درخواست‌های خواندنی: اینترنتِ «وصل ولی بی‌داده/خیلی کند» دیگر اپ را بی‌پایان منتظر نگه نمی‌دارد؛
   // بعد از مهلت، همان آخرین نسخهٔ ذخیره‌شدهٔ گوشی (اگر باشد) نمایش داده می‌شود.
   let toTimer = null;
   if (isGet && !options.signal && typeof AbortController !== 'undefined') {
     const ac = new AbortController();
-    const hasCachedCopy = !!(cacheKey && apiCacheRead(cacheKey) !== null);
+    const hasCachedCopy = !!(cacheKey && apiCacheRead(cacheKey) !== null) || !!(basePath === '/settings' && settingsStale());
     toTimer = setTimeout(() => { try { ac.abort(); } catch (e) {} }, hasCachedCopy ? 6000 : 20000);
     options = Object.assign({}, options, { signal: ac.signal });
   }
@@ -359,15 +442,28 @@ function apiFetch(path, options = {}) {
       // (صفحهٔ HTML تعلیق/محدودیت هاست یا فایروال، حتی با کد ۲۰۰). در این حالت هیچ‌وقت «{}» خالی نشان داده
       // یا ذخیره نمی‌شود؛ آخرین نسخهٔ سالمِ گوشی (حافظه یا کش پشتیبان) برمی‌گردد.
       const htmlLike = !parsed && /^\s*</.test(raw);
-      const unavailable = isGet && (res.status >= 500 || (!parsed && (htmlLike || !res.ok)));
+      const unavailable = res.status >= 500 || (!parsed && (htmlLike || !res.ok));
       if (unavailable) {
-        const old = cacheKey ? await apiStale(cacheKey) : null;
-        if (old !== null) return old;
-        if (res.status < 500) { const ue = new Error('site_unavailable'); throw ue; } // بدون httpError: بالادستی مثل «اینترنت نیست» رفتار می‌کند
+        siteDownMark();
+        if (isGet) {
+          const old = basePath === '/settings' ? settingsStale() : (cacheKey ? await apiStale(cacheKey) : null);
+          if (old !== null && old !== undefined) return old;
+          if (res.status < 500) { const ue = new Error('site_unavailable'); throw ue; } // بدون httpError: بالادستی مثل «اینترنت نیست» رفتار می‌کند
+        }
+      }
+      if (res.ok && parsed) siteDownClear();
+      // «تغییر نکرده»: سایت فقط تأیید کرد که نسخهٔ ذخیره‌شدهٔ ما هنوز درست است
+      if (parsed && res.ok && data && data.__same === 1 && Object.keys(data).length === 1) {
+        if (same && same.data !== null && same.data !== undefined) return same.data;
+        return apiFetch(origPath, Object.assign({}, optsBase, { noSame: true }));
       }
       if (!res.ok) { const he = new Error(data.message || 'خطا در ارتباط با سرور'); he.httpError = true; throw he; }
-      if (cacheKey && parsed) {
-        apiCacheWrite(cacheKey, data);
+      if (cacheable && parsed) {
+        const h = await apiSha16(raw);
+        if (cacheKey) apiCacheWrite(cacheKey, data, h);
+        else if (basePath === '/settings' && h && data && typeof data === 'object' && Object.keys(data).length >= 3) {
+          try { localStorage.setItem('arefanejam_settings_cache', JSON.stringify(data)); localStorage.setItem('arefanejam_settings_h', h); } catch (e) {}
+        }
         if (basePath === '/activities') setTimeout(() => { prefetchSiteImages(actCollectImages(data)); }, 1500);
         else if (/^\/(mokatib\/|shariq\/settings|ads-page|ad-banners)/.test(basePath)) setTimeout(() => { prefetchSiteImages(collectImageUrls(data)); }, 1500);
       }
@@ -375,6 +471,7 @@ function apiFetch(path, options = {}) {
     })
     .catch(async (err) => {
       if (toTimer) { clearTimeout(toTimer); toTimer = null; }
+      if (!(err && err.httpError) && navigator.onLine !== false) siteDownMark();
       // بدون اینترنت / قطع ارتباط: آخرین نسخهٔ ذخیره‌شدهٔ همین اطلاعات از حافظهٔ گوشی (خطای ۴xx سرور مستثناست)
       if (cacheKey && !(err && err.httpError)) {
         const old = await apiStale(cacheKey);
@@ -407,9 +504,9 @@ function apiCacheRead(key) {
     return (o && Object.prototype.hasOwnProperty.call(o, 'data')) ? o.data : null;
   } catch (e) { return null; }
 }
-function apiCacheWrite(key, data) {
+function apiCacheWrite(key, data, h) {
   let raw;
-  try { raw = JSON.stringify({ t: Date.now(), data: data }); } catch (e) { return; }
+  try { raw = JSON.stringify({ t: Date.now(), data: data, h: h || undefined }); } catch (e) { return; }
   apiMirrorWrite(key, raw);            // همیشه یک نسخهٔ پشتیبان در کش گوشی
   if (raw.length > 1500000) return;    // خیلی بزرگ: حافظهٔ محدود localStorage پر نشود (نسخهٔ پشتیبان بالا ذخیره شد)
   try { localStorage.setItem(key, raw); }
@@ -1915,6 +2012,7 @@ function loadSettings() {
     // پاسخ خالی/نامعتبر (مثلاً صفحهٔ محدودیت هاست) هرگز جای تنظیمات سالمِ گوشی را نگیرد
     if (!data || typeof data !== 'object' || Object.keys(data).length < 3) throw new Error('bad_settings');
     state.settings = data;
+    trafficApply(data.traffic);
     applyReciterNames();
     applyMoreTiles(data);
     try { localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(data)); } catch (e) {}
@@ -2261,12 +2359,13 @@ function checkForNewServerAlarm() {
 // (و یک‌بار هم وقتی کاربر به اپ برمی‌گردد، اگر از آخرین پرسیدن بیش از ۳۰ ثانیه گذشته باشد).
 let settingsPollLast = 0;
 async function pollSettingsNow() {
-  if (document.hidden) return;
+  if (document.hidden || siteDownNow()) return;
   settingsPollLast = Date.now();
   try {
     const fresh = await apiFetch('/settings');
     if (!fresh || typeof fresh !== 'object' || Object.keys(fresh).length < 3) return;
     state.settings = fresh;
+    trafficApply(fresh.traffic);
     try { localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(state.settings)); } catch (e) {}
     applyReciterNames();
     prefetchAzanAudioForOffline();
@@ -2276,9 +2375,10 @@ async function pollSettingsNow() {
     checkQuranInactivityPopup();
   } catch (e) {}
 }
-setInterval(pollSettingsNow, 120000);
+tPeriodic('settings_s', pollSettingsNow, 120);
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && Date.now() - settingsPollLast > 30000) pollSettingsNow();
+  const ss = trafficSec('settings_s', 120);
+  if (!document.hidden && Date.now() - settingsPollLast > (ss > 0 ? Math.max(30000, ss * 500) : 600000)) pollSettingsNow();
 });
 
 function renderAboutPage() {
@@ -8524,10 +8624,18 @@ var curPageKey = '';
 function pvQueueRead() { try { const q = JSON.parse(localStorage.getItem(PV_QUEUE_KEY) || '[]'); return Array.isArray(q) ? q : []; } catch (e) { return []; } }
 function pvQueueWrite(q) { try { localStorage.setItem(PV_QUEUE_KEY, JSON.stringify(q.slice(-200))); } catch (e) {} }
 function currentPageKey() { return curPageKey || (typeof currentTab !== 'undefined' ? currentTab : '') || ''; }
+var pvSoonTimer = null;
+function pvFlushSoon() {
+  const d = trafficSec('pv_s', 0);
+  if (d <= 0) { pvFlush(); return; }
+  if (pvSoonTimer) return;
+  pvSoonTimer = setTimeout(() => { pvSoonTimer = null; pvFlush(); }, d * 1000);
+}
 async function pvFlush() {
-  if (pvFlushing) return;
+  if (pvFlushing || siteDownNow()) return;
   if (!pvQueueRead().length || navigator.onLine === false) return;
   pvFlushing = true;
+  let pvFailed = false;
   try {
     const device_id = await ensureDeviceId();
     const batch = pvQueueRead().slice(0, 40);
@@ -8537,9 +8645,9 @@ async function pvFlush() {
       await apiFetch('/track-page', { method: 'POST', body: JSON.stringify({ device_id, items }) });
       pvQueueWrite(pvQueueRead().slice(batch.length));
     }
-  } catch (e) { /* صف می‌ماند؛ بار بعد دوباره تلاش می‌شود */ }
+  } catch (e) { pvFailed = true; /* صف می‌ماند؛ بار بعد دوباره تلاش می‌شود (بدون حلقهٔ تکرار) */ }
   pvFlushing = false;
-  if (pvQueueRead().length && navigator.onLine !== false) setTimeout(pvFlush, 1500);
+  if (!pvFailed && pvQueueRead().length && navigator.onLine !== false) setTimeout(pvFlush, 1500);
 }
 function trackPage(key, label) {
   try {
@@ -8551,10 +8659,12 @@ function trackPage(key, label) {
     const q = pvQueueRead();
     q.push({ p: key, l: String(label || '').slice(0, 60), t: now });
     pvQueueWrite(q);
-    pvFlush();
+    pvFlushSoon();
   } catch (e) {}
 }
 function pvPingSoon() {
+  const hb = trafficSec('hb_s', 60);
+  if (hb === 0 || hb >= 120) return;   // حالت صرفه‌جویی: heartbeat دوره‌ای کافی است
   clearTimeout(pvPingTimer);
   pvPingTimer = setTimeout(() => { try { sendHeartbeat(); } catch (e) {} }, 1200);
 }
@@ -11049,7 +11159,7 @@ schEl('sch-password').addEventListener('keydown', (e) => { if (e.key === 'Enter'
   schSyncEnterBtn();
   setTimeout(() => { schCheck(true); }, 5000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) schCheck(false); });
-  setInterval(() => { if (!document.hidden) schCheck(false); }, 60000);
+  setInterval(() => { if (!document.hidden && !siteDownNow()) schCheck(false); }, 60000);
 })();
 
 /* ---------- ختم قرآن (تقسیم قرآن به بخش‌ها و برداشتن بخش با تیک) ----------
@@ -12597,14 +12707,22 @@ function ensureDeviceId() {
   return deviceIdPromise;
 }
 /* ---------- آمار نصب/آنلاین (heartbeat) ---------- */
+var hbLast = 0;
 async function sendHeartbeat() {
+  const hbS = trafficSec('hb_s', 60);
+  if (hbS === 0 || hbS >= 120) {   // حالت صرفه‌جویی: بدون ارسال «خروج به پس‌زمینه» و با فاصلهٔ حداقل نصف دوره
+    if (document.hidden) return;
+    if (Date.now() - hbLast < (hbS > 0 ? hbS * 500 : 600000)) return;
+  }
+  if (siteDownNow()) return;
+  hbLast = Date.now();
   const device_id = await ensureDeviceId();
   apiFetch('/heartbeat', { method: 'POST', body: JSON.stringify({ device_id, page: document.hidden ? '' : currentPageKey() }) }).catch(() => {});
   syncDeviceIdToServiceWorker(device_id);
   try { pvFlush(); } catch (e) {}
 }
 sendHeartbeat();
-setInterval(() => { if (!document.hidden) sendHeartbeat(); }, 60000);
+tPeriodic('hb_s', sendHeartbeat, 60);
 
 /* ---------- درخواست اولیهٔ موقعیت مکانی (اولین باز کردن اپ) ----------
    اگر مجوز موقعیت مکانی هنوز مشخص نشده، به‌جای درخواست خاموش (که ممکن است بدون توضیح
@@ -14306,10 +14424,12 @@ function fbBanner(ticketId) {
 async function fbCheckNews() {
   try {
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+    if (siteDownNow()) return;
     fbLastCheck = Date.now();
     const device_id = await ensureDeviceId();
     const d = await shariqGet('/feedback/mine?device_id=' + encodeURIComponent(device_id));
     const rows = Array.isArray(d && d.tickets) ? d.tickets : [];
+    try { localStorage.setItem('arefanejam_fb_has', rows.length ? '1' : '0'); } catch (e) {}
     const unread = rows.filter((r) => r && r.unread);
     fbSetDot(unread.length > 0 || Number(d && d.unread) > 0);
     if (!unread.length) {
@@ -14514,6 +14634,7 @@ async function loadFbView() {
       btn.disabled = true; btn.textContent = 'در حال ارسال…';
       try {
         const device_id = await ensureDeviceId();
+        try { localStorage.setItem('arefanejam_fb_has', '1'); } catch (e) {}
         const r = await apiFetch('/feedback/create', { method: 'POST', body: JSON.stringify({ device_id, subject, message, category: fbCategory, app_version: String(window.NATIVE_APP_VERSION || '') }) });
         hideNew();
         if (r && r.id) openFbView(r.id); else loadFeedbackMain();
@@ -14548,12 +14669,13 @@ async function loadFbView() {
 
 // با برگشتن به اپ، اگر مدتی گذشته باشد دوباره می‌پرسد آیا پاسخی آمده
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && Date.now() - fbLastCheck > 60000) fbCheckNews();
+  if (!document.hidden && Date.now() - fbLastCheck > Math.max(60000, trafficSec('fb_s', 90) * 500)) fbCheckNews();
 });
 loadFeedbackSettings();
 setTimeout(fbCheckNews, 10000);
 // تا وقتی اپ روی صفحه است، هر ۹۰ ثانیه می‌پرسد آیا پاسخی آمده (پاسخ در همان لحظه داخل اپ نشان داده شود)
-setInterval(() => { if (!document.hidden) fbCheckNews(); }, 90000);
+// فقط گوشی‌هایی که تیکت دارند (یا هنوز بررسی نشده‌اند) هر چند دقیقه می‌پرسند؛ بقیه فقط هنگام باز شدن/برگشتن
+tPeriodic('fb_s', () => { if (localStorage.getItem('arefanejam_fb_has') !== '0') fbCheckNews(); }, 90);
 
 /* ---------- فعالیت‌های حوزه: آیکون‌های درختی که مدیر در پیشخوان تعریف می‌کند ----------
    پیشخوان ← عارفان جام ← «فعالیت‌های حوزه». داده از GET /activities می‌آید (آفلاین هم ذخیره می‌شود).
