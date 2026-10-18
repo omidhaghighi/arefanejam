@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
-<link rel="stylesheet" href="css/style.css?v=145">
+<link rel="stylesheet" href="css/style.css?v=146">
 <script>try{var __mc=parseInt(localStorage.getItem('arefanejam_more_cols'),10);if(__mc>=2&&__mc<=5)document.documentElement.setAttribute('data-more-cols',String(__mc));}catch(e){}</script>
 </head>
 <body>
@@ -202,10 +202,6 @@
         </div>
       </div>
 
-      <div class="section-block home-list-block">
-        <h3>اوقات امروز</h3>
-        <div id="home-prayer-list" class="prayer-list"></div>
-      </div>
     </section>
 
     <!-- اذان -->
@@ -540,6 +536,18 @@
         <div id="daily-deeds-list" class="prayer-checklist"></div>
         <button id="daily-deeds-confirm" class="secondary-btn" style="margin-top:12px;width:100%">تأیید و ثبت امروز</button>
         <p class="muted-text small" id="daily-deeds-status" style="margin-top:8px"></p>
+        <button id="deeds-edit-toggle" type="button" class="deeds-edit-toggle">✏️ ویرایش فهرست من (افزودن / حذف)</button>
+        <div id="deeds-editor" class="deeds-editor hidden">
+          <p class="muted-text small">هر موردی را که نمی‌خواهید حذف کنید و موردهای دلخواه خودتان را اضافه کنید. این تغییرات فقط برای خودتان و فقط روی همین گوشی ذخیره می‌شود و گزارش هفتگی، ماهانه و سالانه هم بر اساس همین فهرست ساخته می‌شود.</p>
+          <div id="deeds-editor-list" class="deeds-editor-list"></div>
+          <div class="deeds-add-row">
+            <input id="deeds-add-icon" type="text" maxlength="4" placeholder="🙂" aria-label="شکلک (اختیاری)">
+            <input id="deeds-add-title" type="text" maxlength="60" placeholder="نام عمل جدید، مثلاً: مطالعهٔ کتاب" aria-label="نام عمل جدید">
+            <button id="deeds-add-btn" type="button" class="secondary-btn">افزودن</button>
+          </div>
+          <p id="deeds-editor-msg" class="muted-text small"></p>
+          <button id="deeds-restore-btn" type="button" class="deeds-restore-btn">↩️ برگرداندن موردهای پیش‌فرضِ حذف‌شده</button>
+        </div>
       </div>
       <div class="section-block">
         <h3 id="daily-deeds-report-title">گزارش هفته (۷ روز اخیر)</h3>
@@ -1936,7 +1944,7 @@
 /* native-bridge.js و app.js (به‌همین ترتیب) فقط بعد از پایان صفحهٔ شروع (ویدیو/عکس/گیف) بارگذاری می‌شوند.
    اگر صفحهٔ شروعی نباشد یا تمام شده باشد، بی‌درنگ بارگذاری می‌شوند. */
 (function () {
-  var list = ['js/native-bridge.js?v=35', 'js/app.js?v=224'], i = 0;
+  var list = ['js/native-bridge.js?v=36', 'js/app.js?v=225'], i = 0;
   function next() {
     if (i >= list.length) return;
     var el = document.createElement('script'); el.src = list[i++];

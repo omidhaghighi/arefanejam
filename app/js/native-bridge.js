@@ -509,6 +509,9 @@
   try { if (typeof Cap.getPlatform === 'function' && Cap.getPlatform() === 'ios') return; } catch (e) {}
 
   var CURRENT = String(window.NATIVE_APP_VERSION || '0.0.0');
+  // نسخهٔ کافه‌بازار: ورک‌فلو در native-config.js مقدار window.NATIVE_STORE_BUILD = true می‌گذارد. در این نسخه هیچ بروزرسانی APK و
+  // هیچ بروزرسانی ظاهر اپ (OTA) انجام نمی‌شود؛ فقط خود بازار اپ را بروز می‌کند. اعلان‌ها، اذان و اخبار سایت عادی کار می‌کنند.
+  var STORE = (window.NATIVE_STORE_BUILD === true);
   var DEFAULT_API = 'https://arefanejam.com/wp-json/arefanejam/v1';
   var LATER_KEY = 'arefanejam_update_later';
   var TARGET_KEY = 'arefanejam_update_target';
@@ -926,6 +929,7 @@
   });
 
   function check(manual) {
+    if (STORE) return;
     if (checking || busyUpdating) return;
     checking = true;
     lastCheckTs = Date.now();
@@ -1019,6 +1023,7 @@
   }
 
   function permReminder(force) {
+    if (STORE) return;
     try {
       if (permBusy || ui || busyUpdating || autoBusy || waitingPermission) return;
       var P = AU();
@@ -1152,6 +1157,7 @@
 
   // نتیجه: 'staged' (نسخهٔ جدید ظاهر آماده است) | 'none' (چیزی برای بروزرسانی نیست) | 'error'
   function webManualCheck() {
+    if (STORE) return Promise.resolve('none');
     var P = AU();
     if (!P || typeof P.webStatus !== 'function' || typeof P.webSync !== 'function') return Promise.resolve('none');
     return waitWebIdle().then(function () {
@@ -1178,6 +1184,7 @@
   }
 
   function manualUpdate() {
+    if (STORE) return;
     if (manualBusy || busyUpdating) return;
     var run = ++manualRun;
     manualBusy = true;
@@ -1412,6 +1419,12 @@
   function wire() {
     var rb = document.getElementById('topbar-reload-btn');
     if (rb) rb.title = 'بروزرسانی';
+    if (STORE) {
+      // نسخهٔ بازار: دکمهٔ بروزرسانی بالا، یادآور «نرم‌افزار را بروز کنید» و کاشی بروزرسانی نمایش داده نمی‌شوند
+      try { if (rb) rb.style.display = 'none'; } catch (e) {}
+      try { var uh0 = document.getElementById('topbar-update-hint'); if (uh0) uh0.style.display = 'none'; } catch (e) {}
+      try { var tl0 = document.getElementById('app-update-tile'); if (tl0) tl0.classList.add('hidden'); } catch (e) {}
+    }
     // اگر دفعهٔ قبل نسخهٔ جدید اعلام شده بود و هنوز نصب نشده، نشانگر همان لحظه (بدون انتظار اینترنت) دیده شود
     var cachedV = lsGet(UPD_AVAIL_KEY);
     if (cachedV) {
@@ -1421,7 +1434,7 @@
     var uh = document.getElementById('topbar-update-hint');
     if (uh) uh.addEventListener('click', function () { var r = document.getElementById('topbar-reload-btn'); if (r && !r.disabled) r.click(); });
     var tile = document.getElementById('app-update-tile');
-    if (tile) {
+    if (tile && !STORE) {
       tile.classList.remove('hidden');
       tile.addEventListener('click', function () { check(true); });
     }
@@ -1433,6 +1446,7 @@
       vl.classList.remove('hidden');
       try {
         var PS = AU();
+        if (STORE) PS = null;   // نسخهٔ بازار: خط «نصب بی‌صدا / دانلود پس‌زمینه» نمایش داده نمی‌شود
         // اول کار پس‌زمینه ثبت می‌شود (bgConfig) و بعد وضعیت خوانده می‌شود؛ وگرنه ممکن بود وضعیت «غیرفعال» دیده شود
         // چون هنوز ثبت نشده بود.
         var preBg = (PS && typeof PS.bgConfig === 'function')
@@ -1451,7 +1465,7 @@
           vl.textContent += '  |  دانلود پس‌زمینه: ' + bgTxt + (s.bgReady ? (' (نسخهٔ ' + s.bgReady + ' آماده است)') : '');
         }).catch(function () {});
       } catch (e) {}
-      showWebLine();
+      if (!STORE) showWebLine();
       setupAzanTest(vl);
     }
     // آدرس سایت را به بخش بومی می‌دهیم تا دانلود پس‌زمینه (حتی با اپ بسته) از همان سایت بپرسد
@@ -1508,6 +1522,7 @@
   }
 
   function webApplyStaged() {
+    if (STORE) return;
     var P = AU();
     if (!P || typeof P.webStatus !== 'function') return;
     P.webStatus().then(function (s) {
@@ -1521,6 +1536,7 @@
   }
 
   function webCheck() {
+    if (STORE) return;
     var P = AU();
     if (!P || typeof P.webStatus !== 'function' || webBusy) return;
     webBusy = true;

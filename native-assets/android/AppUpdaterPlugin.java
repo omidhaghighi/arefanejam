@@ -82,6 +82,10 @@ public class AppUpdaterPlugin extends Plugin {
 
     @PluginMethod
     public void download(final PluginCall call) {
+        if (UpdateJobService.storeBuild(getContext())) {
+            call.reject("store build: updates come only from the store");
+            return;
+        }
         final String url = call.getString("url");
         if (url == null || url.length() == 0) {
             call.reject("no url");
@@ -188,6 +192,10 @@ public class AppUpdaterPlugin extends Plugin {
 
     @PluginMethod
     public void install(PluginCall call) {
+        if (UpdateJobService.storeBuild(getContext())) {
+            call.reject("store build: updates come only from the store");
+            return;
+        }
         Context ctx = getContext();
         File f = apkFile();
         if (!f.exists()) {
@@ -345,6 +353,7 @@ public class AppUpdaterPlugin extends Plugin {
         boolean self = ctx.getPackageName().equals(inst);
         r.put("sdk", Build.VERSION.SDK_INT);
         r.put("canInstall", can);
+        r.put("storeBuild", UpdateJobService.storeBuild(ctx));
         r.put("hasApk", apkFile().exists());
         r.put("installer", inst);
         r.put("selfInstaller", self);
@@ -580,6 +589,10 @@ public class AppUpdaterPlugin extends Plugin {
     /** فعال‌سازی فوری نسخهٔ آماده (صفحه دوباره بارگذاری می‌شود). */
     @PluginMethod
     public void webApply(PluginCall call) {
+        if (UpdateJobService.storeBuild(getContext())) {
+            call.reject("store build: updates come only from the store");
+            return;
+        }
         SharedPreferences p = wbPrefs();
         String dir = p.getString("staged_dir", "");
         if (dir.length() == 0 || !new File(dir, "index.html").exists()) {
@@ -599,6 +612,10 @@ public class AppUpdaterPlugin extends Plugin {
 
     @PluginMethod
     public void webSync(final PluginCall call) {
+        if (UpdateJobService.storeBuild(getContext())) {
+            call.reject("store build: updates come only from the store");
+            return;
+        }
         final String id = call.getString("id", "");
         final String base = call.getString("base", "");
         final JSArray files = call.getArray("files");
@@ -2106,12 +2123,17 @@ public class AppUpdaterPlugin extends Plugin {
     /** Opens the phone's "Install unknown apps" page for this app (so the user can allow silent auto-update). Needs no downloaded APK. */
     @PluginMethod
     public void openInstallSettings(PluginCall call) {
+        if (UpdateJobService.storeBuild(getContext())) {
+            call.reject("store build: updates come only from the store");
+            return;
+        }
         try {
             Context ctx = getContext();
             JSObject r = new JSObject();
             boolean can = true;
             if (Build.VERSION.SDK_INT >= 26) can = ctx.getPackageManager().canRequestPackageInstalls();
             r.put("canInstall", can);
+        r.put("storeBuild", UpdateJobService.storeBuild(ctx));
             if (can) {
                 r.put("opened", false);
                 call.resolve(r);

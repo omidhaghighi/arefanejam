@@ -3913,6 +3913,7 @@ function azGoDay(delta) {
 
 function renderPrayerList(elId, list, currentKey) {
   const el = document.getElementById(elId);
+  if (!el) return;   // فهرست «اوقات امروز» پایین صفحهٔ خانه برداشته شده؛ اذان فقط زیر تقویم و در صفحهٔ اذان نمایش داده می‌شود
   el.innerHTML = '';
   list.forEach((p) => {
     const row = document.createElement('div');
@@ -4406,18 +4407,44 @@ function getDailyDeedsLog() {
 function saveDailyDeedsLog(log) {
   try { localStorage.setItem(DAILY_DEEDS_LOG_KEY, JSON.stringify(log)); } catch (e) {}
 }
-function readCachedDailyDeeds() {
+/* فهرست شخصی کاربر: موردهای پیش‌فرض سایت (به‌جز آنچه کاربر حذف کرده) + موردهایی که خودش اضافه کرده.
+   فقط روی همین گوشی (localStorage) ذخیره می‌شود و هیچ‌وقت به سایت نمی‌رود. شکل داده: { hidden: [شناسه‌ها], added: [{id, title, icon}] }.
+   موردی که کاربر خودش ساخته و بعداً حذف کرده هم در hidden می‌ماند (تا گزارش‌های گذشته‌اش در آمار نیاید). */
+const DEEDS_USER_KEY = 'arefanejam_deeds_user';
+const DEEDS_USER_MAX_ADDED = 40;
+function getDeedsUser() {
+  try {
+    const u = JSON.parse(localStorage.getItem(DEEDS_USER_KEY) || 'null');
+    if (u && typeof u === 'object') {
+      return {
+        hidden: Array.isArray(u.hidden) ? u.hidden.map(String) : [],
+        added: Array.isArray(u.added) ? u.added.filter((a) => a && a.id && a.title) : []
+      };
+    }
+  } catch (e) {}
+  return { hidden: [], added: [] };
+}
+function saveDeedsUser(u) { try { localStorage.setItem(DEEDS_USER_KEY, JSON.stringify(u)); } catch (e) {} }
+function readSiteDeeds() {
   try {
     const cached = JSON.parse(localStorage.getItem(DAILY_DEEDS_ITEMS_KEY) || '[]');
     return Array.isArray(cached) ? cached : [];
   } catch (e) { return []; }
 }
+function applyDeedsUser(siteItems) {
+  const u = getDeedsUser();
+  const hid = {};
+  u.hidden.forEach((id) => { hid[id] = true; });
+  const base = (Array.isArray(siteItems) ? siteItems : []).filter((it) => !hid[String(it.id)]);
+  return base.concat(u.added.filter((a) => !hid[String(a.id)]).map((a) => ({ id: a.id, title: a.title, icon: a.icon || '', user: true })));
+}
+function readCachedDailyDeeds() { return applyDeedsUser(readSiteDeeds()); }
 async function loadDailyDeedsItems() {
   try {
     const r = await apiFetch('/daily-deeds');
     if (r && Array.isArray(r.items)) {
-      dailyDeedsItems = r.items;
       try { localStorage.setItem(DAILY_DEEDS_ITEMS_KEY, JSON.stringify(r.items)); } catch (e) {}
+      dailyDeedsItems = applyDeedsUser(r.items);
       if (r.popup && typeof r.popup === 'object') {
         try { localStorage.setItem(DEEDS_POPUP_TEXT_KEY, JSON.stringify(r.popup)); } catch (e) {}
       }
@@ -4515,6 +4542,8 @@ function renderDailyDeedsWeekReport() {
   (dailyDeedsItems.length ? dailyDeedsItems : readCachedDailyDeeds()).forEach((it) => {
     currentTitles[it.id] = (it.icon ? it.icon + ' ' : '') + it.title;
   });
+  const userHidden = {};
+  getDeedsUser().hidden.forEach((id) => { userHidden[id] = true; });
   let confirmedDays = 0, totalDeeds = 0;
   for (let i = 0; i < range; i++) {
     const d = new Date();
@@ -4523,6 +4552,7 @@ function renderDailyDeedsWeekReport() {
     if (!e || !e.confirmed) continue;
     confirmedDays++;
     (e.done || []).forEach((id) => {
+      if (userHidden[String(id)]) return;   // موردی که کاربر از فهرست خودش حذف کرده در گزارش نمی‌آید
       const title = (e.titles && e.titles[id]) || currentTitles[id];
       if (!title) return;
       if (!counts[id]) counts[id] = { title, count: 0 };
@@ -4600,6 +4630,85 @@ document.getElementById('daily-deeds-confirm').addEventListener('click', () => {
   saveDailyDeedsForToday(dailyDeedsDraft);
   renderDailyDeeds();
 });
+
+/* ---------- ویرایش فهرست شخصی اعمال (افزودن / حذف) ---------- */
+let deedsDelArm = '';
+function deedsEdMsg(t) { const m = document.getElementById('deeds-editor-msg'); if (m) m.textContent = t || ''; }
+function renderDeedsEditor() {
+  const box = document.getElementById('deeds-editor-list');
+  if (!box) return;
+  box.innerHTML = '';
+  const items = applyDeedsUser(readSiteDeeds());
+  if (!items.length) {
+    const p = document.createElement('p'); p.className = 'muted-text small'; p.textContent = 'فهرست خالی است. از پایین مورد جدید اضافه کنید.'; box.appendChild(p);
+  }
+  items.forEach((it) => {
+    const row = document.createElement('div'); row.className = 'deeds-ed-row';
+    const name = document.createElement('span'); name.className = 'deeds-ed-name'; name.textContent = (it.icon ? it.icon + ' ' : '') + it.title;
+    const tag = document.createElement('span'); tag.className = 'deeds-ed-tag' + (it.user ? ' mine' : ''); tag.textContent = it.user ? 'من' : 'پیش‌فرض';
+    const del = document.createElement('button'); del.type = 'button'; del.className = 'deeds-ed-del';
+    const armed = deedsDelArm === String(it.id);
+    del.textContent = armed ? 'مطمئنید؟ حذف' : 'حذف';
+    if (armed) del.classList.add('confirm');
+    del.addEventListener('click', () => {
+      if (deedsDelArm !== String(it.id)) {
+        deedsDelArm = String(it.id); renderDeedsEditor();
+        setTimeout(() => { if (deedsDelArm === String(it.id)) { deedsDelArm = ''; renderDeedsEditor(); } }, 4000);
+        return;
+      }
+      deedsDelArm = '';
+      const u = getDeedsUser();
+      if (u.hidden.indexOf(String(it.id)) < 0) u.hidden.push(String(it.id));
+      saveDeedsUser(u);
+      delete dailyDeedsDraft[it.id];
+      deedsEdMsg('«' + it.title + '» از فهرست شما حذف شد.');
+      deedsEditorChanged();
+    });
+    row.appendChild(name); row.appendChild(tag); row.appendChild(del);
+    box.appendChild(row);
+  });
+}
+function deedsEditorChanged() {
+  dailyDeedsItems = readCachedDailyDeeds();
+  renderDeedsEditor();
+  renderDailyDeeds();
+}
+(function setupDeedsEditor() {
+  const tg = document.getElementById('deeds-edit-toggle');
+  const ed = document.getElementById('deeds-editor');
+  if (!tg || !ed) return;
+  tg.addEventListener('click', () => {
+    const open = ed.classList.contains('hidden');
+    ed.classList.toggle('hidden', !open);
+    tg.textContent = open ? '✔️ بستن ویرایش فهرست' : '✏️ ویرایش فهرست من (افزودن / حذف)';
+    if (open) { deedsEdMsg(''); renderDeedsEditor(); }
+  });
+  document.getElementById('deeds-add-btn').addEventListener('click', () => {
+    const tEl = document.getElementById('deeds-add-title'), iEl = document.getElementById('deeds-add-icon');
+    const title = (tEl.value || '').replace(/\s+/g, ' ').trim();
+    const icon = (iEl.value || '').trim().slice(0, 4);
+    if (!title) { deedsEdMsg('نام عمل را بنویسید.'); return; }
+    const u = getDeedsUser();
+    if (u.added.length >= DEEDS_USER_MAX_ADDED) { deedsEdMsg('حداکثر ' + toPersianDigits(DEEDS_USER_MAX_ADDED) + ' مورد می‌توانید اضافه کنید.'); return; }
+    const norm = (x) => String(x).replace(/\s+/g, '').toLowerCase();
+    if (applyDeedsUser(readSiteDeeds()).some((it) => norm(it.title) === norm(title))) { deedsEdMsg('این مورد از قبل در فهرست شما هست.'); return; }
+    const id = 'u_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    u.added.push({ id, title, icon });
+    saveDeedsUser(u);
+    tEl.value = ''; iEl.value = '';
+    deedsEdMsg('«' + title + '» اضافه شد.');
+    deedsEditorChanged();
+  });
+  document.getElementById('deeds-add-title').addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('deeds-add-btn').click(); });
+  document.getElementById('deeds-restore-btn').addEventListener('click', () => {
+    const u = getDeedsUser();
+    const before = u.hidden.length;
+    u.hidden = u.hidden.filter((id) => String(id).indexOf('u_') === 0);   // فقط موردهای پیش‌فرضِ حذف‌شده برمی‌گردند
+    saveDeedsUser(u);
+    deedsEdMsg(before === u.hidden.length ? 'موردِ پیش‌فرضِ حذف‌شده‌ای وجود ندارد.' : 'موردهای پیش‌فرض برگشتند.');
+    deedsEditorChanged();
+  });
+})();
 
 /* ---------- میزان قرآن خوانده‌شده (روزانه، خودکار و کاملاً آفلاین) ----------
    برخلاف نسخهٔ قبلی (که کاربر باید عدد+واحد را خودش وارد می‌کرد)، این بخش دیگر
@@ -10915,6 +11024,12 @@ async function schApi(path, body) {
 // خطای ۴۰۱: ورود لازم است؛ اگر عالم توسط مدیر حذف شده باشد پیام حذف در همان گوشی نشان داده می‌شود (پاسخ‌های او در سایت می‌مانند)
 function schAuthFail(e) {
   SCH.token = ''; schTokenSave('');
+  if (e && e.code === 'device_revoked') {
+    SCH.pending = []; SCH.mine = []; SCH.fatwas = [];
+    schClose();
+    try { window.alert(e.message || 'این دستگاه توسط مدیر از حساب خارج شد.'); } catch (er) {}
+    return;
+  }
   if (e && e.code === 'scholar_deleted') {
     SCH.pending = []; SCH.mine = []; SCH.fatwas = [];
     schClose();
@@ -11137,7 +11252,8 @@ async function schDoLogin() {
   const btn = schEl('sch-login-btn'); btn.disabled = true;
   SCH.token = '';
   try {
-    const d = await schApi('/shariq/scholar/login', { username: un, password: pw });
+    let devId = ''; try { devId = String(await Promise.race([ensureDeviceId(), new Promise((r) => setTimeout(() => r(''), 3000))]) || ''); } catch (e2) {}
+    const d = await schApi('/shariq/scholar/login', { username: un, password: pw, device_id: devId, app_version: String(window.NATIVE_APP_VERSION || '') });
     SCH.token = d.token; schTokenSave(d.token);
     schEl('sch-password').value = '';
     SCH.tab = 'pending';

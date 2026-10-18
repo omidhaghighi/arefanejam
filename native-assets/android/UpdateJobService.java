@@ -17,6 +17,7 @@ import android.content.IntentFilter;
 import android.content.pm.PackageInstaller;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
@@ -240,6 +241,33 @@ public class UpdateJobService extends JobService {
         }
     }
 
+    /* ------------------------------ نسخهٔ کافه‌بازار (بدون بروزرسانی از بیرون) ------------------------------ */
+    private static Boolean storeCache = null;
+
+    /**
+     * true = این APK «نسخهٔ فروشگاه» (کافه‌بازار) است: ورک‌فلو آن را بدون مجوز نصب برنامه می‌سازد
+     * (مجوز REQUEST_INSTALL_PACKAGES داخل مانیفست نیست). در این نسخه دانلود/نصب APK و بروزرسانی ظاهر اپ
+     * (OTA) خاموش است و بروزرسانی فقط از خود بازار انجام می‌شود. اعلان‌ها، اذان و صندوق اخبار عادی کار می‌کنند.
+     * نسخهٔ معمولی (گیت‌هاب) این مجوز را دارد و هیچ تغییری نمی‌کند.
+     */
+    static boolean storeBuild(Context ctx) {
+        if (storeCache != null) return storeCache.booleanValue();
+        boolean store = false;
+        try {
+            PackageInfo pi = ctx.getPackageManager().getPackageInfo(ctx.getPackageName(), PackageManager.GET_PERMISSIONS);
+            String want = "android.permission." + "REQUEST_" + "INSTALL_" + "PACKAGES";
+            boolean has = false;
+            if (pi.requestedPermissions != null) {
+                for (int i = 0; i < pi.requestedPermissions.length; i++) {
+                    if (want.equals(pi.requestedPermissions[i])) { has = true; break; }
+                }
+            }
+            store = !has;
+        } catch (Throwable ignore) { store = false; }
+        storeCache = Boolean.valueOf(store);
+        return store;
+    }
+
     /**
      * Makes sure the system has our jobs: a periodic one (every ~6h, only when online, survives reboot)
      * and a one-shot "check soon" one if the last check is old. Cheap: safe to call often.
@@ -458,6 +486,7 @@ public class UpdateJobService extends JobService {
     private boolean doUpdate(Context ctx) throws Exception {
         SharedPreferences sp = prefs(ctx);
         sp.edit().putLong("last_run", System.currentTimeMillis()).apply();
+        if (storeBuild(ctx)) { log(ctx, "store build: APK self-update is off (updates come only from the store)"); return false; }
         if (!online(ctx)) { log(ctx, "no internet - skipped"); return false; }
 
         String api = sp.getString("api", DEFAULT_API);
@@ -695,6 +724,7 @@ public class UpdateJobService extends JobService {
 
     /** Installs the downloaded APK without any window - only when Android allows it and it is a good moment. */
     private void maybeInstall(Context ctx, SharedPreferences sp, String version) {
+        if (storeBuild(ctx)) return;
         try {
             if (Build.VERSION.SDK_INT < 31) { log(ctx, "silent install needs Android 12+ - waits for the app"); return; }
             if (MainActivity.inForeground) { log(ctx, "app is on screen - not installing now"); return; }

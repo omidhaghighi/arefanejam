@@ -5193,3 +5193,22 @@ body.dark-mode #tab-more .menu-grid .menu-tile, body.dark-mode #tab-submenu .men
 #tab-more .menu-tile-label, #tab-submenu .menu-tile-label, #tab-fun .menu-tile-label {
   font-size: var(--mc-fs); line-height: 1.55; text-align: center; max-width: 100%; overflow-wrap: break-word;
 }
+
+
+/* ---------- محاسبه اعمال: ویرایش فهرست شخصی کاربر ---------- */
+.deeds-edit-toggle { margin-top: 10px; width: 100%; background: transparent; border: 1.5px dashed var(--primary, #1f6f5c); color: var(--primary, #1f6f5c); border-radius: 12px; padding: 10px 12px; font: inherit; font-weight: 700; cursor: pointer; }
+.deeds-editor { margin-top: 12px; padding: 12px; border-radius: 14px; background: rgba(31,111,92,.06); border: 1px solid rgba(31,111,92,.18); }
+.deeds-editor-list { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.deeds-ed-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: 10px; background: #fff; border: 1px solid rgba(0,0,0,.07); }
+.deeds-ed-row .deeds-ed-name { flex: 1; font-size: 14px; font-weight: 600; word-break: break-word; }
+.deeds-ed-tag { font-size: 10.5px; padding: 2px 7px; border-radius: 20px; background: #E3F0EC; color: #1f6f5c; white-space: nowrap; }
+.deeds-ed-tag.mine { background: #FFF1D6; color: #9a6a00; }
+.deeds-ed-del { border: 0; background: #fbe9e7; color: #b3382c; border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.deeds-ed-del.confirm { background: #b3382c; color: #fff; }
+.deeds-add-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+.deeds-add-row input { min-width: 0; padding: 9px 10px; border-radius: 10px; border: 1px solid rgba(0,0,0,.15); font: inherit; }
+.deeds-add-row #deeds-add-icon { width: 48px; text-align: center; flex: 0 0 48px; }
+.deeds-add-row #deeds-add-title { flex: 1; }
+.deeds-restore-btn { margin-top: 8px; border: 0; background: transparent; color: #1f6f5c; font: inherit; font-size: 12.5px; text-decoration: underline; cursor: pointer; padding: 4px 0; }
+body.dark-mode .deeds-ed-row { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.1); }
+body.dark-mode .deeds-add-row input { background: rgba(255,255,255,.07); color: inherit; border-color: rgba(255,255,255,.18); }
