@@ -20,7 +20,7 @@ const CHARITY_MEDIA_CACHE = 'arefanejam-charity-media-v1';
 // کش عکس‌هایی که مدیر در پیشخوان گذاشته (مکاتب، چارت، اسلایدر، گالری ...)؛ هر عکسِ آپلودهای سایت که
 // یک بار با اینترنت دیده شود اینجا می‌ماند و آفلاین هم نمایش داده می‌شود. باید با SITE_MEDIA_CACHE_NAME در js/app.js یکی باشد.
 const SITE_MEDIA_CACHE = 'arefanejam-site-media-v1';
-const SITE_MEDIA_MAX = 300;
+// سقف ذخیرهٔ عکس برداشته شد: هر عکس بارگذاری‌شده در گوشی می‌ماند و دوباره دانلود نمی‌شود.
 
 // دو جایگاه ثابت و جدا در نوار اعلانات:
 // ۱) STICKY_TAG: تاریخ امروز + اذان بعدی — همیشه به‌روزرسانی می‌شود، بی‌صدا
@@ -210,8 +210,6 @@ async function siteImageResponse(request) {
       const copy = res.clone();
       const c = await caches.open(SITE_MEDIA_CACHE);
       await c.put(request.url, copy);
-      const keys = await c.keys();
-      if (keys.length > SITE_MEDIA_MAX) await Promise.all(keys.slice(0, keys.length - SITE_MEDIA_MAX).map((k) => c.delete(k)));
     }
   } catch (e3) { /* ذخیره نشد؛ نمایش عکس بی‌مشکل ادامه دارد */ }
   return res;

@@ -607,7 +607,11 @@ function collectImageUrls(obj) {
   return out;
 }
 let siteImagePrefetching = false;
+/* کاهش ترافیک هاست: عکس‌ها فقط وقتی کاربر وارد همان بخش شد لود می‌شوند و سرویس‌ورکر (push-worker.js) همان موقع در گوشی ذخیرهشان می‌کند.
+   دانلود پیشاپیش (بدون اینکه کاربر به آن بخش برود) خاموش است. برای روشن‌کردن مجدد مقدار زیر را true کنید. */
+var EAGER_IMAGE_PREFETCH = false;
 async function prefetchSiteImages(urls) {
+  if (!EAGER_IMAGE_PREFETCH) return;
   if (!window.caches || !Array.isArray(urls) || !urls.length || siteImagePrefetching) return;
   if (navigator.onLine === false) return;
   siteImagePrefetching = true;
@@ -9751,7 +9755,7 @@ function loadCharitySettings() {
       const c = await charityFetchWithTimeout('/charity');
       window.__charityData = c;
       charityWriteCache(CHARITY_CACHE_KEY, c);
-      prefetchCharityMediaForOffline(c);
+      if (EAGER_IMAGE_PREFETCH) prefetchCharityMediaForOffline(c);
     } catch (e) { /* آفلاین: همان نسخهٔ ذخیره‌شده می‌ماند */ }
     // فقط اگر محتوا واقعاً تغییر کرده، صفحه دوباره ساخته شود (تا پخش ویدیو یا اسکرول کاربر به‌هم نخورد)
     if (currentTab === 'charity' && window.__charityRenderedSig !== JSON.stringify(window.__charityData || null)) renderCharityPage();
@@ -17133,7 +17137,7 @@ function cnRunPractice(qs, title, isReview) {
   try {
     if (!window.caches || !window.ReadableStream || typeof TransformStream === 'undefined') return;
     const IDX_KEY = 'arefanejam_video_cache_idx';
-    const VC_MAX_BYTES = 700 * 1024 * 1024;
+    const VC_MAX_BYTES = Number.MAX_SAFE_INTEGER; // بدون سقف (حذف خودکار و محدودیت حجم فایل)؛ فقط محافظ کمبود فضای گوشی (۶۰ مگابایت) مانده
     const inflight = {};
 
     function vcKey(u) { return String(u || '').replace(/#.*$/, '').replace(/^http:\/\//i, 'https://'); }
@@ -17273,9 +17277,8 @@ function cnRunPractice(qs, title, isReview) {
     }
     function giveUpCached(v) {
       const st = v.__vc; if (!st) return;
-      st.state = 'direct';
-      v.preload = 'metadata';
-      v.setAttribute('src', st.orig);
+      st.state = 'new'; // نسخهٔ ذخیره‌شده پیدا نشد: با زدن پخش، دوباره کامل دانلود می‌شود
+      v.preload = 'none';
     }
 
     function setup(v) {
@@ -17284,6 +17287,7 @@ function cnRunPractice(qs, title, isReview) {
       if (!/^https?:\/\//i.test(raw)) return;
       const st = { orig: raw, key: vcKey(raw), state: 'new', blobUrl: '' };
       v.__vc = st;
+      try { v.preload = 'none'; } catch (e0) {} // قبل از دانلود کامل، هیچ بخشی از ویدیو از سایت خوانده نشود
       if (idxRead()[st.key]) {
         st.state = 'swapping';
         v.preload = 'none'; // تا آماده شدن نسخهٔ گوشی، هیچ درخواستی به سایت نرود
@@ -17297,8 +17301,7 @@ function cnRunPractice(qs, title, isReview) {
       const bar = barText(v, '⬇️ در حال ذخیرهٔ ویدیو روی گوشی… (فقط همین یک بار)');
       const prog = document.createElement('div'); prog.className = 'vc-prog'; const fill = document.createElement('i'); prog.appendChild(fill);
       const lab = document.createElement('div');
-      const btn = document.createElement('button'); btn.type = 'button'; btn.textContent = '▶ پخش مستقیم بدون ذخیره';
-      bar.textContent = ''; bar.appendChild(document.createTextNode('⬇️ در حال ذخیرهٔ ویدیو روی گوشی (فقط همین یک بار)')); bar.appendChild(prog); bar.appendChild(lab); bar.appendChild(btn);
+      bar.textContent = ''; bar.appendChild(document.createTextNode('⬇️ در حال ذخیرهٔ ویدیو روی گوشی (فقط همین یک بار)')); bar.appendChild(prog); bar.appendChild(lab);
       let cancelled = false;
       const onProg = (loaded, total) => {
         if (total) { const p = Math.min(100, Math.round(loaded * 100 / total)); fill.style.width = p + '%'; lab.textContent = vcFa(p) + '٪ — ' + vcMb(loaded) + ' از ' + vcMb(total) + ' مگابایت'; }
@@ -17306,14 +17309,6 @@ function cnRunPractice(qs, title, isReview) {
       };
       job.listeners.push(onProg);
       job.refs++;
-      const direct = () => {
-        cancelled = true;
-        st.state = 'direct'; st.noCache = true;
-        job.refs--; if (job.refs <= 0) { try { job.ctl.abort(); } catch (e) {} }
-        barClear(v);
-        try { v.play(); } catch (e) {}
-      };
-      btn.addEventListener('click', direct);
       job.promise.then(async (ok) => {
         if (cancelled || v.__vc !== st) return;
         job.refs--;
@@ -17321,9 +17316,8 @@ function cnRunPractice(qs, title, isReview) {
           try { await v.play(); } catch (e) { barText(v, '✅ روی گوشی ذخیره شد؛ دکمهٔ پخش را بزنید', true); }
           return;
         }
-        st.state = 'direct';
-        barText(v, 'ذخیره روی گوشی ممکن نشد؛ ویدیو مستقیم پخش می‌شود', true);
-        try { v.play(); } catch (e) {}
+        st.state = 'new'; // پخش مستقیم از سایت نداریم؛ کاربر با زدن پخش دوباره تلاش می‌کند
+        barText(v, 'دانلود ویدیو کامل نشد. اینترنت و فضای خالی گوشی را بررسی کنید و دوباره دکمهٔ پخش را بزنید.', false);
       });
     }
 
