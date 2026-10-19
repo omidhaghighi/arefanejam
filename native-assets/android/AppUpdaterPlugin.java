@@ -476,6 +476,8 @@ public class AppUpdaterPlugin extends Plugin {
                 PackageInfo pi = ctx.getPackageManager().getPackageInfo(ctx.getPackageName(), 0);
                 code = pi.versionCode + ":" + pi.versionName;
             } catch (Exception ignore) { }
+            // نسخهٔ بازار و نسخهٔ گیت‌هاب ممکن است شمارهٔ نسخهٔ یکسان داشته باشند؛ با جابه‌جایی بین آن‌ها OTA قبلی هم پاک شود
+            try { if (UpdateJobService.storeBuild(ctx)) code = code + ":store"; } catch (Throwable ignore2) { }
             if (!code.equals(p.getString("apk_code", ""))) {
                 wbWipe(ctx, p, false, true);
                 p.edit().putString("apk_code", code).apply();

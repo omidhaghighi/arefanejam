@@ -552,6 +552,8 @@ public class UpdateJobService extends JobService {
             // «since»: زمان سرورِ آخرین پاسخِ کاملاً پردازش‌شده؛ سایت فقط موردهای تازه‌تر را می‌فرستد (پاسخ تقریباً خالی و کم‌حجم)
             long since = sp.getLong("inbox_since", 0);
             if (since > 0) q += "&since=" + since;
+            // فقط نسخهٔ کافه‌بازار: سایت «اعلان نسخهٔ بازار» (لینک صفحهٔ بازار) را هم می‌فرستد
+            if (storeBuild(ctx)) q += "&store=1";
             JSONObject info = new JSONObject(httpText(api + q, connectMs, readMs));
             sp.edit().putLong("inbox_last", System.currentTimeMillis()).apply();
             // فاصلهٔ پرسیدنِ بعدی را سایت تعیین می‌کند (ثانیه)
