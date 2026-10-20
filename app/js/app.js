@@ -678,6 +678,7 @@ function switchToTab(tabName, opts) {
   if (tabName === 'books') loadBooks();
   if (tabName === 'shariq') { if (typeof shariqSetView === 'function') shariqSetView('qa'); loadShariqCategories(); }
   if (tabName === 'shariq-mine') loadShariqMine();
+  if (tabName === 'shariq-booking') { try { bkSetView('free'); loadBooking(); } catch (e) {} }
   if (tabName === 'khatm') loadKhatmList();
   if (tabName === 'khatm-mine') loadKhatmMine();
   if (tabName === 'khatm-view') loadKhatmView();
@@ -797,7 +798,7 @@ function handleHardwareBack() {
     const lb = document.getElementById('gallery-lightbox');
     if (lb && !lb.classList.contains('hidden')) { closeGalleryLightbox(); return; }
     if (currentTab === 'contest' && typeof cnInGame === 'function' && cnInGame()) { cnConfirmExit(); return; }
-    if (currentTab === 'contest' && (cnS.phase === 'fl' || cnS.phase === 'review' || cnS.phase === 'season' || cnS.phase === 'prac')) { cnOpen(); return; }
+    if (currentTab === 'contest' && (cnS.phase === 'fl' || cnS.phase === 'review' || cnS.phase === 'season' || cnS.phase === 'prac' || cnS.phase === 'panel')) { cnOpen(); return; }
     if (currentTab === 'game-ayah' && typeof gaGame !== 'undefined' && gaGame) { gaOpen(); return; }
     if (currentTab === 'shariq' && shariqState && shariqState.activeCategory != null) {
       document.querySelectorAll('#shariq-cats-row .shariq-chip').forEach((c) => c.classList.remove('active'));
@@ -1766,9 +1767,27 @@ function normalizeAzanUrl(url) {
   return url;
 }
 
+// در APK اندروید، اذان را بخش بومی (AzanReceiver) خودش دانلود و پخش می‌کند و وب‌ویو هرگز اذان را پخش نمی‌کند
+// (playAzanSound وقتی isNativeAzan درست باشد برمی‌گردد). پس دانلود دومِ وب‌ویو فقط ترافیک هاست را دو برابر می‌کرد.
+// اگر اذانِ بومی هنوز تأیید نشده، تا ۶۰ ثانیهٔ اول بعد از باز شدن اپ صبر می‌کنیم؛ اگر تأیید نشد (APK قدیمی/مرورگر) همان روش قبلی.
+let azanNativeWaitTimer = 0;
+function azanNativeConfirmed() {
+  try { return !!(window.NativeAlarms && typeof window.NativeAlarms.isNativeAzan === 'function' && window.NativeAlarms.isNativeAzan()); } catch (e) { return false; }
+}
+function azanNativePossible() {
+  try {
+    const Cap = window.Capacitor;
+    return !!(Cap && typeof Cap.isNativePlatform === 'function' && Cap.isNativePlatform() && Cap.Plugins && Cap.Plugins.AppUpdater);
+  } catch (e) { return false; }
+}
 async function prefetchAzanAudioForOffline() {
   const url = normalizeAzanUrl(state.settings && state.settings.azan_audio_url);
   if (!url || !window.caches || azanBusy) return;
+  if (azanNativeConfirmed()) return; // اپ اندروید: دانلود را بخش بومی انجام می‌دهد
+  if (azanNativePossible() && performance.now() < 60000) {
+    if (!azanNativeWaitTimer) azanNativeWaitTimer = setTimeout(() => { azanNativeWaitTimer = 0; prefetchAzanAudioForOffline(); }, 30000);
+    return;
+  }
   if (azanEl && azanReadyUrl === url && Date.now() - azanLastCheck < 6 * 3600 * 1000) return;
   azanBusy = true;
   try {
@@ -10666,6 +10685,13 @@ function applyShariqSettings(s) {
   const tBd = document.getElementById('shariq-tile-badge'); if (tBd) tBd.innerHTML = shariqIconMarkup(s);
   const tLb = document.getElementById('shariq-tile-label'); if (tLb) tLb.textContent = s.nav_label || 'سوالات شرعی';
   const pTt = document.getElementById('shariq-page-title'); if (pTt) pTt.textContent = s.nav_label || 'سوالات شرعی';
+  // کارت «نوبت‌دهی دارالافتا» بالای فتوا: نمایش/عنوان از پیشخوان (شرعی: نوبت‌دهی)
+  const bkCard = document.getElementById('shariq-booking-card');
+  if (bkCard) {
+    bkCard.classList.toggle('hidden', !Number(s.booking_enabled));
+    const bT = document.getElementById('bk-entry-title'); if (bT && s.booking_title) bT.textContent = s.booking_title;
+    const bS = document.getElementById('bk-entry-sub'); if (bS) { bS.textContent = s.booking_sub || ''; bS.classList.toggle('hidden', !s.booking_sub); }
+  }
 }
 async function loadShariqSettings() {
   try { await apiSWR('/shariq/settings', applyShariqSettings); } catch (e) { /* ignore */ }
@@ -10727,7 +10753,12 @@ async function shariqGetRaw(path) {
     const i = text.search(/[\[{]/);
     if (i > 0) { try { data = JSON.parse(text.slice(i)); } catch (e2) { data = null; } }
   }
-  if (!res.ok) { const err = new Error((data && data.message) || ('HTTP ' + res.status)); err.code = 'http_' + res.status; err.nonJson = (data === null); throw err; }
+  if (!res.ok) {
+    const err = new Error((data && data.message) || ('HTTP ' + res.status)); err.code = 'http_' + res.status; err.nonJson = (data === null);
+    err.srvCode = (data && data.code) || '';
+    if (err.srvCode === 'logged_out' && typeof cnOnLoggedOut === 'function') setTimeout(cnOnLoggedOut, 0);
+    throw err;
+  }
   if (data === null) { const err = new Error('bad_json'); err.code = 'bad_json'; throw err; }
   return data;
 }
@@ -10901,6 +10932,195 @@ async function loadShariqMine() {
     if (b) b.addEventListener('click', loadShariqMine);
   }
 }
+
+/* ---------- نوبت‌دهی دارالافتا (مراجعهٔ حضوری) ----------
+ * کارت «نوبت‌دهی» بالای «فتوا» ← صفحهٔ نوبت‌ها: روزها و ساعت‌هایی که مدیر در پیشخوان تعیین کرده.
+ * نوبت آزاد = سبز، گرفته‌شده توسط دیگران = قرمز (غیرقابل انتخاب)، نوبت خودِ کاربر = طلایی و در «رزروهای من».
+ * فقط وقتی صفحه باز می‌شود (یا دکمهٔ 🔄 زده می‌شود) یک درخواست کوچک به سایت می‌رود. */
+const bkState = { data: null, view: 'free', slot: null, busy: false, justId: 0, noticeT: null };
+
+function bkEn(s) {
+  return String(s == null ? '' : s)
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 1776))
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 1632));
+}
+function bkProfileGet() { try { return JSON.parse(localStorage.getItem('arefanejam_bk_profile') || 'null') || {}; } catch (e) { return {}; } }
+function bkProfileSet(p) { try { localStorage.setItem('arefanejam_bk_profile', JSON.stringify(p)); } catch (e) {} }
+
+function bkNotice(msg, kind) {
+  const el = document.getElementById('bk-notice');
+  if (!el) return;
+  if (bkState.noticeT) { clearTimeout(bkState.noticeT); bkState.noticeT = null; }
+  if (!msg) { el.classList.add('hidden'); return; }
+  el.className = 'bk-notice ' + (kind === 'ok' ? 'is-ok' : 'is-warn');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
+  bkState.noticeT = setTimeout(() => { el.classList.add('hidden'); bkState.noticeT = null; }, 6000);
+}
+
+function bkSetView(v) {
+  const mine = v === 'mine';
+  bkState.view = mine ? 'mine' : 'free';
+  const a = document.getElementById('bk-seg-free'), b = document.getElementById('bk-seg-mine');
+  if (a) a.classList.toggle('active', !mine);
+  if (b) b.classList.toggle('active', mine);
+  const f = document.getElementById('bk-free-view'), m = document.getElementById('bk-mine-view');
+  if (f) f.classList.toggle('hidden', mine);
+  if (m) m.classList.toggle('hidden', !mine);
+}
+
+async function loadBooking() {
+  const daysEl = document.getElementById('bk-days');
+  if (!daysEl) return;
+  bkSetView(bkState.view);
+  if (!bkState.data) daysEl.innerHTML = '<p class="muted-text small" style="padding:0 18px">در حال بارگذاری...</p>';
+  try {
+    const device_id = await ensureDeviceId();
+    const d = await shariqGet('/shariq/booking?device_id=' + encodeURIComponent(device_id));
+    bkState.data = (d && typeof d === 'object') ? d : { enabled: 0, days: [], mine: [] };
+    bkRender();
+  } catch (e) {
+    if (bkState.data) { bkRender(); return; }
+    daysEl.innerHTML = shariqErrorBox(e, 'bk-retry-btn');
+    const b = document.getElementById('bk-retry-btn');
+    if (b) b.addEventListener('click', loadBooking);
+  }
+}
+
+function bkRender() {
+  const d = bkState.data || { enabled: 0, days: [], mine: [] };
+  const ttl = document.getElementById('bk-page-title'); if (ttl && d.title) ttl.textContent = d.title;
+  const txt = document.getElementById('bk-page-text');
+  if (txt) { txt.innerHTML = shariqText(d.text || ''); txt.classList.toggle('hidden', !(d.text || '').trim()); }
+
+  // ----- نوبت‌های آزاد -----
+  const daysEl = document.getElementById('bk-days');
+  const days = Array.isArray(d.days) ? d.days : [];
+  if (!d.enabled) {
+    daysEl.innerHTML = '<div class="shariq-empty"><span class="shariq-empty-icon">🗓️</span>نوبت‌دهی فعلاً بسته است.</div>';
+  } else if (!days.length) {
+    daysEl.innerHTML = '<div class="shariq-empty"><span class="shariq-empty-icon">🗓️</span>فعلاً نوبتی تعریف نشده است.<br><span class="muted-text small">بعداً دوباره سر بزنید.</span></div>';
+  } else {
+    daysEl.innerHTML = days.map((day, i) => {
+      const slots = Array.isArray(day.slots) ? day.slots : [];
+      const free = slots.filter((s) => s.state === 'free').length;
+      const btns = slots.map((s) => {
+        const st = s.state === 'taken' ? 'taken' : (s.state === 'mine' ? 'mine' : 'free');
+        const tag = st === 'taken' ? '🔒 گرفته شده' : (st === 'mine' ? '✓ نوبت شما' : 'آزاد');
+        return `<button type="button" class="bk-slot is-${st}" data-id="${Number(s.id) || 0}" data-state="${st}" data-time="${shariqEsc(s.time)}" data-day="${shariqEsc(day.label)}">
+          <span class="bk-slot-time">${shariqEsc(s.time)}</span><span class="bk-slot-tag">${tag}</span></button>`;
+      }).join('');
+      const cnt = free ? `${toPersianDigits(free)} نوبت آزاد` : 'همه گرفته شده';
+      return `<div class="bk-day" style="animation-delay:${Math.min(i, 10) * 0.05}s">
+        <div class="bk-day-head"><span class="bk-day-dot"></span><b>${shariqEsc(day.label)}</b><small class="${free ? '' : 'is-full'}">${cnt}</small></div>
+        <div class="bk-slots">${btns}</div></div>`;
+    }).join('');
+  }
+
+  // ----- رزروهای من -----
+  const mine = Array.isArray(d.mine) ? d.mine : [];
+  const active = mine.filter((r) => !r.past);
+  const badge = document.getElementById('bk-mine-count');
+  if (badge) { badge.textContent = toPersianDigits(active.length); badge.classList.toggle('hidden', !active.length); }
+  const confEl = document.getElementById('bk-mine-confirm');
+  confEl.innerHTML = (active.length && (d.confirm || '').trim())
+    ? `<div class="bk-confirm"><span class="bk-confirm-ico">✅</span><div>${shariqText(d.confirm)}</div></div>` : '';
+  const listEl = document.getElementById('bk-mine-list');
+  if (!mine.length) {
+    listEl.innerHTML = '<div class="shariq-empty"><span class="shariq-empty-icon">🎫</span>هنوز نوبتی نگرفته‌اید.<br><button type="button" class="shariq-chip" id="bk-go-free" style="margin-top:12px">دیدن نوبت‌های آزاد</button></div>';
+    const g = document.getElementById('bk-go-free'); if (g) g.addEventListener('click', () => bkSetView('free'));
+  } else {
+    listEl.innerHTML = mine.map((r, i) => `
+      <div class="bk-ticket${r.past ? ' is-past' : ''}${Number(r.id) === bkState.justId ? ' is-new' : ''}" style="animation-delay:${Math.min(i, 8) * 0.06}s">
+        <div class="bk-ticket-main">
+          <div class="bk-ticket-day">${shariqEsc(r.label)}</div>
+          <div class="bk-ticket-time">🕒 ساعت ${shariqEsc(r.time)}</div>
+        </div>
+        <div class="bk-ticket-sep"></div>
+        <div class="bk-ticket-info">
+          <div>👤 ${shariqEsc((r.first_name || '') + ' ' + (r.last_name || ''))}</div>
+          <div dir="ltr" class="bk-ticket-phone">📞 ${shariqEsc(r.phone)}</div>
+          <span class="bk-ticket-status ${r.past ? 'is-past' : 'is-active'}">${r.past ? 'گذشته' : '✓ نوبت فعال'}</span>
+        </div>
+      </div>`).join('');
+  }
+}
+
+function bkOpenSheet(slot) {
+  bkState.slot = slot;
+  const prof = bkProfileGet();
+  document.getElementById('bk-chosen-day').textContent = slot.day;
+  document.getElementById('bk-chosen-time').textContent = 'ساعت ' + slot.time;
+  document.getElementById('bk-first').value = prof.f || '';
+  document.getElementById('bk-last').value = prof.l || '';
+  document.getElementById('bk-phone').value = prof.p || '';
+  const err = document.getElementById('bk-err'); err.classList.add('hidden'); err.textContent = '';
+  const sb = document.getElementById('bk-submit'); sb.disabled = false; sb.textContent = '✓ ثبت نوبت';
+  document.getElementById('bk-modal').classList.remove('hidden');
+}
+function bkCloseSheet() { document.getElementById('bk-modal').classList.add('hidden'); bkState.slot = null; }
+
+async function bkSubmit() {
+  if (bkState.busy || !bkState.slot) return;
+  const errEl = document.getElementById('bk-err');
+  const showErr = (m) => { errEl.textContent = m; errEl.classList.remove('hidden'); };
+  const first = document.getElementById('bk-first').value.trim();
+  const last = document.getElementById('bk-last').value.trim();
+  const phone = bkEn(document.getElementById('bk-phone').value).replace(/[^0-9+]/g, '');
+  if (first.length < 2) return showErr('نام را بنویسید.');
+  if (last.length < 2) return showErr('نام خانوادگی را بنویسید.');
+  const dg = phone.replace(/\D/g, '').length;
+  if (dg < 8 || dg > 15) return showErr('شمارهٔ تلفن را درست بنویسید.');
+  errEl.classList.add('hidden');
+  bkState.busy = true;
+  const sb = document.getElementById('bk-submit'); sb.disabled = true; sb.textContent = 'در حال ثبت…';
+  try {
+    const device_id = await ensureDeviceId();
+    const res = await apiFetch('/shariq/booking/reserve', {
+      method: 'POST',
+      body: JSON.stringify({ device_id, slot_id: bkState.slot.id, first_name: first, last_name: last, phone }),
+    });
+    bkProfileSet({ f: first, l: last, p: phone });
+    bkState.justId = (res && res.reservation && Number(res.reservation.id)) || 0;
+    bkCloseSheet();
+    bkSetView('mine');
+    bkNotice('نوبت شما ثبت شد ✓', 'ok');
+    await loadBooking();
+  } catch (e) {
+    if (e && e.httpError) {
+      // نوبت همین الان گرفته شده/حذف شده یا محدودیت: پیام سایت را نشان بده و فهرست را تازه کن تا نوبت قرمز شود
+      showErr(e.message || 'ثبت نوبت انجام نشد.');
+      loadBooking();
+    } else {
+      showErr('ارسال انجام نشد؛ اینترنت را بررسی کنید و دوباره تلاش کنید.');
+    }
+    sb.disabled = false; sb.textContent = '✓ ثبت نوبت';
+  } finally { bkState.busy = false; }
+}
+
+(function bkInit() {
+  const on = (id, ev, fn) => { const el = document.getElementById(id); if (el) el.addEventListener(ev, fn); };
+  on('shariq-booking-card', 'click', () => switchToTab('shariq-booking', { push: true }));
+  on('bk-seg-free', 'click', () => bkSetView('free'));
+  on('bk-seg-mine', 'click', () => bkSetView('mine'));
+  on('bk-refresh-btn', 'click', () => { bkNotice(''); loadBooking(); });
+  on('bk-cancel', 'click', bkCloseSheet);
+  on('bk-submit', 'click', bkSubmit);
+  on('bk-modal', 'click', (e) => { if (e.target && e.target.id === 'bk-modal') bkCloseSheet(); });
+  on('bk-days', 'click', (e) => {
+    const b = e.target && e.target.closest ? e.target.closest('.bk-slot') : null;
+    if (!b) return;
+    const st = b.getAttribute('data-state');
+    if (st === 'taken') {
+      bkNotice('این نوبت گرفته شده است؛ لطفاً نوبت دیگری انتخاب کنید.', 'warn');
+      b.classList.remove('is-shake'); void b.offsetWidth; b.classList.add('is-shake');
+      return;
+    }
+    if (st === 'mine') { bkSetView('mine'); return; }
+    bkOpenSheet({ id: Number(b.getAttribute('data-id')) || 0, day: b.getAttribute('data-day') || '', time: b.getAttribute('data-time') || '' });
+  });
+})();
 
 /* ---------- فتوا (تب کنار «پرسش و پاسخ») ---------- */
 function shariqSetView(v) {
@@ -12033,7 +12253,7 @@ document.getElementById('mokatib-public-login-link').addEventListener('click', (
   switchToTab('mokatib-login', { push: true });
 });
 
-document.getElementById('mokatib-public-btn1').addEventListener('click', () => {
+function openMokatibBtn1Popup(chain) {
   const popup = (mokatibState.publicBtn1Popup) || { image: '', text: '' };
   const subItems = (mokatibState.publicSub && mokatibState.publicSub.items) || [];
   if (!popup.image && !popup.text && !subItems.length) return; // چیزی برای نمایش تنظیم نشده
@@ -12051,10 +12271,13 @@ document.getElementById('mokatib-public-btn1').addEventListener('click', () => {
   applyMokatibPopupText(textEl, popup);
   textEl.style.display = popup.text ? '' : 'none';
   mokatibSubPath = [];
-  renderMokatibSub();
   document.getElementById('mokatib-public-btn1-popup').classList.remove('hidden');
   pushOverlay('btn1', closeMokatibBtn1Popup);
-});
+  (chain || []).forEach((id) => { mokatibSubPath.push(id); pushOverlay('btn1', undoMokatibSubStep); });
+  renderMokatibSub();
+  try { document.querySelector('#mokatib-public-btn1-popup .modal-box').scrollTop = 0; } catch (e) {}
+}
+document.getElementById('mokatib-public-btn1').addEventListener('click', () => openMokatibBtn1Popup([]));
 function closeMokatibBtn1Popup() {
   exitImageViewerFullscreen(document.getElementById('mokatib-public-btn1-popup-imgwrap'));
   exitImageViewerFullscreen(document.getElementById('mokatib-sub-detail-imgwrap'));
@@ -12389,6 +12612,7 @@ function renderMokatibBtn2View() {
   const mosques = mokatibState.publicMosques || [];
   const detailBlock = document.getElementById('mokatib-btn2-detail');
   const grid = document.getElementById('mokatib-btn2-buttons');
+  try { mksPopSync(parentId === null); } catch (e) {}
 
   if (parentId !== null) {
     const m = mosques.find((x) => Number(x.id) === Number(parentId));
@@ -12474,20 +12698,26 @@ function undoMokatibBtn2Step() {
   renderMokatibBtn2View();
 }
 function closeMokatibBtn2Popup() {
+  try { mksPopReset(); } catch (e) {}
   clearMokatibDetailSlider();
   exitImageViewerFullscreen(document.getElementById('mokatib-btn2-detail-imgwrap'));
   document.getElementById('mokatib-public-btn2-popup').classList.add('hidden');
 }
-document.getElementById('mokatib-public-btn2').addEventListener('click', () => {
+// chain: فهرست شناسه‌ها از ریشه تا مورد انتخابی (برای رسیدن مستقیم از جست‌وجو)؛ هر مرحله یک ورودی تاریخچه دارد تا دکمهٔ برگشت گوشی یک‌یک برگردد
+function openMokatibBtn2Popup(chain) {
   const popup = mokatibState.publicBtn2Popup || { text: '' };
   const textEl = document.getElementById('mokatib-btn2-popup-text');
   textEl.classList.toggle('hidden', !popup.text);
   if (popup.text) applyMokatibPopupText(textEl, popup);
+  try { mksPopReset(); } catch (e) {}
   mokatibBtn2Path = [];
-  renderMokatibBtn2View();
   document.getElementById('mokatib-public-btn2-popup').classList.remove('hidden');
   pushOverlay('btn2', closeMokatibBtn2Popup);
-});
+  (chain || []).forEach((id) => { mokatibBtn2Path.push(id); pushOverlay('btn2', undoMokatibBtn2Step); });
+  renderMokatibBtn2View();
+  try { document.querySelector('#mokatib-public-btn2-popup .modal-box').scrollTop = 0; } catch (e) {}
+}
+document.getElementById('mokatib-public-btn2').addEventListener('click', () => openMokatibBtn2Popup([]));
 document.getElementById('mokatib-btn2-popup-close').addEventListener('click', () => {
   overlayGo('btn2', 0, closeMokatibBtn2Popup);
 });
@@ -12544,6 +12774,7 @@ function applyMokatibPublicData(data) {
     columns: Math.max( 1, Math.min( 6, parseInt( btns.btn2_columns, 10 ) || 3 ) ),
   };
   mokatibState.publicMosques = data.mosques || [];
+  try { mksPubUpdate(); mksPopSync(!mokatibBtn2Path.length); } catch (e) {}
 }
 
 async function loadMokatibPublicTree() {
@@ -12814,17 +13045,60 @@ document.getElementById('settings-save-api-btn').addEventListener('click', () =>
 
 /* ---------- شناسه یکتای دستگاه (توسط سرور اختصاص داده می‌شود) ---------- */
 let deviceIdPromise = null;
+// نسخهٔ پشتیبانِ شناسهٔ دستگاه (کوکی + IndexedDB): اگر localStorage پاک یا پر شود، همان شناسهٔ قبلی برمی‌گردد
+// و آی‌دی/نام مسابقه با هر بار باز کردن اپ عوض نمی‌شود.
+const DEV_ID_RE = /^[A-Za-z0-9_.\-]{8,64}$/;
+function devBackupGet() {
+  try { const m = document.cookie.match(/(?:^|;\s*)aref_dev=([A-Za-z0-9_.\-]{8,64})/); return m ? m[1] : ''; } catch (e) { return ''; }
+}
+function devBackupSet(id) {
+  try { document.cookie = 'aref_dev=' + id + '; path=/; max-age=315360000; SameSite=Lax'; } catch (e) {}
+  try {
+    const r = indexedDB.open('aref-dev', 1);
+    r.onupgradeneeded = () => { try { r.result.createObjectStore('k'); } catch (e) {} };
+    r.onsuccess = () => { try { r.result.transaction('k', 'readwrite').objectStore('k').put(id, 'dev'); } catch (e) {} };
+  } catch (e) {}
+}
+function devIdbGet() {
+  return new Promise((resolve) => {
+    const t = setTimeout(() => resolve(''), 1500);
+    try {
+      const r = indexedDB.open('aref-dev', 1);
+      r.onupgradeneeded = () => { try { r.result.createObjectStore('k'); } catch (e) {} };
+      r.onerror = () => { clearTimeout(t); resolve(''); };
+      r.onsuccess = () => {
+        try {
+          const g = r.result.transaction('k').objectStore('k').get('dev');
+          g.onsuccess = () => { clearTimeout(t); resolve(typeof g.result === 'string' ? g.result : ''); };
+          g.onerror = () => { clearTimeout(t); resolve(''); };
+        } catch (e) { clearTimeout(t); resolve(''); }
+      };
+    } catch (e) { clearTimeout(t); resolve(''); }
+  });
+}
+function devSaveEverywhere(id) {
+  try { localStorage.setItem('arefanejam_device_id', id); } catch (e) {}
+  devBackupSet(id);
+  try { if (typeof window.arefNativeDevice === 'function') window.arefNativeDevice(id); } catch (e) {}
+}
 function ensureDeviceId() {
-  const existing = localStorage.getItem('arefanejam_device_id');
-  if (existing) return Promise.resolve(existing);
+  let existing = '';
+  try { existing = localStorage.getItem('arefanejam_device_id') || ''; } catch (e) {}
+  if (existing) {
+    if (!devBackupGet()) devBackupSet(existing);
+    return Promise.resolve(existing);
+  }
   if (!deviceIdPromise) {
-    deviceIdPromise = apiFetch('/register-device', { method: 'POST' })
-      .then((res) => {
-        const id = res && res.device_id;
-        if (id) { localStorage.setItem('arefanejam_device_id', id); try { if (typeof window.arefNativeDevice === 'function') window.arefNativeDevice(id); } catch (e) {} return id; }
-        return 'dev-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
-      })
-      .catch(() => 'dev-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10));
+    deviceIdPromise = (async () => {
+      // ۱) پشتیبان‌ها (کوکی/IndexedDB)  ۲) ثبت شناسهٔ تازه در سرور (فقط اگر هیچ شناسهٔ قبلی پیدا نشد)
+      let id = devBackupGet() || await devIdbGet();
+      if (id && DEV_ID_RE.test(id)) { devSaveEverywhere(id); return id; }
+      id = '';
+      try { const res = await apiFetch('/register-device', { method: 'POST' }); id = (res && res.device_id) || ''; } catch (e) {}
+      if (id) { devSaveEverywhere(id); return id; }
+      deviceIdPromise = null; // ثبت نشد (اینترنت/سرور)؛ دفعهٔ بعد دوباره تلاش می‌کنیم
+      return 'dev-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+    })();
   }
   return deviceIdPromise;
 }
@@ -16323,7 +16597,10 @@ async function cnPost(path, body) {
   }
   if (!res.ok) {
     const err = new Error((data && data.message) || ('HTTP ' + res.status));
-    err.code = 'http_' + res.status; err.serverMsg = !!(data && data.message); throw err;
+    err.code = 'http_' + res.status; err.serverMsg = !!(data && data.message);
+    err.srvCode = (data && data.code) || '';
+    if (err.srvCode === 'logged_out') setTimeout(cnOnLoggedOut, 0);
+    throw err;
   }
   if (data === null) { const err = new Error('bad_json'); err.code = 'bad_json'; throw err; }
   return data;
@@ -16397,6 +16674,7 @@ async function cnOpen() {
   const same = cached && JSON.stringify(cached.me) === JSON.stringify(res.me) && JSON.stringify(cached.settings) === JSON.stringify(res.settings);
   cnS.settings = res.settings; cnS.me = res.me; cnS.season = res.season || null; cnS.phase = 'home';
   if (!same) cnRenderHome(false);
+  cnMaybeShowCode();
 }
 
 /* آفلاین: آخرین وضعیت و امتیاز ذخیره‌شده روی گوشی نمایش داده می‌شود (بازی کردن نیاز به اینترنت دارد) */
@@ -16420,9 +16698,257 @@ window.addEventListener('online', () => {
   if (currentTab === 'contest' && cnS.phase === 'home' && document.getElementById('cn-off-banner')) cnOpen();
 });
 
+/* ---------- آی‌دی بازیکن: نمایش، کپی، ورود با آی‌دی، خروج ---------- */
+function cnCodeNorm(v) {
+  const fa = '۰۱۲۳۴۵۶۷۸۹', ar = '٠١٢٣٤٥٦٧٨٩';
+  let t = String(v || '').replace(/[۰-۹]/g, (c) => String(fa.indexOf(c))).replace(/[٠-٩]/g, (c) => String(ar.indexOf(c)));
+  t = t.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (t.length === 10) t = 'AJ' + t;
+  return t.length === 12 ? t.slice(0, 2) + '-' + t.slice(2, 7) + '-' + t.slice(7) : String(v || '').trim();
+}
+function cnOnLoggedOut() {
+  try { localStorage.removeItem('arefCnHome'); } catch (e) {}
+  cnCredClear();
+  if (cnS.phase === 'loggedout' || currentTab !== 'contest') return;
+  cnStopTimers(); cnSetPlaying(false);
+  cnS.answers = []; cnS.round = null; cnS.locked = false;
+  cnShowLogin('شما از آی‌دی خود خارج شده‌اید یا آی‌دی شما در گوشی دیگری وارد شده است.', { canNew: true });
+}
+function cnApplyHome(res) {
+  cnS.settings = res.settings; cnS.me = res.me; cnS.season = res.season || null; cnS.phase = 'home';
+  try { localStorage.setItem('arefCnHome', JSON.stringify({ settings: res.settings, me: res.me, season: res.season || null })); } catch (e) {}
+  cnRenderHome(false);
+  cnMaybeShowCode();
+}
+function cnShowLogin(msg, opt) {
+  opt = opt || {};
+  cnStopTimers(); cnSetPlaying(false);
+  cnS.phase = 'loggedout';
+  cnRoot().innerHTML = `<div class="ga-card cn-card">
+    <div class="ga-hero">🆔</div>
+    <h3 class="ga-title">ورود با آی‌دی و رمز عبور</h3>
+    ${msg ? `<p class="cn-note cn-warn">${cnEsc(msg)}</p>` : ''}
+    <p class="cn-note">آی‌دی (نام کاربری) و رمزی را که خودتان گذاشته‌اید وارد کنید تا با همان امتیاز، لیگ و مدال‌های قبلی ادامه دهید. هر آی‌دی فقط در یک گوشی کار می‌کند و سهمیهٔ روزانه با عوض‌کردن گوشی صفر نمی‌شود.</p>
+    <input type="text" id="cn-id-in" class="cn-input" dir="ltr" maxlength="24" autocomplete="username" autocapitalize="none" placeholder="آی‌دی (مثلاً Kami47)" style="text-align:center">
+    <input type="password" id="cn-pw-in" class="cn-input" dir="ltr" maxlength="40" autocomplete="current-password" placeholder="رمز عبور" style="text-align:center;margin-top:8px">
+    <p class="cn-note">اگر قبلاً فقط «کد AJ-…» گرفته‌اید و رمز نگذاشته‌اید، همان کد را در خانهٔ آی‌دی بنویسید و رمز را خالی بگذارید.</p>
+    <p class="cn-note cn-warn" id="cn-login-err"></p>
+    <button class="secondary-btn ga-start" id="cn-login-btn">ورود</button>
+    ${opt.canNew ? '<button class="ghost-btn" id="cn-new-btn" style="width:100%;margin-top:8px">ساخت پروفایل جدید (با امتیاز صفر)</button>' : ''}
+    ${opt.canBack ? '<button class="ghost-btn" id="cn-back-btn" style="width:100%;margin-top:8px">بازگشت</button>' : ''}
+  </div>`;
+  const err = document.getElementById('cn-login-err');
+  const btn = document.getElementById('cn-login-btn');
+  btn.addEventListener('click', async () => {
+    const rawId = String(document.getElementById('cn-id-in').value || '').trim();
+    const pw = String(document.getElementById('cn-pw-in').value || '');
+    const code = cnCodeNorm(rawId);
+    const isCode = /^AJ-[A-Z0-9]{5}-[A-Z0-9]{5}$/.test(code);
+    if (!rawId) { err.textContent = 'آی‌دی را بنویسید.'; return; }
+    if (!isCode && !pw) { err.textContent = 'رمز عبور را بنویسید.'; return; }
+    if (!navigator.onLine) { err.textContent = 'برای ورود اینترنت لازم است.'; return; }
+    err.textContent = ''; btn.disabled = true; btn.textContent = 'در حال ورود…';
+    try {
+      cnS.device = await ensureDeviceId();
+      const body = (isCode && !pw) ? { device_id: cnS.device, code } : { device_id: cnS.device, nick: rawId, password: pw };
+      const res = await cnPost('/contest/login', body);
+      if (pw && res && res.me && res.me.nick) cnCredSet(res.me.nick, pw); else cnCredClear();
+      cnApplyHome(res);
+    } catch (e) {
+      btn.disabled = false; btn.textContent = 'ورود';
+      err.textContent = cnErrText(e);
+    }
+  });
+  const nb = document.getElementById('cn-new-btn');
+  if (nb) nb.addEventListener('click', async () => {
+    if (!navigator.onLine) { err.textContent = 'برای ساخت پروفایل اینترنت لازم است.'; return; }
+    nb.disabled = true;
+    try {
+      cnS.device = await ensureDeviceId();
+      const res = await cnPost('/contest/newprofile', { device_id: cnS.device });
+      cnCredClear();
+      cnApplyHome(res);
+    } catch (e) { nb.disabled = false; err.textContent = cnErrText(e); }
+  });
+  const bb = document.getElementById('cn-back-btn');
+  if (bb) bb.addEventListener('click', cnOpen);
+}
+
+/* ---------- رمز عبور: ذخیرهٔ محلی (فقط روی همین گوشی)، صفحهٔ اول، پنل من ---------- */
+function cnCredGet() { try { return JSON.parse(localStorage.getItem('arefCnCred') || 'null') || null; } catch (e) { return null; } }
+function cnCredSet(id, pw) { try { localStorage.setItem('arefCnCred', JSON.stringify({ id: String(id || ''), pw: String(pw || '') })); } catch (e) {} }
+function cnCredClear() { try { localStorage.removeItem('arefCnCred'); } catch (e) {} }
+function cnMyPw() {
+  const c = cnCredGet(), me = cnS.me || {};
+  return (c && c.pw && String(c.id).toLowerCase() === String(me.nick || '').toLowerCase()) ? String(c.pw) : '';
+}
+function cnPwCheck(p1, p2) {
+  if (p1.length < 4) return 'رمز عبور باید حداقل ۴ حرف یا عدد باشد.';
+  if (p1.length > 40) return 'رمز عبور بیش از ۴۰ حرف نباشد.';
+  if (p1 !== p2) return 'رمز و تکرار آن یکی نیست.';
+  return '';
+}
+function cnCopyText(t, btnId, okLabel, baseLabel) {
+  const done = () => { const b = document.getElementById(btnId); if (b) { b.textContent = okLabel; setTimeout(() => { const x = document.getElementById(btnId); if (x) x.textContent = baseLabel; }, 1800); } };
+  try { if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(t).then(done, () => {}); return; } } catch (e) {}
+  try { const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); done(); } catch (e) {}
+}
+// صفحهٔ اول مسابقه (یک‌بار): آی‌دی را نشان می‌دهد و رمز را از بازیکن می‌گیرد
+function cnShowSetup() {
+  cnStopTimers(); cnSetPlaying(false);
+  const me = cnS.me || {};
+  cnS.phase = 'setup';
+  cnRoot().innerHTML = `<div class="ga-card cn-card">
+    <div class="ga-hero">🆔</div>
+    <h3 class="ga-title">آی‌دی و رمز عبور شما</h3>
+    <p class="cn-note">این آی‌دی (نام کاربری) شماست:</p>
+    <div class="cn-nick cn-code" dir="ltr">${cnEsc(me.nick)}</div>
+    <p class="cn-note">یک رمز عبور برای خودتان بگذارید (حداقل ۴ حرف یا عدد). بعد از ذخیره، <b>آی‌دی و رمز را یادداشت یا ذخیره کنید.</b></p>
+    <p class="cn-note">اگر اپ را پاک کردید یا خواستید در گوشی دیگری بازی کنید: از این بخش (پنل من ← خروج از آی‌دی) خارج شوید و در گوشی بعدی با همین آی‌دی و رمز وارد شوید تا امتیاز و لیگ شما حفظ شود. تا وقتی اپ را حذف نکنید یا خودتان خارج نشوید، رمز روی همین گوشی می‌ماند و لازم نیست دوباره وارد کنید.</p>
+    <input type="password" id="cn-pw1" class="cn-input" dir="ltr" maxlength="40" autocomplete="new-password" placeholder="رمز عبور" style="text-align:center">
+    <input type="password" id="cn-pw2" class="cn-input" dir="ltr" maxlength="40" autocomplete="new-password" placeholder="تکرار رمز عبور" style="text-align:center;margin-top:8px">
+    <label class="cn-note" style="display:block;margin-top:6px"><input type="checkbox" id="cn-pw-see"> نمایش رمز</label>
+    <p class="cn-note cn-warn" id="cn-setup-err"></p>
+    <button class="secondary-btn ga-start" id="cn-setup-btn">ذخیرهٔ رمز و ورود به مسابقه</button>
+    <button class="ghost-btn" id="cn-setup-login" style="width:100%;margin-top:8px">قبلاً آی‌دی داشته‌ام؛ ورود با آی‌دی و رمز</button>
+  </div>`;
+  const err = document.getElementById('cn-setup-err');
+  document.getElementById('cn-pw-see').addEventListener('change', (e) => {
+    ['cn-pw1', 'cn-pw2'].forEach((id) => { const el = document.getElementById(id); if (el) el.type = e.target.checked ? 'text' : 'password'; });
+  });
+  document.getElementById('cn-setup-login').addEventListener('click', () => cnShowLogin('', { canBack: true }));
+  const btn = document.getElementById('cn-setup-btn');
+  btn.addEventListener('click', async () => {
+    const p1 = String(document.getElementById('cn-pw1').value || '');
+    const p2 = String(document.getElementById('cn-pw2').value || '');
+    const bad = cnPwCheck(p1, p2);
+    if (bad) { err.textContent = bad; return; }
+    if (!navigator.onLine) { err.textContent = 'برای ذخیرهٔ رمز اینترنت لازم است.'; return; }
+    err.textContent = ''; btn.disabled = true; btn.textContent = 'در حال ذخیره…';
+    try {
+      cnS.device = await ensureDeviceId();
+      const res = await cnPost('/contest/setpw', { device_id: cnS.device, password: p1 });
+      cnCredSet((res && res.me && res.me.nick) || me.nick, p1);
+      cnApplyHome(res);
+      try {
+        appAlert('contest_cred', null, {
+          title: 'آی‌دی و رمز شما ذخیره شد', icon: '🆔', tone: 'info',
+          text: `آی‌دی: ${me.nick}\nرمز: ${p1}\n\nاین دو را یادداشت یا ذخیره کنید و در نگهداری آن مراقب باشید؛ هر کس آی‌دی و رمز شما را داشته باشد می‌تواند با امتیاز شما بازی کند. آن‌ها را همیشه در «پنل من» می‌بینید.`
+        });
+      } catch (e) {}
+    } catch (e) {
+      btn.disabled = false; btn.textContent = 'ذخیرهٔ رمز و ورود به مسابقه';
+      err.textContent = cnErrText(e);
+    }
+  });
+}
+// پنل بازیکن: آی‌دی، رمز، امتیازها، تغییر رمز (اگر رمز را فراموش کرده باشد از همین‌جا رمز تازه می‌گذارد)، خروج
+function cnShowPanel() {
+  cnStopTimers(); cnSetPlaying(false);
+  const me = cnS.me || {};
+  cnS.phase = 'panel';
+  const pw = cnMyPw();
+  cnRoot().innerHTML = `<div class="ga-card cn-card">
+    <div class="ga-hero">👤</div>
+    <h3 class="ga-title">پنل من</h3>
+    <div class="cn-yourname">آی‌دی (نام کاربری)</div>
+    <div class="cn-nick cn-code" dir="ltr">${cnEsc(me.nick)}</div>
+    <div class="cn-yourname">رمز عبور</div>
+    <div class="cn-nick cn-code" dir="ltr" id="cn-pw-view">${pw ? '••••••' : 'روی این گوشی ذخیره نشده'}</div>
+    <div class="cn-idbtns">
+      ${pw ? '<button type="button" class="ghost-btn" id="cn-pw-toggle">👁 نمایش رمز</button>' : ''}
+      <button type="button" class="ghost-btn" id="cn-pn-copy">📋 کپی آی‌دی${pw ? ' و رمز' : ''}</button>
+    </div>
+    <p class="cn-note cn-warn">این آی‌دی و رمز عبور شماست؛ در حفظ آن مراقب باشید و آن را به کسی ندهید. اگر اپ را حذف کنید یا بخواهید در گوشی دیگری بازی کنید، با همین آی‌دی و رمز وارد می‌شوید.</p>
+    <div class="cn-stats">
+      <div><b>${cnNum(me.points)}</b><span>امتیاز</span></div>
+      <div><b>${cnFa(me.rank)}</b><span>رتبه از ${cnFa(me.league_size)}</span></div>
+      <div><b>${cnFa(me.rounds)}</b><span>دور</span></div>
+      <div><b>${cnFa(me.best)}</b><span>بهترین دور</span></div>
+    </div>
+    <p class="cn-note">لیگ: <b>${cnEsc(me.league_name || '')}</b>${(me.gold || me.silver || me.bronze) ? ' — جایزه‌های لیگ دوستان:' + cnTroph(me.gold, me.silver, me.bronze) : ''}</p>
+    <h4 class="cn-h" style="margin-top:14px">🔑 تغییر رمز عبور</h4>
+    <p class="cn-note">رمز را فراموش کرده‌اید؟ چون همین گوشی به آی‌دی شما وصل است، می‌توانید همین‌جا رمز تازه بگذارید.</p>
+    <input type="password" id="cn-npw1" class="cn-input" dir="ltr" maxlength="40" autocomplete="new-password" placeholder="رمز تازه" style="text-align:center">
+    <input type="password" id="cn-npw2" class="cn-input" dir="ltr" maxlength="40" autocomplete="new-password" placeholder="تکرار رمز تازه" style="text-align:center;margin-top:8px">
+    <p class="cn-note cn-warn" id="cn-pn-msg"></p>
+    <button class="secondary-btn ga-start" id="cn-pn-save">ذخیرهٔ رمز تازه</button>
+    <button class="ghost-btn" id="cn-pn-out" style="width:100%;margin-top:8px">🚪 خروج از آی‌دی</button>
+    <button class="ghost-btn" id="cn-pn-back" style="width:100%;margin-top:8px">بازگشت به مسابقه</button>
+  </div>`;
+  const msg = document.getElementById('cn-pn-msg');
+  const tg = document.getElementById('cn-pw-toggle');
+  if (tg) tg.addEventListener('click', () => {
+    const v = document.getElementById('cn-pw-view'); const shown = tg.dataset.on === '1';
+    v.textContent = shown ? '••••••' : cnMyPw(); tg.dataset.on = shown ? '0' : '1'; tg.textContent = shown ? '👁 نمایش رمز' : '🙈 پنهان کردن';
+  });
+  document.getElementById('cn-pn-copy').addEventListener('click', () => cnCopyText(pw ? `آی‌دی: ${me.nick}\nرمز: ${pw}` : String(me.nick || ''), 'cn-pn-copy', '✅ کپی شد', '📋 کپی آی‌دی' + (pw ? ' و رمز' : '')));
+  document.getElementById('cn-pn-back').addEventListener('click', () => { cnS.phase = 'home'; cnRenderHome(false); });
+  document.getElementById('cn-pn-out').addEventListener('click', cnLogout);
+  const sv = document.getElementById('cn-pn-save');
+  sv.addEventListener('click', async () => {
+    const p1 = String(document.getElementById('cn-npw1').value || '');
+    const p2 = String(document.getElementById('cn-npw2').value || '');
+    const bad = cnPwCheck(p1, p2);
+    msg.className = 'cn-note cn-warn';
+    if (bad) { msg.textContent = bad; return; }
+    if (!navigator.onLine) { msg.textContent = 'برای تغییر رمز اینترنت لازم است.'; return; }
+    msg.textContent = ''; sv.disabled = true; sv.textContent = 'در حال ذخیره…';
+    try {
+      cnS.device = await ensureDeviceId();
+      const res = await cnPost('/contest/setpw', { device_id: cnS.device, password: p1 });
+      cnCredSet((res && res.me && res.me.nick) || me.nick, p1);
+      if (res && res.me) cnS.me = res.me;
+      cnSaveHome();
+      try { appAlert('contest_cred', null, { title: 'رمز تازه ذخیره شد', icon: '🔑', tone: 'info', text: `آی‌دی: ${me.nick}\nرمز تازه: ${p1}\n\nآن را یادداشت کنید و در نگهداری‌اش مراقب باشید.` }); } catch (e) {}
+      cnShowPanel();
+    } catch (e) { sv.disabled = false; sv.textContent = 'ذخیرهٔ رمز تازه'; msg.textContent = cnErrText(e); }
+  });
+}
+async function cnLogout() {
+  const code = (cnS.me && cnS.me.code) || '';
+  const ok = await appConfirm('contest_logout', null, {
+    title: 'خروج از آی‌دی', icon: '🆔', tone: 'warn',
+    text: `قبل از خروج، آی‌دی و رمز خود را یادداشت کنید:\nآی‌دی: ${(cnS.me && cnS.me.nick) || ''}\nرمز: ${cnMyPw() || '(روی این گوشی ذخیره نشده؛ از «پنل من» رمز تازه بگذارید)'}\n\nبعد از خروج، امتیازهای شما نگه داشته می‌شود و فقط با همین آی‌دی و رمز (در همین گوشی یا گوشی دیگر) می‌توانید به آن برگردید. رمز از حافظهٔ این گوشی هم پاک می‌شود. سهمیهٔ دورهای امروز با خروج و ورود دوباره زیاد نمی‌شود. خارج شوید؟`
+  });
+  if (!ok) return;
+  if (!navigator.onLine) { try { appAlert('contest_offline', null, { text: 'برای خروج از آی‌دی اینترنت لازم است.', title: 'اینترنت قطع است', icon: '📡', tone: 'warn' }); } catch (e) {} return; }
+  try {
+    cnS.device = await ensureDeviceId();
+    await cnPost('/contest/logout', { device_id: cnS.device });
+  } catch (e) { try { appAlert('contest_start_err', null, { text: cnErrText(e), title: 'خروج انجام نشد', icon: '⚠️', tone: 'warn' }); } catch (e2) {} return; }
+  try { localStorage.removeItem('arefCnHome'); } catch (e) {}
+  cnCredClear();
+  cnShowLogin('از آی‌دی خارج شدید.', { canNew: true });
+}
+function cnCopyCode() {
+  const c = (cnS.me && cnS.me.code) || '';
+  if (!c) return;
+  const done = () => { const b = document.getElementById('cn-code-copy'); if (b) { b.textContent = '✅ کپی شد'; setTimeout(() => { const x = document.getElementById('cn-code-copy'); if (x) x.textContent = '📋 کپی آی‌دی'; }, 1800); } };
+  try { if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(c).then(done, () => {}); return; } } catch (e) {}
+  try { const t = document.createElement('textarea'); t.value = c; document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t); done(); } catch (e) {}
+}
+// بار اول که آی‌دی را می‌بیند (یا آی‌دی عوض شده) یک پیام روشن نشان داده می‌شود
+function cnMaybeShowCode() {
+  return; // از نسخهٔ آی‌دی+رمز: صفحهٔ اول (cnShowSetup) آی‌دی و رمز را نشان می‌دهد؛ پیام قدیمیِ «کد AJ» دیگر نمایش داده نمی‌شود
+  const c = cnS.me && cnS.me.code;
+  if (!c) return;
+  let seen = '';
+  try { seen = localStorage.getItem('arefCnCodeSeen') || ''; } catch (e) {}
+  if (seen === c) return;
+  try { localStorage.setItem('arefCnCodeSeen', c); } catch (e) {}
+  try {
+    appAlert('contest_code', null, {
+      title: 'این آی‌دی شماست', icon: '🆔', tone: 'info',
+      text: `آی‌دی مسابقهٔ شما:\n${c}\n\nآن را یادداشت یا کپی کنید. اگر اپ را حذف کردید یا گوشی‌تان را عوض کردید، همین آی‌دی را در بخش مسابقه بزنید تا با همان امتیاز و لیگ قبلی ادامه دهید. آی‌دی را به کسی ندهید؛ هر آی‌دی فقط در یک گوشی کار می‌کند.`
+    });
+  } catch (e) {}
+}
+
 function cnLeagueClass(i) { return 'cn-l' + Math.max(0, Math.min(2, i | 0)); }
 
 function cnRenderHome(scrollBoard) {
+  if (cnS.me && cnS.me.has_pw === false) { cnShowSetup(); return; } // شرط ورود: بازیکن باید رمز عبور بگذارد
   const s = cnS.settings || {}, me = cnS.me || {};
   const lg = s.leagues || [];
   let nextTxt = '';
@@ -16430,14 +16956,22 @@ function cnRenderHome(scrollBoard) {
   else nextTxt = 'شما در بالاترین لیگ هستید 👑';
   let plays;
   if (me.plays_left < 0) plays = '';
-  else if (me.plays_left === 0) plays = `<p class="cn-note cn-warn">سهمیهٔ امروز شما تمام شد؛ فردا دوباره بیایید.</p>`;
+  else if (me.plays_left === 0) plays = `<p class="cn-note cn-warn">امروز ${cnFa(s.daily_limit)} دور را بازی کرده‌اید و سهمیهٔ امروز تمام شد؛ فردا دوباره بیایید.</p>`;
   else plays = `<p class="cn-note">دورهای باقی‌ماندهٔ امروز: <b>${cnFa(me.plays_left)}</b> از ${cnFa(s.daily_limit)}</p>`;
   const canPlay = me.plays_left !== 0;
   let chips = '';
   lg.forEach((l, i) => {
     chips += `<button type="button" class="cn-chip ${cnLeagueClass(i)}" data-l="${i}">${cnEsc(l.name)}${i === me.league ? ' ⭐' : ''}</button>`;
   });
-  cnRoot().innerHTML = `
+  const idCard = `<div class="ga-card cn-card cn-idcard">
+    <div class="cn-yourname">🆔 آی‌دی شما (نام کاربری)</div>
+    <div class="cn-nick cn-code" dir="ltr">${cnEsc(me.nick)}</div>
+    <div class="cn-idbtns">
+      <button type="button" class="ghost-btn" id="cn-panel-btn">👤 پنل من (آی‌دی و رمز)</button>
+      <button type="button" class="ghost-btn" id="cn-code-other">🔑 ورود با آی‌دی دیگر</button>
+    </div>
+  </div>`;
+  cnRoot().innerHTML = idCard + `
   <div class="ga-card cn-card cn-profile">
     <div class="cn-hero">🏆</div>
     <div class="cn-yourname">نام شما در مسابقه</div>
@@ -16485,6 +17019,8 @@ function cnRenderHome(scrollBoard) {
     <div id="cn-board"></div>
   </div>`;
   document.getElementById('cn-start-btn').addEventListener('click', cnStart);
+  const cc1 = document.getElementById('cn-panel-btn'); if (cc1) cc1.addEventListener('click', cnShowPanel);
+  const cc2 = document.getElementById('cn-code-other'); if (cc2) cc2.addEventListener('click', cnLogout);
   document.getElementById('cn-fl-btn').addEventListener('click', () => cnFlHome());
   cnScopeWire('pr');
   document.getElementById('cn-prac-btn').addEventListener('click', cnPracStart);
@@ -17495,5 +18031,361 @@ function cnRunPractice(qs, title, isReview) {
     };
   } catch (err) { /* این قابلیت اختیاری است؛ هر خطایی باعث توقف اپ نشود */ }
 })();
+
+/* ======================================================================
+   جست‌وجو — دو سیستم کاملاً جدا از هم (هرگز با هم قاطی نمی‌شوند)
+   ۱) جست‌وجوی مکاتب (نام‌ها و توابع mks*): فقط نام فرد / مسجد / منطقه در چارت مکاتب.
+      جاها: بالای دو دکمهٔ صفحهٔ عمومی مکاتب (#mks-pub-*) و بالای دکمه‌های پنجرهٔ «مناطق و مساجد» (#mks-pop-*).
+      با هر حرف، فهرست کوچک‌تر می‌شود: هر کلمه‌ای که با حرف‌های نوشته‌شده شروع شود نشان داده می‌شود.
+   ۲) جست‌وجوی کلی اپ (نام‌ها و توابع gs*): فقط بخش‌ها و ابزارهای خود اپ؛ دکمهٔ 🔍 نوار بالا (#gs-*).
+      این یکی هیچ‌وقت داخل داده‌های مکاتب (افراد/مساجد/مناطق) نمی‌گردد.
+   فقط تابع کمکی srchNorm (یکسان‌سازی حروف و ارقام فارسی/عربی) بین این دو مشترک است.
+   ====================================================================== */
+function srchNorm(s) {
+  return String(s == null ? '' : s)
+    .replace(/[\u064B-\u065F\u0670\u0640\u06D6-\u06ED]/g, '')
+    .replace(/[\u064A\u0649]/g, '\u06CC').replace(/\u0643/g, '\u06A9').replace(/[\u06C0\u0629]/g, '\u0647')
+    .replace(/[\u0623\u0625\u0622\u0671]/g, '\u0627')
+    .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06F0))
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .toLowerCase()
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF\u00A0]/g, ' ')
+    .replace(/[()\uFF08\uFF09\[\]{}\u00AB\u00BB"'`:\u061B\u060C,.;!?\u061F\-\u2013\u2014_\/\\|*+=<>~@#$%^&]+/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+}
+function srchFa(n) { try { return Number(n).toLocaleString('fa-IR'); } catch (e) { return String(n); } }
+function srchEl(id) { return document.getElementById(id); }
+
+/* ---------- ۱) جست‌وجوی مکاتب ---------- */
+var mksIdx = null;
+var MKS_MAX = 80;
+function mksBuildIndex() {
+  const mos = mokatibState.publicMosques || [];
+  const sub = (mokatibState.publicSub && mokatibState.publicSub.items) || [];
+  if (mksIdx && mksIdx.m === mos && mksIdx.s === sub && mksIdx.n === mos.length + sub.length) return mksIdx;
+  const list = [];
+  const oneLine = (t) => String(t == null ? '' : t).replace(/\s*\n\s*/g, ' ').replace(/\s+/g, ' ').trim();
+  function build(src, items, pidOf, personOf) {
+    const byId = new Map();
+    items.forEach((x) => byId.set(Number(x.id), x));
+    const kids = new Map();
+    items.forEach((x) => { const p = Number(pidOf(x) || 0); kids.set(p, (kids.get(p) || 0) + 1); });
+    items.forEach((x, i) => {
+      const id = Number(x.id);
+      const chain = [id], crumb = [];
+      const seen = new Set([id]);
+      let p = Number(pidOf(x) || 0);
+      while (p && byId.has(p) && !seen.has(p)) {
+        seen.add(p);
+        const px = byId.get(p);
+        chain.unshift(p);
+        crumb.unshift(mkSplitName(oneLine(px.name)).main || oneLine(px.name));
+        p = Number(pidOf(px) || 0);
+      }
+      const nm = oneLine(x.name), parts = mkSplitName(nm);
+      const person = oneLine(personOf(x));
+      const nKids = kids.get(id) || 0;
+      list.push({
+        src, id, chain, crumb: crumb.join(' \u2039 '),
+        main: parts.main || nm, place: parts.place || '',
+        person, role: src === 'm' ? mkRoleLabel(x) : '',
+        kids: nKids,
+        clickable: src === 'm' ? true : (nKids > 0 || !!x.image || !!x.info),
+        nw: srchNorm(nm).split(' ').filter(Boolean), pw: srchNorm(person).split(' ').filter(Boolean),
+        ns: srchNorm(nm), ps: srchNorm(person), ord: i,
+      });
+    });
+  }
+  build('m', mos, (x) => x.parent_id, (x) => x.imam_name);
+  build('s', sub, (x) => x.parent, (x) => x.person);
+  mksIdx = { m: mos, s: sub, n: mos.length + sub.length, list };
+  return mksIdx;
+}
+// onlySrc: 'm' فقط مساجد/مناطق (پنجرهٔ دکمهٔ دوم)، وگرنه هر دو چارت صفحهٔ عمومی
+function mksSearch(q, onlySrc) {
+  const toks = srchNorm(q).split(' ').filter(Boolean);
+  if (!toks.length) return null;
+  const pool = mksBuildIndex().list.filter((e) => !onlySrc || e.src === onlySrc);
+  const pass = (substr) => {
+    const out = [];
+    pool.forEach((e) => {
+      let nameAll = true, any = true;
+      for (const t of toks) {
+        const inN = substr ? e.ns.indexOf(t) >= 0 : e.nw.some((w) => w.startsWith(t));
+        const inP = substr ? e.ps.indexOf(t) >= 0 : e.pw.some((w) => w.startsWith(t));
+        if (!inN) nameAll = false;
+        if (!inN && !inP) { any = false; break; }
+      }
+      if (!any) return;
+      const tier = nameAll ? ((!substr && e.nw[0] && e.nw[0].startsWith(toks[0])) ? 0 : 1) : 2;
+      out.push({ e, tier });
+    });
+    out.sort((a, b) => a.tier - b.tier || (a.e.src === b.e.src ? 0 : (a.e.src === 'm' ? -1 : 1)) || a.e.ord - b.e.ord);
+    return out.map((o) => o.e);
+  };
+  let res = pass(false);
+  if (!res.length) res = pass(true);
+  return res;
+}
+function mksRender(box, q, mode) {
+  const res = mksSearch(q, mode === 'pop' ? 'm' : null) || [];
+  box.innerHTML = '';
+  if (!res.length) {
+    const em = document.createElement('div'); em.className = 'mks-empty';
+    em.textContent = 'موردی با این نام پیدا نشد';
+    box.appendChild(em);
+    return;
+  }
+  const cnt = document.createElement('div'); cnt.className = 'mks-count';
+  cnt.textContent = srchFa(res.length) + ' مورد پیدا شد' + (res.length > MKS_MAX ? ' (' + srchFa(MKS_MAX) + ' مورد اول؛ برای محدودتر شدن حرف‌های بیشتری بنویسید)' : '');
+  box.appendChild(cnt);
+  const chip = (src) => { const b = srchEl(src === 'm' ? 'mokatib-public-btn2' : 'mokatib-public-btn1'); return b ? String(b.textContent || '').trim() : ''; };
+  res.slice(0, MKS_MAX).forEach((e) => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'mks-item';
+    const top = document.createElement('span'); top.className = 'mks-item-top';
+    const nm = document.createElement('span'); nm.className = 'mks-item-name'; nm.textContent = e.main;
+    top.appendChild(nm);
+    if (e.place) { const pl = document.createElement('span'); pl.className = 'mks-item-place'; pl.textContent = e.place; top.appendChild(pl); }
+    b.appendChild(top);
+    if (e.person) { const pe = document.createElement('span'); pe.className = 'mks-item-person'; pe.textContent = (e.role ? e.role + ': ' : '') + e.person; b.appendChild(pe); }
+    if (e.crumb) { const cr = document.createElement('span'); cr.className = 'mks-item-crumb'; cr.textContent = 'زیرمجموعهٔ: ' + e.crumb; b.appendChild(cr); }
+    const meta = [];
+    if (e.kids) meta.push(srchFa(e.kids) + ' زیرمجموعه');
+    if (mode === 'pub' && chip(e.src)) meta.push(chip(e.src));
+    if (meta.length) { const me = document.createElement('span'); me.className = 'mks-item-meta'; me.textContent = meta.join(' \u2022 '); b.appendChild(me); }
+    b.addEventListener('click', () => mksPick(e, mode));
+    box.appendChild(b);
+  });
+}
+function mksPick(e, mode) {
+  try { const a = document.activeElement; if (a && a.blur) a.blur(); } catch (x) {}
+  if (e.src === 's') { openMokatibBtn1Popup(e.clickable ? e.chain : e.chain.slice(0, -1)); return; }
+  if (mode === 'pop') { mksGoBtn2(e.chain); return; }
+  openMokatibBtn2Popup(e.chain);
+}
+// صفحهٔ عمومی مکاتب: با نوشتن، دکمه‌ها و درخت پنهان و فهرست نتایج نمایان می‌شود؛ با پاک کردن همه برمی‌گردد
+function mksPubUpdate() {
+  const inp = srchEl('mks-pub-input'), res = srchEl('mks-pub-results');
+  if (!inp || !res) return;
+  const has = !!srchNorm(inp.value);
+  srchEl('mks-pub-clear').classList.toggle('hidden', !inp.value);
+  res.classList.toggle('hidden', !has);
+  const row = document.querySelector('#tab-mokatib-public .mokatib-public-btn-row');
+  [row, srchEl('mokatib-public-tree')].forEach((el) => { if (el) el.classList.toggle('mks-hide', has); });
+  if (has) mksRender(res, inp.value, 'pub'); else res.innerHTML = '';
+}
+// پنجرهٔ «مناطق و مساجد»: جست‌وجو فقط در سطح اول (بالای دکمه‌ها) دیده می‌شود
+function mksPopSync(top) {
+  const box = srchEl('mks-pop-box'), inp = srchEl('mks-pop-input'), res = srchEl('mks-pop-results'), grid = srchEl('mokatib-btn2-buttons');
+  if (!box || !inp || !res || !grid) return;
+  box.classList.toggle('hidden', !top);
+  srchEl('mks-pop-clear').classList.toggle('hidden', !inp.value);
+  const searching = !!top && !!srchNorm(inp.value);
+  res.classList.toggle('hidden', !searching);
+  grid.classList.toggle('mks-hide', searching);
+  if (searching) mksRender(res, inp.value, 'pop'); else res.innerHTML = '';
+}
+function mksPopReset() {
+  const inp = srchEl('mks-pop-input');
+  if (inp) inp.value = '';
+  const res = srchEl('mks-pop-results'); if (res) { res.innerHTML = ''; res.classList.add('hidden'); }
+  const grid = srchEl('mokatib-btn2-buttons'); if (grid) grid.classList.remove('mks-hide');
+}
+function mksGoBtn2(chain) {
+  if (mokatibBtn2Path.length) return;
+  (chain || []).forEach((id) => { mokatibBtn2Path.push(id); pushOverlay('btn2', undoMokatibBtn2Step); });
+  renderMokatibBtn2View();
+  try { document.querySelector('#mokatib-public-btn2-popup .modal-box').scrollTop = 0; } catch (e) {}
+}
+function mksWire(prefix, onChange) {
+  const inp = srchEl(prefix + '-input'), btn = srchEl(prefix + '-btn'), clr = srchEl(prefix + '-clear'), res = srchEl(prefix + '-results');
+  if (!inp || !btn || !clr) return;
+  inp.addEventListener('input', onChange);
+  inp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); onChange(); inp.blur(); } });
+  btn.addEventListener('click', () => {
+    onChange(); inp.blur();
+    try { if (res && !res.classList.contains('hidden')) res.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) {}
+  });
+  clr.addEventListener('click', () => { inp.value = ''; onChange(); inp.focus(); });
+}
+try {
+  mksWire('mks-pub', mksPubUpdate);
+  mksWire('mks-pop', () => mksPopSync(!mokatibBtn2Path.length));
+} catch (e) { /* جست‌وجوی مکاتب اختیاری است؛ خطا نباید اپ را متوقف کند */ }
+
+/* ---------- ۲) جست‌وجوی کلی اپ (فقط بخش‌ها و ابزارها) ---------- */
+// کلیدواژه‌های هم‌معنی برای پیدا شدن راحت‌تر بخش‌ها (کلید = نام تب)
+var GS_KW = {
+  'azan': 'نماز اوقات شرعی وقت نماز اذان گو اذان‌گو',
+  'qibla': 'جهت کعبه قطب‌نما قبله نما قطب نما',
+  'quran-list': 'سوره جزء مصحف تلاوت ترجمه قرائت صوت قاری',
+  'quran-search': 'آیه کلمه جست‌وجوی قرآن',
+  'quran-bookmarks': 'علامت نشانه ذخیره',
+  'hifz-progress': 'حفظ پیشرفت',
+  'sajdah-list': 'سجده',
+  'lesson': 'درس آموزش',
+  'prayer-checklist': 'نماز چک‌لیست قضا',
+  'prayer-stats': 'نماز آمار هفتگی',
+  'daily-deeds': 'اعمال عمل روزانه کارنامه گزارش هفتگی ماهانه سالانه',
+  'tasbih': 'ذکر شمارنده صلوات تسبیحات',
+  'quran-report': 'گزارش خواندن قرآن',
+  'zakat-calc': 'زکات خمس محاسبه',
+  'shariq': 'مسئله فتوا عالم پرسش مفتی سوال',
+  'khatm': 'ختم مشارکت جزء قرآن',
+  'feedback': 'تماس پیشنهاد انتقاد تیکت ارتباط گزارش مشکل',
+  'fun': 'بازی مسابقه',
+  'game-ayah': 'بازی آیه حدس',
+  'contest': 'مسابقه لیگ امتیاز جایزه رتبه بازی',
+  'ads': 'آگهی تبلیغ',
+  'activities': 'حوزه فعالیت',
+  'ramadan-countdown': 'ماه رمضان شمارش معکوس سحر افطار روزه',
+  'charity': 'خیرین صدقه کمک مالی نیکوکاری',
+  'students': 'مدرسه معلم نمره حضور غیاب آزمون ولی',
+  'date-converter': 'تبدیل شمسی میلادی قمری تقویم تاریخ',
+  'settings': 'شهر روش محاسبه اذان حالت شب اعلان صدا تنظیم',
+  'notes': 'یادداشت نوشته',
+  'about': 'معرفی تماس درباره',
+  'news-list': 'خبر اطلاع‌رسانی',
+  'social': 'اینستاگرام تلگرام ایتا شبکه',
+  'gallery': 'عکس تصویر فیلم',
+  'books': 'کتاب مطالعه',
+  'mokatib-tile': 'چارت سلسله مراتب مساجد مناطق ناظر',
+  'app-share-tile': 'اشتراک دعوت معرفی دوستان',
+  'app-update-tile': 'آپدیت نسخه جدید',
+  'home': 'صفحه اصلی تقویم تاریخ',
+  'more': 'منو همه بخش‌ها',
+};
+var GS_EXTRA = [
+  ['home', 'خانه', '\uD83C\uDFE0'], ['quran-list', 'قرآن', '\uD83D\uDCD7'], ['azan', 'اذان', '\uD83D\uDD4C'],
+  ['qibla', 'قبله‌نما', '\uD83E\uDDED'], ['shariq', 'سوالات شرعی', '\u2753'], ['more', 'بیشتر', '\u2630'],
+  ['khatm', 'ختم قرآن', '\uD83D\uDCFF'], ['feedback', 'نظر و پشتیبانی', '\uD83D\uDCAC'], ['fun', 'سرگرمی', '\uD83C\uDFAE'],
+  ['game-ayah', 'حدس آیه', '\uD83C\uDFAF'], ['contest', 'مسابقه و لیگ', '\uD83C\uDFC6'], ['ads', 'تبلیغات', '\uD83D\uDCE2'],
+  ['activities', 'فعالیت‌های حوزه', '\uD83C\uDF1F'], ['ramadan-countdown', 'رمضان', '\uD83C\uDF19'], ['charity', 'کمک‌های مردمی', '\uD83E\uDD1D'],
+  ['students', 'دانش‌آموزان', '\uD83C\uDF93'], ['date-converter', 'مبدل تاریخ', '\uD83D\uDCC5'], ['settings', 'تنظیمات', '\u2699\uFE0F'],
+];
+var GS_MAIN_TABS = ['home', 'quran-list', 'azan', 'qibla', 'shariq', 'more'];
+var gsEntries = [], gsPending = null, gsOpenNow = false;
+
+function gsBuild() {
+  const list = [], seen = new Set();
+  const add = (key, label, icon, ctx, run) => {
+    label = String(label || '').replace(/\s+/g, ' ').trim();
+    if (!label) return;
+    const k = key || ('l:' + label);
+    if (seen.has(k)) return;
+    seen.add(k);
+    const kwText = (GS_KW[key] || '') + ' ' + (ctx || '');
+    list.push({ label, icon: icon || '\u2022', ctx: ctx || '', ln: srchNorm(label), lw: srchNorm(label).split(' ').filter(Boolean), ks: srchNorm(kwText), kw: srchNorm(kwText).split(' ').filter(Boolean), run });
+  };
+  // ۱) کاشی‌های صفحهٔ «بیشتر» (برچسب‌ها همان‌هایی‌اند که مدیر در پیشخوان عوض کرده)
+  document.querySelectorAll('#tab-more .menu-tile').forEach((t) => {
+    if (t.classList.contains('hidden')) return;
+    const lab = t.querySelector('.menu-tile-label'), bd = t.querySelector('.menu-tile-badge');
+    const key = t.dataset.goto || (t.dataset.group ? 'group:' + t.dataset.group : t.id);
+    add(key, lab ? lab.textContent : '', bd ? bd.textContent.trim() : '', 'بیشتر', () => t.click());
+  });
+  // ۲) مورد‌های زیرمنوها
+  try {
+    Object.keys(MENU_GROUPS).forEach((gk) => {
+      const g = MENU_GROUPS[gk];
+      g.items.forEach((it) => add(it.goto, it.label, it.icon, g.title, () => switchToTab(it.goto, { push: true })));
+    });
+  } catch (e) {}
+  // ۳) بقیهٔ بخش‌های اپ (اگر تبشان در این نسخه هست)
+  GS_EXTRA.forEach((x) => {
+    if (!document.getElementById('tab-' + x[0])) return;
+    const main = GS_MAIN_TABS.indexOf(x[0]) >= 0;
+    add(x[0], x[1], x[2], main ? 'نوار پایین' : '', () => { if (main) { navHistory = []; switchToTab(x[0]); } else switchToTab(x[0], { push: true }); });
+  });
+  // ۴) مورد‌های منوی همبرگری که مدیر در پیشخوان ساخته
+  try {
+    (hbData.items || []).forEach((it) => {
+      if (!it || !it.title) return;
+      if (it.type === 'tab' || it.type === 'link' || it.type === 'text') add(it.type === 'tab' ? String(it.target || '') : 'hb:' + it.title, it.title, '\u2630', 'منو', () => hbRunItem(it));
+    });
+  } catch (e) {}
+  return list;
+}
+function gsSearch(q) {
+  const toks = srchNorm(q).split(' ').filter(Boolean);
+  if (!toks.length) return gsEntries.slice(0, 30);
+  const pass = (sub) => {
+    const out = [];
+    gsEntries.forEach((e, i) => {
+      let all = true, inLabel = true;
+      for (const t of toks) {
+        const a = sub ? e.ln.indexOf(t) >= 0 : e.lw.some((w) => w.startsWith(t));
+        const b = sub ? e.ks.indexOf(t) >= 0 : e.kw.some((w) => w.startsWith(t));
+        if (!a) inLabel = false;
+        if (!a && !b) { all = false; break; }
+      }
+      if (!all) return;
+      out.push({ e, t: inLabel ? ((!sub && e.lw[0] && e.lw[0].startsWith(toks[0])) ? 0 : 1) : 2, i });
+    });
+    out.sort((x, y) => x.t - y.t || x.i - y.i);
+    return out.map((o) => o.e);
+  };
+  let r = pass(false);
+  if (!r.length) r = pass(true);
+  return r;
+}
+function gsRender() {
+  const inp = srchEl('gs-input'), box = srchEl('gs-results');
+  if (!inp || !box) return;
+  srchEl('gs-clear').classList.toggle('hidden', !inp.value);
+  const res = gsSearch(inp.value);
+  box.innerHTML = '';
+  if (!res.length) {
+    const em = document.createElement('div'); em.className = 'gs-empty';
+    em.textContent = 'بخشی با این نام پیدا نشد';
+    box.appendChild(em);
+    return;
+  }
+  if (!srchNorm(inp.value)) {
+    const h = document.createElement('div'); h.className = 'gs-hint'; h.textContent = 'بخش‌های اپ — برای پیدا کردن سریع‌تر، چند حرف از نام بخش را بنویسید';
+    box.appendChild(h);
+  }
+  res.slice(0, 60).forEach((e) => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'gs-item';
+    const ic = document.createElement('span'); ic.className = 'gs-item-ic'; ic.textContent = e.icon;
+    const tx = document.createElement('span'); tx.className = 'gs-item-tx';
+    const lb = document.createElement('span'); lb.className = 'gs-item-lb'; lb.textContent = e.label;
+    tx.appendChild(lb);
+    if (e.ctx) { const cx = document.createElement('span'); cx.className = 'gs-item-cx'; cx.textContent = e.ctx; tx.appendChild(cx); }
+    const ch = document.createElement('span'); ch.className = 'gs-item-ch'; ch.textContent = '\u2039';
+    b.append(ic, tx, ch);
+    b.addEventListener('click', () => gsChoose(e));
+    box.appendChild(b);
+  });
+}
+function gsOpen() {
+  if (gsOpenNow) return;
+  try { gsEntries = gsBuild(); } catch (e) { gsEntries = []; }
+  gsOpenNow = true;
+  const ov = srchEl('gs-overlay'), inp = srchEl('gs-input');
+  inp.value = '';
+  gsRender();
+  ov.classList.remove('hidden');
+  pushOverlay('gsearch', gsCloseNow);
+  setTimeout(() => { try { inp.focus(); } catch (e) {} }, 120);
+}
+function gsCloseNow() {
+  if (!gsOpenNow) return;
+  gsOpenNow = false;
+  srchEl('gs-overlay').classList.add('hidden');
+  try { srchEl('gs-input').blur(); } catch (e) {}
+  if (gsPending) { const f = gsPending; gsPending = null; setTimeout(() => { try { f(); } catch (e) {} }, 40); }
+}
+function gsClose() { overlayGo('gsearch', 0, gsCloseNow); }
+// اول جست‌وجو بسته می‌شود (تا تاریخچهٔ دکمهٔ برگشت گوشی به‌هم نریزد)، بعد مقصد باز می‌شود
+function gsChoose(e) { gsPending = e.run; gsClose(); }
+try {
+  srchEl('topbar-search-btn').addEventListener('click', gsOpen);
+  srchEl('gs-input').addEventListener('input', gsRender);
+  srchEl('gs-input').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); gsRender(); srchEl('gs-input').blur(); } });
+  srchEl('gs-search-btn').addEventListener('click', () => { gsRender(); srchEl('gs-input').blur(); });
+  srchEl('gs-clear').addEventListener('click', () => { const i = srchEl('gs-input'); i.value = ''; gsRender(); i.focus(); });
+  srchEl('gs-close').addEventListener('click', gsClose);
+} catch (e) { /* جست‌وجوی کلی اختیاری است؛ خطا نباید اپ را متوقف کند */ }
 
 window.__arefBooted = true;

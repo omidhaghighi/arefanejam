@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
-<link rel="stylesheet" href="css/style.css?v=146">
+<link rel="stylesheet" href="css/style.css?v=149">
 <script>try{var __mc=parseInt(localStorage.getItem('arefanejam_more_cols'),10);if(__mc>=2&&__mc<=5)document.documentElement.setAttribute('data-more-cols',String(__mc));}catch(e){}</script>
 </head>
 <body>
@@ -108,6 +108,9 @@
     </button>
     <img id="topbar-logo" src="icons/icon-192.png" alt="لوگو" class="topbar-logo">
     <span id="topbar-title" class="topbar-title">عارفان جام</span>
+    <button id="topbar-search-btn" class="topbar-search-btn" type="button" title="جست‌وجو در اپ" aria-label="جست‌وجو در بخش‌ها و ابزارهای اپ">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg>
+    </button>
     <span id="topbar-reload-wrap" class="topbar-reload-wrap">
       <button id="topbar-reload-btn" class="topbar-reload-btn" title="بارگذاری مجدد"><span class="reload-ic">🔄</span></button>
       <span id="topbar-update-hint" class="topbar-update-hint" aria-hidden="true">نرم‌افزار را بروز کنید</span>
@@ -755,6 +758,15 @@
       </div>
       <div class="section-block">
         <p class="muted-text small" id="mokatib-public-buttons-text" style="margin-bottom:10px"></p>
+        <!-- جست‌وجوی مکاتب (فقط نام فرد/مسجد/منطقه؛ جدا از جست‌وجوی کلی اپ) -->
+        <div class="mks-box" id="mks-pub-box">
+          <div class="mks-row">
+            <input type="search" id="mks-pub-input" class="mks-input" placeholder="جست‌وجوی نام فرد، مسجد یا منطقه…" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search">
+            <button type="button" id="mks-pub-clear" class="mks-clear hidden" aria-label="پاک کردن">✕</button>
+            <button type="button" id="mks-pub-btn" class="mks-btn">🔍 جست‌وجو</button>
+          </div>
+          <div id="mks-pub-results" class="mks-results hidden"></div>
+        </div>
         <div class="mokatib-public-btn-row">
           <button type="button" id="mokatib-public-btn1" class="secondary-btn small-btn"></button>
           <button type="button" id="mokatib-public-btn2" class="secondary-btn small-btn"></button>
@@ -833,6 +845,16 @@
           </div>
           <div id="mokatib-btn2-detail-slider" class="mokatib-detail-slider hidden"></div>
           <p id="mokatib-btn2-detail-info" class="muted-text small"></p>
+        </div>
+
+        <!-- جست‌وجوی مکاتب بالای دکمه‌های پنجره (فقط سطح اول) -->
+        <div class="mks-box" id="mks-pop-box">
+          <div class="mks-row">
+            <input type="search" id="mks-pop-input" class="mks-input" placeholder="جست‌وجوی نام فرد، مسجد یا منطقه…" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search">
+            <button type="button" id="mks-pop-clear" class="mks-clear hidden" aria-label="پاک کردن">✕</button>
+            <button type="button" id="mks-pop-btn" class="mks-btn">🔍 جست‌وجو</button>
+          </div>
+          <div id="mks-pop-results" class="mks-results hidden"></div>
         </div>
 
         <div id="mokatib-btn2-buttons" class="mokatib-btn2-btn-grid"></div>
@@ -1269,6 +1291,12 @@
           <button class="secondary-btn small-btn hidden" id="shariq-scholar-enter-btn" type="button">🎓 ورود به حساب من (پنل عالم)</button>
         </div>
       </div>
+      <button type="button" class="bk-entry hidden" id="shariq-booking-card">
+        <span class="bk-entry-shine"></span>
+        <span class="bk-entry-ico">🗓️</span>
+        <span class="bk-entry-txt"><b id="bk-entry-title">نوبت‌دهی دارالافتا</b><small id="bk-entry-sub">رزرو نوبت مراجعهٔ حضوری</small></span>
+        <span class="bk-entry-arrow">‹</span>
+      </button>
       <div class="shariq-views" id="shariq-views">
         <button type="button" class="shariq-view-btn active" id="shariq-view-qa">❓ پرسش و پاسخ</button>
         <button type="button" class="shariq-view-btn" id="shariq-view-fatwa">📜 فتوا</button>
@@ -1286,6 +1314,33 @@
         <p class="muted-text small">سوالاتی که پرسیده‌اید و وضعیت پاسخ آن‌ها.</p>
       </div>
       <div id="shariq-mine-content" class="shariq-list"></div>
+    </section>
+
+    <!-- نوبت‌دهی دارالافتا (مراجعهٔ حضوری) -->
+    <section id="tab-shariq-booking" class="tab-panel">
+      <div class="bk-hero">
+        <div class="bk-hero-ico">🗓️</div>
+        <h3 id="bk-page-title">نوبت‌دهی دارالافتا</h3>
+        <div class="bk-hero-text hidden" id="bk-page-text"></div>
+      </div>
+      <div class="bk-seg" id="bk-seg">
+        <button type="button" class="bk-seg-btn active" id="bk-seg-free">🗓️ نوبت‌های آزاد</button>
+        <button type="button" class="bk-seg-btn" id="bk-seg-mine">🎫 رزروهای من<span class="bk-count hidden" id="bk-mine-count">0</span></button>
+      </div>
+      <div id="bk-notice" class="bk-notice hidden"></div>
+      <div id="bk-free-view">
+        <div class="bk-legend">
+          <span class="bk-lg"><i class="bk-lg-dot is-free"></i>آزاد</span>
+          <span class="bk-lg"><i class="bk-lg-dot is-taken"></i>گرفته شده</span>
+          <span class="bk-lg"><i class="bk-lg-dot is-mine"></i>نوبت شما</span>
+          <button type="button" class="bk-refresh" id="bk-refresh-btn" title="تازه‌سازی">🔄</button>
+        </div>
+        <div id="bk-days"></div>
+      </div>
+      <div id="bk-mine-view" class="hidden">
+        <div id="bk-mine-confirm"></div>
+        <div id="bk-mine-list"></div>
+      </div>
     </section>
 
     <!-- فعالیت‌های حوزه: آیکون‌های درختی که مدیر در پیشخوان تعریف می‌کند -->
@@ -1538,11 +1593,39 @@
 (function () {
   try {
     var sd = window.NATIVE_SEED;
-    if (!sd || !sd.items || localStorage.getItem('arefanejam_seed_id') === sd.id) return;
-    Object.keys(sd.items).forEach(function (k) {
-      try { if (localStorage.getItem(k) === null) localStorage.setItem(k, sd.items[k]); } catch (e) { /* حافظه پر: ادامه */ }
-    });
-    localStorage.setItem('arefanejam_seed_id', sd.id);
+    if (sd && sd.items && localStorage.getItem('arefanejam_seed_id') !== sd.id) {
+      Object.keys(sd.items).forEach(function (k) {
+        try { if (localStorage.getItem(k) === null) localStorage.setItem(k, sd.items[k]); } catch (e) { /* حافظه پر: ادامه */ }
+      });
+      localStorage.setItem('arefanejam_seed_id', sd.id);
+    }
+  } catch (e) { /* مهم نیست */ }
+  /* عکس‌های همراه APK (seed-img): یک بار در کش عکس‌های گوشی گذاشته می‌شوند تا «کمک‌های مردمی»، رمضان، فعالیت‌ها،
+     سوالات شرعی و ... بدون اینترنت (و در APKِ دست‌به‌دست‌شده) عکس‌دار باشند. عکسی که از قبل در کش هست دست نمی‌خورد. */
+  try {
+    var sd2 = window.NATIVE_SEED;
+    if (!sd2 || !sd2.imgs || !window.caches || localStorage.getItem('arefanejam_seed_imgs_id') === sd2.id) return;
+    var list = Object.keys(sd2.imgs);
+    if (!list.length) return;
+    setTimeout(function () {
+      (async function () {
+        var site = await caches.open('arefanejam-site-media-v1');
+        var other = await caches.open('arefanejam-charity-media-v1');
+        var ok = 0;
+        for (var i = 0; i < list.length; i++) {
+          var u = list[i];
+          try {
+            var same = false;
+            try { same = new URL(u, location.href).origin === location.origin || /(^|\.)arefanejam\.com$/i.test(new URL(u).hostname); } catch (e0) {}
+            var c = same ? site : other;
+            if (await c.match(u)) { ok++; continue; }
+            var r = await fetch(sd2.imgs[list[i]]);
+            if (r && r.ok) { await c.put(u, r); ok++; }
+          } catch (e1) { /* بعداً با اینترنت */ }
+        }
+        if (ok >= list.length) localStorage.setItem('arefanejam_seed_imgs_id', sd2.id);
+      })().catch(function () {});
+    }, 1500);
   } catch (e) { /* مهم نیست */ }
 })();
 </script>
@@ -1679,6 +1762,21 @@
   </nav>
 </div>
 
+<!-- جست‌وجوی کلی اپ: فقط بخش‌ها و ابزارها (جدا از جست‌وجوی مکاتب) -->
+<div id="gs-overlay" class="modal gs-overlay hidden">
+  <div class="modal-box gs-box" role="dialog" aria-label="جست‌وجو در اپ">
+    <div class="gs-head">
+      <div class="gs-field">
+        <input type="search" id="gs-input" class="gs-input" placeholder="جست‌وجوی بخش یا ابزار… (مثلاً تسبیح، قبله، زکات)" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search">
+        <button type="button" id="gs-clear" class="gs-clear hidden" aria-label="پاک کردن">✕</button>
+      </div>
+      <button type="button" id="gs-search-btn" class="gs-go" aria-label="جست‌وجو">🔍</button>
+      <button type="button" id="gs-close" class="gs-x" aria-label="بستن">✕</button>
+    </div>
+    <div id="gs-results" class="gs-results"></div>
+  </div>
+</div>
+
 <div id="hb-page" class="modal hidden">
   <div class="modal-box hb-page-box">
     <h3 id="hb-page-title"></h3>
@@ -1719,6 +1817,25 @@
     <div class="modal-actions">
       <button id="shariq-ask-cancel-btn" class="ghost-btn small-btn">انصراف</button>
       <button id="shariq-ask-submit-btn" class="secondary-btn small-btn">ارسال سوال</button>
+    </div>
+  </div>
+</div>
+
+<!-- ثبت نوبت دارالافتا: نام، نام خانوادگی، شمارهٔ تلفن -->
+<div id="bk-modal" class="modal hidden">
+  <div class="modal-box bk-sheet">
+    <h3>ثبت نوبت</h3>
+    <div class="bk-chosen">
+      <span class="bk-chosen-ico">🗓️</span>
+      <div class="bk-chosen-txt"><b id="bk-chosen-day"></b><span id="bk-chosen-time"></span></div>
+    </div>
+    <label class="bk-field"><span>نام</span><input id="bk-first" type="text" maxlength="40" autocomplete="given-name" placeholder="مثلاً: محمد"></label>
+    <label class="bk-field"><span>نام خانوادگی</span><input id="bk-last" type="text" maxlength="60" autocomplete="family-name" placeholder="مثلاً: رضایی"></label>
+    <label class="bk-field"><span>شمارهٔ تلفن</span><input id="bk-phone" type="tel" inputmode="tel" maxlength="20" dir="ltr" autocomplete="tel" placeholder="09xxxxxxxxx"></label>
+    <p class="bk-err hidden" id="bk-err"></p>
+    <div class="bk-actions">
+      <button type="button" class="bk-cancel" id="bk-cancel">انصراف</button>
+      <button type="button" class="bk-submit" id="bk-submit">✓ ثبت نوبت</button>
     </div>
   </div>
 </div>
@@ -1944,7 +2061,7 @@
 /* native-bridge.js و app.js (به‌همین ترتیب) فقط بعد از پایان صفحهٔ شروع (ویدیو/عکس/گیف) بارگذاری می‌شوند.
    اگر صفحهٔ شروعی نباشد یا تمام شده باشد، بی‌درنگ بارگذاری می‌شوند. */
 (function () {
-  var list = ['js/native-bridge.js?v=36', 'js/app.js?v=225'], i = 0;
+  var list = ['js/native-bridge.js?v=38', 'js/app.js?v=230'], i = 0;
   function next() {
     if (i >= list.length) return;
     var el = document.createElement('script'); el.src = list[i++];

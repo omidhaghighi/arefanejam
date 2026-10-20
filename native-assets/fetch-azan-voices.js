@@ -62,7 +62,10 @@ async function convert(id, url) {
   let voices = [];
   let active = '';
   let siteOk = false;
-  try {
+  // اذانِ ثابت داخل اپ: اگر native-assets/azan.mp3 هست، فقط همان استفاده می‌شود و اصلاً به سایت برای صدای اذان وصل نمی‌شویم.
+  const pinned = fs.existsSync('native-assets/azan.mp3');
+  if (pinned) console.log('PINNED azan: native-assets/azan.mp3 is used; the website azan voices are ignored');
+  if (!pinned) try {
     const j = await getJson(API + '/settings?t=' + Date.now());
     siteOk = true;
     voices = Array.isArray(j.azan_voices) ? j.azan_voices : [];
@@ -79,7 +82,7 @@ async function convert(id, url) {
     if (!id || !v.url) continue;
     try {
       const size = await convert(id, v.url);
-      done.push({ id, name: String(v.name || id) });
+      done.push({ id, name: String(v.name || id), url: String(v.url) }); // url: تا اپ بداند این صدا داخل APK هست و دوباره از هاست دانلودش نکند
       console.log('OK   voice ' + id + ' (' + (v.name || '') + ') -> ' + Math.round(size / 1024) + ' KB');
     } catch (e) {
       console.log('FAIL voice ' + id + ': ' + e.message);

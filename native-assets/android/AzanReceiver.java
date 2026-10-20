@@ -705,6 +705,8 @@ public class AzanReceiver extends BroadcastReceiver {
     /** Best audio file we have: the one for the current url, else any downloaded file. */
     static File bestAudioFile(Context ctx) {
         String url = prefs(ctx).getString("url", "");
+        // empty url = the azan sound is already bundled in the APK (res/raw): never use an old downloaded copy
+        if (url.length() == 0) return null;
         if (url.length() > 0) {
             File f = fileForUrl(ctx, url);
             if (f.isFile() && f.length() > 2000) return f;

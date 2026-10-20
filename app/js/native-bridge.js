@@ -199,6 +199,18 @@
   /* Native azan (AzanReceiver/AzanService in the APK): plays the azan with the phone locked, the app closed
      and NO internet. If the APK is old (no such method) or it fails, the old notification way is used. */
   var nativeAzan = false;
+  // اگر آدرس صدای فعالِ سایت دقیقاً همان صدایی است که هنگام ساخت APK داخل اپ گذاشته شده (native-config.js ← url)،
+  // دیگر لازم نیست گوشی آن را از هاست دانلود کند؛ ترافیک اذان صفر می‌شود. اگر مدیر صدا/آدرس را عوض کند، آدرس فرق
+  // می‌کند و همان دانلود قبلی انجام می‌شود (تا APK جدید بیاید). APKهای قدیمی url ندارند و مثل قبل رفتار می‌کنند.
+  function azanUrlNorm(u) { return String(u || '').replace(/^http:\/\//i, 'https://'); }
+  function azanIsBundled(voice, url) {
+    if (voice === 'local') return true; // اذانِ ثابتِ داخل اپ (native-assets/azan.mp3): هیچ‌وقت از هاست دانلود نمی‌شود
+    if (!voice || !url) return false;
+    for (var i = 0; i < VOICES.length; i++) {
+      if (VOICES[i].id === voice && VOICES[i].url && azanUrlNorm(VOICES[i].url) === azanUrlNorm(url)) return true;
+    }
+    return false;
+  }
   function applySchedule(prayers, enabled, brand, voiceId, url) {
     if (IS_IOS) return applyScheduleIOS(prayers, enabled, brand, voiceId);
     var AUp = Cap.Plugins && Cap.Plugins.AppUpdater;
@@ -209,7 +221,8 @@
         var t = new Date(p.timeIso).getTime();
         if (t > now + 2000) items.push({ t: t, l: p.label, k: p.key });
       });
-      return AUp.scheduleAzan({ items: items, enabled: !!enabled, url: url || '', voice: pickVoice(voiceId), brand: brand || '' })
+      var chosen = pickVoice(voiceId);
+      return AUp.scheduleAzan({ items: items, enabled: !!enabled, url: azanIsBundled(chosen, url) ? '' : (url || ''), voice: chosen, brand: brand || '' })
         .then(function () {
           nativeAzan = true;
           return cancelByKind('azan'); // remove old-style azan notifications so the azan is not played twice
