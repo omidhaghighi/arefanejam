@@ -120,6 +120,42 @@ jobs:
           grep -q 'android:scheme="arefanejam"' "$M" || { echo "ERROR: azan-test deep link was not added to manifest"; exit 1; }
           cat "$M"
 
+      - name: Auto Backup of user data (24h Google backup, restored after reinstall)
+        run: |
+          # فقط داده‌های کاربر (localStorage/IndexedDB وب‌ویو) در پشتیبان خودکار گوگل می‌رود؛ کش‌های سنگین (صوت/عکس) نه، تا از سقف ۲۵ مگابایت رد نشود.
+          # هر خطایی بیلد را خراب نمی‌کند؛ در بدترین حالت همان رفتار قبلی می‌ماند.
+          M=android/app/src/main/AndroidManifest.xml
+          XD=android/app/src/main/res/xml
+          mkdir -p "$XD"
+          cat > "$XD/arefanejam_backup_rules.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <full-backup-content>
+              <include domain="root" path="app_webview/Default/Local Storage" />
+              <include domain="root" path="app_webview/Default/IndexedDB" />
+              <include domain="sharedpref" path="." />
+          </full-backup-content>
+          XML
+          cat > "$XD/arefanejam_extraction_rules.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <data-extraction-rules>
+              <cloud-backup>
+                  <include domain="root" path="app_webview/Default/Local Storage" />
+                  <include domain="root" path="app_webview/Default/IndexedDB" />
+                  <include domain="sharedpref" path="." />
+              </cloud-backup>
+              <device-transfer>
+                  <include domain="root" path="app_webview/Default/Local Storage" />
+                  <include domain="root" path="app_webview/Default/IndexedDB" />
+                  <include domain="sharedpref" path="." />
+              </device-transfer>
+          </data-extraction-rules>
+          XML
+          if grep -q "fullBackupContent\|dataExtractionRules" "$M"; then echo "Backup rules already set in manifest - left as is"; else
+            sed -i '0,/<application/s#<application#<application android:fullBackupContent="@xml/arefanejam_backup_rules" android:dataExtractionRules="@xml/arefanejam_extraction_rules"#' "$M" || echo "::warning::backup rules not added"
+            grep -q 'android:allowBackup="false"' "$M" && sed -i 's#android:allowBackup="false"#android:allowBackup="true"#' "$M"
+          fi
+          grep -n "<application" "$M" | head -3
+
       - name: App icon and notification icon
         run: |
           sudo apt-get update -y
