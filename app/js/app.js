@@ -13322,7 +13322,19 @@ async function sendHeartbeat() {
   if (siteDownNow()) return;
   hbLast = Date.now();
   const device_id = await ensureDeviceId();
-  apiFetch('/heartbeat', { method: 'POST', body: JSON.stringify({ device_id, page: document.hidden ? '' : currentPageKey() }) }).catch(() => {});
+  const hbBody = { device_id, page: document.hidden ? '' : currentPageKey() };
+  try {
+    // نسخهٔ اپ برای جدول «نسخه‌های در حال استفاده» و اعلان مخصوص نسخه (پیشخوان ← ترافیک)
+    const cap = window.Capacitor;
+    const isNative = !!(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform());
+    if (isNative) {
+      const av = String(window.NATIVE_APP_VERSION || '').replace(/[^0-9A-Za-z._-]/g, '').slice(0, 40);
+      if (av) { hbBody.app_version = av; if (window.NATIVE_STORE_BUILD === true) hbBody.store = 1; }
+    } else {
+      hbBody.app_version = 'web';
+    }
+  } catch (e) {}
+  apiFetch('/heartbeat', { method: 'POST', body: JSON.stringify(hbBody) }).catch(() => {});
   syncDeviceIdToServiceWorker(device_id);
   try { pvFlush(); } catch (e) {}
 }
