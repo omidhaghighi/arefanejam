@@ -211,7 +211,7 @@
     }
     return false;
   }
-  function applySchedule(prayers, enabled, brand, voiceId, url) {
+  function applySchedule(prayers, enabled, brand, voiceId, url, extra) {
     if (IS_IOS) return applyScheduleIOS(prayers, enabled, brand, voiceId);
     var AUp = Cap.Plugins && Cap.Plugins.AppUpdater;
     if (AUp && typeof AUp.scheduleAzan === 'function') {
@@ -222,7 +222,12 @@
         if (t > now + 2000) items.push({ t: t, l: p.label, k: p.key });
       });
       var chosen = pickVoice(voiceId);
-      return AUp.scheduleAzan({ items: items, enabled: !!enabled, url: azanIsBundled(chosen, url) ? '' : (url || ''), voice: chosen, brand: brand || '' })
+      var args = { items: items, enabled: !!enabled, url: azanIsBundled(chosen, url) ? '' : (url || ''), voice: chosen, brand: brand || '' };
+      if (extra && typeof extra.silence === 'boolean') { // بی‌صدا هنگام نماز (فقط وقتی اپ فرستاده باشد)
+        args.silence = extra.silence;
+        args.sitems = (extra.sitems || []).filter(function (x) { return x && x.t > now - 11 * 60000; });
+      }
+      return AUp.scheduleAzan(args)
         .then(function () {
           nativeAzan = true;
           return cancelByKind('azan'); // remove old-style azan notifications so the azan is not played twice
@@ -313,12 +318,12 @@
   function enqueue(fn) { busy = busy.then(fn).catch(log); return busy; }
 
   window.NativeAlarms = {
-    syncSchedule: function (prayers, enabled, brand, voiceId, url) {
-      queuedSchedule = [prayers, enabled, brand, voiceId, url];
+    syncSchedule: function (prayers, enabled, brand, voiceId, url, extra) {
+      queuedSchedule = [prayers, enabled, brand, voiceId, url, extra];
       var AUp = Cap.Plugins && Cap.Plugins.AppUpdater;
       var hasNative = !!(AUp && typeof AUp.scheduleAzan === 'function');
       // native azan does not need notification permission / channels to be ready
-      if (ready || hasNative) enqueue(function () { return applySchedule(prayers, enabled, brand, voiceId, url); });
+      if (ready || hasNative) enqueue(function () { return applySchedule(prayers, enabled, brand, voiceId, url, extra); });
     },
     isNativeAzan: function () { return nativeAzan; },
     requestBattery: function (force) { return askBattery(!!force); },
@@ -472,7 +477,7 @@
       return Promise.all(ch.map(function (c) { return LN.createChannel(c); }));
     }).then(function () {
       ready = true;
-      if (queuedSchedule) enqueue(function () { return applySchedule(queuedSchedule[0], queuedSchedule[1], queuedSchedule[2], queuedSchedule[3], queuedSchedule[4]); });
+      if (queuedSchedule) enqueue(function () { return applySchedule(queuedSchedule[0], queuedSchedule[1], queuedSchedule[2], queuedSchedule[3], queuedSchedule[4], queuedSchedule[5]); });
       if (queuedNotes) enqueue(function () { return applyNotes(queuedNotes[0]); });
       if (queuedPre) enqueue(function () { return applyPre(queuedPre[0], queuedPre[1]); });
       if (queuedSticky) enqueue(function () { return applySticky(queuedSticky.p); });

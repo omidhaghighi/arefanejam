@@ -2176,6 +2176,12 @@ public class AppUpdaterPlugin extends Plugin {
             String voice = call.getString("voice", "");
             String brand = call.getString("brand", "");
             AzanReceiver.save(ctx, items == null ? "[]" : items.toString(), enabled, url, voice, brand);
+            // «بی‌صدا شدن گوشی هنگام نماز» (پیش‌فرض خاموش): فقط وقتی اپ این گزینه را فرستاده باشد
+            if (call.getData() != null && call.getData().has("silence")) {
+                Boolean sil = call.getBoolean("silence", false);
+                JSArray sitems = call.getArray("sitems");
+                AzanReceiver.saveSilence(ctx, sil != null && sil.booleanValue(), sitems == null ? "[]" : sitems.toString());
+            }
             AzanReceiver.arm(ctx);
             if (enabled && url != null && url.length() > 0) AzanReceiver.downloadAsync(ctx, url);
             JSObject r = new JSObject();
@@ -2183,6 +2189,41 @@ public class AppUpdaterPlugin extends Plugin {
             call.resolve(r);
         } catch (Throwable t) {
             call.reject("azan: " + t);
+        }
+    }
+
+    /** وضعیت «بی‌صدا هنگام نماز»: آیا اجازهٔ «مزاحم نشوید» داده شده و آیا همین الان گوشی را بی‌صدا کرده‌ایم */
+    @PluginMethod
+    public void silenceStatus(PluginCall call) {
+        try {
+            Context ctx = getContext().getApplicationContext();
+            JSObject r = new JSObject();
+            r.put("access", AzanReceiver.silenceAccess(ctx));
+            r.put("active", AzanReceiver.prefs(ctx).getBoolean("sil_active", false));
+            r.put("on", AzanReceiver.prefs(ctx).getBoolean("sil_on", false));
+            call.resolve(r);
+        } catch (Throwable t) {
+            call.reject("silence: " + t);
+        }
+    }
+
+    /** صفحهٔ تنظیمات اندروید «دسترسی به مزاحم نشوید» برای همین اپ را باز می‌کند (برای بی‌صدای کامل) */
+    @PluginMethod
+    public void openSilenceSettings(PluginCall call) {
+        try {
+            Context ctx = getContext();
+            boolean opened = false;
+            try {
+                Intent i = new Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                ctx.startActivity(i);
+                opened = true;
+            } catch (Throwable ignore) { }
+            JSObject r = new JSObject();
+            r.put("opened", opened);
+            call.resolve(r);
+        } catch (Throwable t) {
+            call.reject("silence: " + t);
         }
     }
 

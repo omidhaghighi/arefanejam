@@ -672,6 +672,17 @@ public class UpdateJobService extends JobService {
                             .setShowWhen(true)
                             .setAutoCancel(true);
                     if (pi != null) b.setContentIntent(pi);
+                    // «اعلان نسخهٔ بازار» (uid = store:...): لمس اعلان، لینکِ اعلان (بازار/سایت/دانلود مستقیم) را در مرورگر گوشی باز می‌کند
+                    try {
+                        String link = it.optString("link", "").trim();
+                        if (it.optString("uid", "").startsWith("store:") && link.matches("(?i)^https://[^\\s]+$")) {
+                            Intent view = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(link));
+                            view.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            int vfl = PendingIntent.FLAG_UPDATE_CURRENT;
+                            if (Build.VERSION.SDK_INT >= 23) vfl |= PendingIntent.FLAG_IMMUTABLE;
+                            b.setContentIntent(PendingIntent.getActivity(ctx, 4810 + (it.optString("uid", "").hashCode() & 0xFF), view, vfl));
+                        }
+                    } catch (Throwable ignoreLink) { }
                     // پاسخ پشتیبان همیشه با شناسهٔ ثابت ۴۸۰۶ نشان داده می‌شود تا اپ بتواند بعد از دیدن پاسخ، اعلانش را ببندد
                     int id = "feedback".equals(it.optString("type", "")) ? 4806
                             : 20000 + (it.optString("uid", "").hashCode() & 0xFFFFF) % 70000;

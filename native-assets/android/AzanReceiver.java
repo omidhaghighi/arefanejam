@@ -281,6 +281,119 @@ public class AzanReceiver extends BroadcastReceiver {
         return false;
     }
 
+    /* ===== Silence the phone around prayer (setting in the app: off by default) =====
+       From SILENCE_BEFORE_MS before to SILENCE_AFTER_MS after each prayer time the ringer is switched to SILENT
+       (or VIBRATE if the phone did not give "Do Not Disturb access"), then the previous mode is restored.
+       The azan itself still plays (it uses the ALARM volume). Works with the app closed and no internet:
+       it only needs the saved prayer list and two alarms (one per boundary). */
+    public static final String ACTION_SILENCE = "com.arefanejam.quran.PRAYER_SILENCE";
+    static final long SILENCE_BEFORE_MS = 10L * 60L * 1000L;
+    static final long SILENCE_AFTER_MS = 10L * 60L * 1000L;
+
+    static void saveSilence(Context ctx, boolean on, String itemsJson) {
+        prefs(ctx).edit().putBoolean("sil_on", on).putString("sil_items", itemsJson == null ? "[]" : itemsJson).apply();
+    }
+
+    static PendingIntent silencePending(Context ctx) {
+        Intent i = new Intent(ctx, AzanReceiver.class);
+        i.setAction(ACTION_SILENCE);
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0);
+        return PendingIntent.getBroadcast(ctx, 4740, i, flags);
+    }
+
+    /** true if the phone allowed this app to change silent mode ("Do Not Disturb access") */
+    static boolean silenceAccess(Context ctx) {
+        try {
+            if (Build.VERSION.SDK_INT < 23) return true;
+            NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+            return nm != null && nm.isNotificationPolicyAccessGranted();
+        } catch (Throwable t) { return false; }
+    }
+
+    private static boolean inSilenceWindow(Context ctx, long now) {
+        try {
+            JSONArray arr = new JSONArray(prefs(ctx).getString("sil_items", "[]"));
+            for (int i = 0; i < arr.length(); i++) {
+                long t = arr.getJSONObject(i).optLong("t", 0);
+                if (t > 0 && now >= t - SILENCE_BEFORE_MS && now <= t + SILENCE_AFTER_MS) return true;
+            }
+        } catch (Throwable ignore) { }
+        return false;
+    }
+
+    /** the next moment (ms) when the window opens or closes (+0.5 s so the check is safely past the boundary); 0 = none */
+    private static long nextSilenceBoundary(Context ctx, long now) {
+        long best = 0;
+        try {
+            JSONArray arr = new JSONArray(prefs(ctx).getString("sil_items", "[]"));
+            for (int i = 0; i < arr.length(); i++) {
+                long t = arr.getJSONObject(i).optLong("t", 0);
+                if (t <= 0) continue;
+                long a = t - SILENCE_BEFORE_MS + 500L;
+                long b = t + SILENCE_AFTER_MS + 500L;
+                if (a > now && (best == 0 || a < best)) best = a;
+                if (b > now && (best == 0 || b < best)) best = b;
+            }
+        } catch (Throwable ignore) { }
+        return best;
+    }
+
+    /** Makes the ringer match the schedule: silent inside a window, restored outside. Safe to call any time. */
+    static void applySilence(Context ctx) {
+        try {
+            SharedPreferences p = prefs(ctx);
+            android.media.AudioManager am = (android.media.AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
+            if (am == null) return;
+            boolean on = p.getBoolean("sil_on", false);
+            boolean active = p.getBoolean("sil_active", false);
+            boolean want = on && inSilenceWindow(ctx, System.currentTimeMillis());
+            int cur = am.getRingerMode();
+            if (want && !active) {
+                if (cur == android.media.AudioManager.RINGER_MODE_SILENT) { logEvent(ctx, "silence: phone is already silent - left as is"); return; }
+                int target = silenceAccess(ctx) ? android.media.AudioManager.RINGER_MODE_SILENT : android.media.AudioManager.RINGER_MODE_VIBRATE;
+                if (cur == android.media.AudioManager.RINGER_MODE_VIBRATE && target == android.media.AudioManager.RINGER_MODE_VIBRATE) { logEvent(ctx, "silence: already on vibrate - left as is"); return; }
+                try {
+                    am.setRingerMode(target);
+                } catch (Throwable e) {
+                    target = android.media.AudioManager.RINGER_MODE_VIBRATE;
+                    if (cur == target) return;
+                    am.setRingerMode(target);
+                }
+                p.edit().putBoolean("sil_active", true).putInt("sil_prev", cur).putInt("sil_set", target).apply();
+                logEvent(ctx, "silence: ON (ringer " + cur + " -> " + target + (silenceAccess(ctx) ? "" : ", no DND access = vibrate only") + ")");
+            } else if (!want && active) {
+                int set = p.getInt("sil_set", -1);
+                int prev = p.getInt("sil_prev", android.media.AudioManager.RINGER_MODE_NORMAL);
+                // only give the sound back if the user did not change it meanwhile
+                if (cur == set) {
+                    try { am.setRingerMode(prev); logEvent(ctx, "silence: OFF (ringer restored to " + prev + ")"); }
+                    catch (Throwable e) { logEvent(ctx, "silence: could not restore ringer (" + e + ")"); }
+                } else {
+                    logEvent(ctx, "silence: OFF (user changed the ringer meanwhile - left as is)");
+                }
+                p.edit().putBoolean("sil_active", false).apply();
+            }
+        } catch (Throwable t) {
+            logEvent(ctx, "silence: failed " + t);
+        }
+    }
+
+    /** applies the current state and arms ONE alarm for the next window boundary */
+    static void armSilence(Context ctx, AlarmManager am) {
+        try { am.cancel(silencePending(ctx)); } catch (Throwable ignore) { }
+        applySilence(ctx);
+        SharedPreferences p = prefs(ctx);
+        if (!p.getBoolean("sil_on", false) && !p.getBoolean("sil_active", false)) return;
+        long at = nextSilenceBoundary(ctx, System.currentTimeMillis());
+        if (at <= 0) return;
+        PendingIntent pi = silencePending(ctx);
+        try {
+            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
+        } catch (Throwable e) {
+            try { am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi); } catch (Throwable ignore) { }
+        }
+    }
+
     /** Arms ONE alarm for the next prayer time in the saved list (replaces the previous one). */
     static void arm(Context ctx) {
         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
@@ -288,6 +401,7 @@ public class AzanReceiver extends BroadcastReceiver {
         try { armSticky(ctx, am); } catch (Throwable ignore) { }
         try { armPrayerTime(ctx, am); } catch (Throwable ignore) { }
         try { armLesson(ctx, am); } catch (Throwable ignore) { }
+        try { armSilence(ctx, am); } catch (Throwable ignore) { }
         SharedPreferences p = prefs(ctx);
         boolean enabled = p.getBoolean("enabled", true);
         long now = System.currentTimeMillis();

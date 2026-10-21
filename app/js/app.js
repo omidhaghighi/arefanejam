@@ -86,6 +86,7 @@ function azPrefs() {
   p.pre = Number(p.pre) > 0 ? Number(p.pre) : 0;
   p.post = (p.post === undefined || p.post === null || !isFinite(Number(p.post))) ? 20 : Math.max(0, Number(p.post));
   p.voice = String(p.voice || '');
+  p.silence = p.silence === true; // بی‌صدا شدن گوشی هنگام نماز: پیش‌فرض خاموش
   azPrefsCache = p;
   return p;
 }
@@ -3741,11 +3742,19 @@ function syncScheduleToServiceWorker(list) {
   const enabled = s.azan_enabled !== '' && bgModeOnSafe();
   const voiceId = azPrefs().voice || s.azan_voice_active || '';
   const preM = azPrefs().pre;
-  const key = JSON.stringify(nativePrayers) + '|' + (s.azan_audio_url || '') + '|' + voiceId + '|' + enabled + '|' + preM;
+  // بی‌صدا هنگام نماز: هر پنج نماز (مستقل از خاموش‌بودن اذانِ هر نماز)، ۳۰ روز جلوتر
+  const silenceOn = azPrefs().silence === true;
+  const sitems = [];
+  if (silenceOn) {
+    allLists.forEach((dayList) => dayList
+      .filter((p) => !NON_PRAYER_KEYS.includes(p.key))
+      .forEach((p) => sitems.push({ t: p.time.getTime(), k: p.key })));
+  }
+  const key = JSON.stringify(nativePrayers) + '|' + (s.azan_audio_url || '') + '|' + voiceId + '|' + enabled + '|' + preM + '|sil' + (silenceOn ? sitems.length + ':' + (sitems[0] ? sitems[0].t : 0) : 0);
   if (key === lastScheduleSyncKey) return; // چیزی تغییر نکرده
   lastScheduleSyncKey = key;
   // نسخهٔ اندروید (Capacitor): آلارم‌ها به سیستم آلارم خود اندروید سپرده می‌شوند
-  if (window.NativeAlarms) window.NativeAlarms.syncSchedule(nativePrayers, enabled, s.brand_name || 'عارفان جام', voiceId, normalizeAzanUrl(s.azan_audio_url) || '');
+  if (window.NativeAlarms) window.NativeAlarms.syncSchedule(nativePrayers, enabled, s.brand_name || 'عارفان جام', voiceId, normalizeAzanUrl(s.azan_audio_url) || '', { silence: silenceOn, sitems: sitems });
   if (window.NativeAlarms && typeof window.NativeAlarms.syncPre === 'function') window.NativeAlarms.syncPre(enabled && preM > 0 ? nativePrayers.slice(0, 35) : [], preM);
   if (!swReady) return;
   navigator.serviceWorker.controller.postMessage({
@@ -8870,6 +8879,13 @@ function applyMoreIconToTile(tile) {
   try {
     if (!tile || !tile.dataset) return;
     const key = tile.dataset.ikey; if (!key) return;
+    // نوشتهٔ دلخواه زیر آیکون (از پیشخوان؛ مثلاً «اخبار»). اگر برداشته شود، نوشتهٔ اصلی برمی‌گردد.
+    const lbl = tile.querySelector('.menu-tile-label');
+    if (lbl) {
+      if (tile.dataset.origLabel === undefined) tile.dataset.origLabel = lbl.textContent;
+      const custom = moreIconsData.labels && typeof moreIconsData.labels[key] === 'string' ? moreIconsData.labels[key].trim() : '';
+      lbl.textContent = custom || tile.dataset.origLabel;
+    }
     const badge = tile.querySelector('.menu-tile-badge'); if (!badge) return;
     const raw = moreIconsData.icons && moreIconsData.icons[key];
     if (raw) {
@@ -8901,7 +8917,9 @@ function loadMoreIcons(force) {
     apiSWR('/more-icons', (d) => {
       if (!d || typeof d !== 'object') return;
       const icons = (d.icons && typeof d.icons === 'object' && !Array.isArray(d.icons)) ? d.icons : {};
-      moreIconsData = { shape: d.shape === 'free' ? 'free' : 'round', icons: icons };
+      const labels = (d.labels && typeof d.labels === 'object' && !Array.isArray(d.labels)) ? d.labels : {};
+      moreIconsData = { shape: d.shape === 'free' ? 'free' : 'round', icons: icons, labels: labels };
+      try { const nl = (labels['sub:news-list'] || '').trim(); const nh = document.querySelector('#tab-news-list .section-block h3'); if (nh) nh.textContent = nl || 'اخبار'; } catch (e) {}
       applyMoreCols(d.cols);
       applyMoreIcons();
       try { prefetchSiteImages(Object.keys(icons).map((k) => icons[k]).filter(Boolean)); } catch (e) {}
@@ -11008,8 +11026,8 @@ function bkRender() {
       const btns = slots.map((s) => {
         const st = s.state === 'taken' ? 'taken' : (s.state === 'mine' ? 'mine' : 'free');
         const tag = st === 'taken' ? '🔒 گرفته شده' : (st === 'mine' ? '✓ نوبت شما' : 'آزاد');
-        return `<button type="button" class="bk-slot is-${st}" data-id="${Number(s.id) || 0}" data-state="${st}" data-time="${shariqEsc(s.time)}" data-day="${shariqEsc(day.label)}">
-          <span class="bk-slot-time">${shariqEsc(s.time)}</span><span class="bk-slot-tag">${tag}</span></button>`;
+        return `<button type="button" class="bk-slot is-${st}" data-id="${Number(s.id) || 0}" data-state="${st}" data-time="${shariqEsc(s.time)}" data-day="${shariqEsc(day.label)}" data-by="${shariqEsc(s.by || '')}">
+          <span class="bk-slot-time">${shariqEsc(s.time)}</span><span class="bk-slot-tag">${tag}</span>${s.by ? `<span class="bk-slot-by">👤 ${shariqEsc(s.by)}</span>` : ''}</button>`;
       }).join('');
       const cnt = free ? `${toPersianDigits(free)} نوبت آزاد` : 'همه گرفته شده';
       return `<div class="bk-day" style="animation-delay:${Math.min(i, 10) * 0.05}s">
@@ -11020,38 +11038,73 @@ function bkRender() {
 
   // ----- رزروهای من -----
   const mine = Array.isArray(d.mine) ? d.mine : [];
+  const hist = Array.isArray(d.history) ? d.history : [];
   const active = mine.filter((r) => !r.past);
   const badge = document.getElementById('bk-mine-count');
   if (badge) { badge.textContent = toPersianDigits(active.length); badge.classList.toggle('hidden', !active.length); }
   const confEl = document.getElementById('bk-mine-confirm');
-  confEl.innerHTML = (active.length && (d.confirm || '').trim())
-    ? `<div class="bk-confirm"><span class="bk-confirm-ico">✅</span><div>${shariqText(d.confirm)}</div></div>` : '';
+  const hasPending = active.some((r) => r.status === 'pending');
+  const hasConf = active.some((r) => r.status !== 'pending');
+  let confHtml = '';
+  if (hasPending) confHtml += '<div class="bk-confirm bk-confirm-wait"><span class="bk-confirm-ico">⏳</span><div>درخواست شما ثبت شد و در انتظار تأیید عالم است. وقتی نوبت تأیید یا رد شود، اینجا و با اعلان به شما خبر داده می‌شود.</div></div>';
+  if (hasConf && (d.confirm || '').trim()) confHtml += `<div class="bk-confirm"><span class="bk-confirm-ico">✅</span><div>${shariqText(d.confirm)}</div></div>`;
+  confEl.innerHTML = confHtml;
   const listEl = document.getElementById('bk-mine-list');
-  if (!mine.length) {
+  if (!mine.length && !hist.length) {
     listEl.innerHTML = '<div class="shariq-empty"><span class="shariq-empty-icon">🎫</span>هنوز نوبتی نگرفته‌اید.<br><button type="button" class="shariq-chip" id="bk-go-free" style="margin-top:12px">دیدن نوبت‌های آزاد</button></div>';
     const g = document.getElementById('bk-go-free'); if (g) g.addEventListener('click', () => bkSetView('free'));
   } else {
-    listEl.innerHTML = mine.map((r, i) => `
+    const tickets = mine.map((r, i) => {
+      const pend = r.status === 'pending';
+      const stTxt = r.past ? 'گذشته' : (pend ? '⏳ در انتظار تأیید عالم' : '✓ تأیید شد؛ لطفاً در ساعت مقرر تشریف بیاورید');
+      const stCls = r.past ? 'is-past' : (pend ? 'is-wait' : 'is-active');
+      return `
       <div class="bk-ticket${r.past ? ' is-past' : ''}${Number(r.id) === bkState.justId ? ' is-new' : ''}" style="animation-delay:${Math.min(i, 8) * 0.06}s">
         <div class="bk-ticket-main">
           <div class="bk-ticket-day">${shariqEsc(r.label)}</div>
           <div class="bk-ticket-time">🕒 ساعت ${shariqEsc(r.time)}</div>
+          ${r.by ? `<div class="bk-ticket-by">👤 ${shariqEsc(r.by)}</div>` : ''}
         </div>
         <div class="bk-ticket-sep"></div>
         <div class="bk-ticket-info">
           <div>👤 ${shariqEsc((r.first_name || '') + ' ' + (r.last_name || ''))}</div>
           <div dir="ltr" class="bk-ticket-phone">📞 ${shariqEsc(r.phone)}</div>
-          <span class="bk-ticket-status ${r.past ? 'is-past' : 'is-active'}">${r.past ? 'گذشته' : '✓ نوبت فعال'}</span>
+          <span class="bk-ticket-status ${stCls}">${stTxt}</span>
+          ${r.can_cancel && !r.past ? `<button type="button" class="bk-cancel-btn" data-bk-cancel="${Number(r.id) || 0}">لغو نوبت</button>` : ''}
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
+    const histHtml = hist.length ? '<h4 class="bk-hist-h">نوبت‌های ردشده / لغوشده</h4>' + hist.map((h) => `
+      <div class="bk-hist is-${h.status === 'rejected' ? 'rej' : 'can'}">
+        <div><b>${h.status === 'rejected' ? '❌ نوبت رد شد' : '⚠️ نوبت توسط عالم لغو شد'}</b></div>
+        <div class="muted-text small">${shariqEsc(h.label)} — ساعت ${shariqEsc(h.time)}${h.by ? ' — ' + shariqEsc(h.by) : ''}</div>
+        ${h.reason ? `<div class="bk-hist-why">دلیل: ${shariqEsc(h.reason)}</div>` : ''}
+      </div>`).join('') : '';
+    listEl.innerHTML = tickets + histHtml;
   }
+}
+
+// لغو نوبت توسط خود کاربر ← نوبت آزاد می‌شود و دیگران می‌توانند آن را بگیرند
+async function bkUserCancel(id) {
+  if (!id || bkState.busy) return;
+  const ok = await appConfirm('bk_cancel', null, { title: 'لغو نوبت', icon: '🗓️', tone: 'warn', text: 'این نوبت لغو شود؟ نوبت آزاد می‌شود و دیگران می‌توانند آن را بگیرند.' });
+  if (!ok) return;
+  bkState.busy = true;
+  try {
+    const device_id = await ensureDeviceId();
+    await apiFetch('/shariq/booking/cancel', { method: 'POST', body: JSON.stringify({ device_id, slot_id: id }) });
+    bkNotice('نوبت لغو شد و آزاد گردید.', 'ok');
+  } catch (e) {
+    bkNotice((e && e.httpError && e.message) ? e.message : 'لغو انجام نشد؛ اینترنت را بررسی کنید.', 'warn');
+  } finally { bkState.busy = false; }
+  await loadBooking();
 }
 
 function bkOpenSheet(slot) {
   bkState.slot = slot;
   const prof = bkProfileGet();
   document.getElementById('bk-chosen-day').textContent = slot.day;
-  document.getElementById('bk-chosen-time').textContent = 'ساعت ' + slot.time;
+  document.getElementById('bk-chosen-time').textContent = 'ساعت ' + slot.time + (slot.by ? ' — ' + slot.by : '');
   document.getElementById('bk-first').value = prof.f || '';
   document.getElementById('bk-last').value = prof.l || '';
   document.getElementById('bk-phone').value = prof.p || '';
@@ -11104,6 +11157,10 @@ async function bkSubmit() {
   on('shariq-booking-card', 'click', () => switchToTab('shariq-booking', { push: true }));
   on('bk-seg-free', 'click', () => bkSetView('free'));
   on('bk-seg-mine', 'click', () => bkSetView('mine'));
+  on('bk-mine-list', 'click', (e) => {
+    const b = e.target && e.target.closest ? e.target.closest('[data-bk-cancel]') : null;
+    if (b) bkUserCancel(Number(b.getAttribute('data-bk-cancel')) || 0);
+  });
   on('bk-refresh-btn', 'click', () => { bkNotice(''); loadBooking(); });
   on('bk-cancel', 'click', bkCloseSheet);
   on('bk-submit', 'click', bkSubmit);
@@ -11118,7 +11175,7 @@ async function bkSubmit() {
       return;
     }
     if (st === 'mine') { bkSetView('mine'); return; }
-    bkOpenSheet({ id: Number(b.getAttribute('data-id')) || 0, day: b.getAttribute('data-day') || '', time: b.getAttribute('data-time') || '' });
+    bkOpenSheet({ id: Number(b.getAttribute('data-id')) || 0, day: b.getAttribute('data-day') || '', time: b.getAttribute('data-time') || '', by: b.getAttribute('data-by') || '' });
   });
 })();
 
@@ -11212,7 +11269,7 @@ document.getElementById('shariq-view-fatwa').addEventListener('click', () => sha
    ورود اولیه: ۱۰ ضربهٔ پشت‌سرهم (در ۸ ثانیه) روی خودِ صفحهٔ «سوالات شرعی» (نه روی دکمه‌ها و کارت‌ها). بعد از ورود موفق، دکمهٔ «ورود به حساب من» فقط برای همان عالم داخل صفحهٔ «سوالات شرعی» دیده می‌شود (تا وقتی توکن ورود هست)؛ با «خروج از حساب» دکمه هم محو می‌شود.
    حساب عالم را فقط مدیر از پیشخوان می‌سازد. توکن ورود در localStorage می‌ماند و مثل «دانش‌آموزان» همه درخواست‌ها POST هستند. */
 const SCH_TOKEN_KEY = 'arefanejam_shariq_sch_token';
-const SCH = { token: '', name: '', cats: [], fcats: [], fatwas: [], pending: [], mine: [], tab: 'pending' };
+const SCH = { token: '', name: '', cats: [], fcats: [], fatwas: [], pending: [], mine: [], tab: 'pending', bk: null };
 function schEl(id) { return document.getElementById(id); }
 function schTokenLoad() { try { return localStorage.getItem(SCH_TOKEN_KEY) || ''; } catch (e) { return ''; } }
 function schTokenSave(t) { try { if (t) localStorage.setItem(SCH_TOKEN_KEY, t); else localStorage.removeItem(SCH_TOKEN_KEY); } catch (e) {} schSyncEnterBtn(); }
@@ -11297,6 +11354,7 @@ async function schReload(silentLoginOnFail) {
     schEl('sch-title').textContent = SCH.name ? 'خوش آمدید، ' + SCH.name : 'پاسخ به سوالات';
     schMsg('');
     schRender();
+    if (SCH.tab !== 'bk') schBkLoad();   // فقط برای نمایش تعداد درخواست‌های تازهٔ نوبت روی تب
   } catch (e) {
     if (e.status === 401) { schAuthFail(e); return; }
     schEl('sch-list').innerHTML = '';
@@ -11380,6 +11438,8 @@ function schRender() {
   schEl('sch-tab-pending').classList.toggle('active', pend);
   schEl('sch-tab-mine').classList.toggle('active', SCH.tab === 'mine');
   schEl('sch-tab-fatwa').classList.toggle('active', isFatwa);
+  schEl('sch-tab-bk').classList.toggle('active', SCH.tab === 'bk');
+  if (SCH.tab === 'bk') { schBkRender(); return; }
   schEl('sch-tab-fatwa').textContent = 'فتواهای من (' + toPersianDigits(SCH.fatwas.length) + ')';
   if (isFatwa) {
     box.innerHTML = '';
@@ -11438,6 +11498,7 @@ function schRender() {
 // بعد از ثبت پاسخ: فهرست‌ها تازه می‌شود (سوال پاسخ‌داده‌شده از «در انتظار» می‌رود) و دسته‌بندی‌های تازه در کشویی می‌نشینند
 async function schReloadKeepDrafts() {
   if (SCH.tab === 'fatwa') { await schReload(); return; }
+  if (SCH.tab === 'bk') { await schBkLoad(); return; }
   const drafts = {};
   schEl('sch-list').querySelectorAll('.sch-q').forEach((c, i) => {
     const t = c.querySelector('.sch-answer').value, s = c.querySelector('.sch-cat').value, n = c.querySelector('.sch-newcat').value;
@@ -11454,9 +11515,157 @@ async function schReloadKeepDrafts() {
     if (d.s === '__new') { const nc = c.querySelector('.sch-newcat'); nc.classList.remove('hidden'); nc.value = d.n; }
   });
 }
+
+/* ---------- پنل عالم: «🗓️ نوبت‌ها» (زمان‌بندی من + درخواست‌های نوبت + تأیید/رد با دلیل/لغو) ----------
+   نوبت‌های هر عالم جداست؛ کاربر در اپ همهٔ نوبت‌های آزاد را می‌بیند (با نام عالم). درخواست جدید «در انتظار تأیید» است:
+   عالم تأیید می‌کند (به کاربر اعلان می‌رسد) یا دلیل می‌نویسد و رد می‌کند. رد/لغو، نوبت را آزاد می‌کند. */
+const SCH_MONTHS = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'];
+// ترتیب نمایش هفته (شنبه تا جمعه) با شمارهٔ روز در PHP (۰ = یکشنبه)
+const SCH_WEEK = [['شنبه', 6], ['یکشنبه', 0], ['دوشنبه', 1], ['سه‌شنبه', 2], ['چهارشنبه', 3], ['پنجشنبه', 4], ['جمعه', 5]];
+let schBkBusy = false;
+async function schBkLoad() {
+  if (schBkBusy) return;
+  schBkBusy = true;
+  try {
+    SCH.token = schTokenLoad();
+    SCH.bk = await schApi('/shariq/scholar/bk-data', {});
+    schBkCount();
+    if (SCH.tab === 'bk') schBkRender();
+  } catch (e) {
+    if (e.status === 401) { schAuthFail(e); return; }
+    if (SCH.tab === 'bk') schMsg(e.message || 'بارگذاری نوبت‌ها انجام نشد.', true);
+  } finally { schBkBusy = false; }
+}
+function schBkCount() {
+  const n = SCH.bk && Array.isArray(SCH.bk.pending) ? SCH.bk.pending.length : 0;
+  schEl('sch-tab-bk').textContent = '🗓️ نوبت‌ها' + (n ? ' (' + toPersianDigits(n) + ' جدید)' : '');
+}
+function schBkEsc(x) { return shariqEsc(x == null ? '' : x); }
+function schBkRender() {
+  const box = schEl('sch-list');
+  const d = SCH.bk;
+  if (!d) { box.innerHTML = '<p class="muted-text small">در حال بارگذاری...</p>'; return; }
+  schMsg('');
+  const pend = d.pending || [], conf = d.confirmed || [], free = d.free || [];
+  const td = d.today || { jy: 1405, jm: 1, jd: 1 };
+  const card = (r, kind) => `
+    <div class="sch-q sch-bk-card" data-id="${Number(r.id)}">
+      <p class="sch-q-text">${schBkEsc(r.label)} — ساعت ${schBkEsc(r.time)}</p>
+      <p class="sch-q-meta">👤 ${schBkEsc((r.first_name || '') + ' ' + (r.last_name || ''))} &nbsp; <a href="tel:${schBkEsc(r.phone)}" dir="ltr">📞 ${schBkEsc(r.phone)}</a></p>
+      <div class="sch-bk-btns">
+        ${kind === 'pend' ? '<button type="button" class="secondary-btn small-btn" data-bk="confirm">✅ تأیید نوبت</button><button type="button" class="ghost-btn small-btn" data-bk="reject">❌ رد نوبت</button>'
+          : '<button type="button" class="ghost-btn small-btn" data-bk="cancel">🚫 لغو نوبت</button>'}
+      </div>
+      <div class="sch-bk-why hidden">
+        <textarea rows="3" maxlength="600" placeholder="${kind === 'pend' ? 'دلیل رد نوبت را بنویسید (برای کاربر نمایش داده می‌شود)' : 'دلیل لغو (اختیاری؛ برای کاربر نمایش داده می‌شود)'}"></textarea>
+        <button type="button" class="secondary-btn small-btn" data-bk="send">${kind === 'pend' ? 'ارسال رد نوبت' : 'تأیید لغو و ارسال'}</button>
+      </div>
+      <p class="muted-text small hidden sch-err" style="color:#a5473c"></p>
+    </div>`;
+  // نوبت‌های آزاد، روز به روز
+  const byDay = {};
+  const dayOrder = [];
+  free.forEach((r) => { if (!byDay[r.gdate]) { byDay[r.gdate] = { label: r.label, items: [] }; dayOrder.push(r.gdate); } byDay[r.gdate].items.push(r); });
+  const freeHtml = dayOrder.length ? dayOrder.map((g) => `
+    <div class="sch-bk-day"><div class="sch-bk-dayhead"><b>${schBkEsc(byDay[g].label)}</b><button type="button" class="ghost-btn small-btn" data-bk-delday="${schBkEsc(g)}">حذف آزادهای این روز</button></div>
+      <div class="sch-bk-chips">${byDay[g].items.map((r) => `<span class="sch-bk-chip">${schBkEsc(r.time)}<button type="button" data-bk-del="${Number(r.id)}" title="حذف">✕</button></span>`).join('')}</div></div>`).join('')
+    : '<p class="muted-text small">نوبت آزادی تعریف نکرده‌اید.</p>';
+  const dOpts = Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}"${i + 1 === td.jd ? ' selected' : ''}>${toPersianDigits(i + 1)}</option>`).join('');
+  const mOpts = SCH_MONTHS.map((m, i) => `<option value="${i + 1}"${i + 1 === td.jm ? ' selected' : ''}>${m}</option>`).join('');
+  const yOpts = [td.jy, td.jy + 1, td.jy + 2].map((y) => `<option value="${y}">${toPersianDigits(y)}</option>`).join('');
+  const wk = SCH_WEEK.map((w) => `<label class="sch-bk-wd"><input type="checkbox" value="${w[1]}" checked> ${w[0]}</label>`).join('');
+  box.innerHTML = `
+    <button type="button" class="ghost-btn small-btn" id="sch-bk-refresh" style="margin-bottom:10px">🔄 تازه‌سازی</button>
+    <h4 class="sch-bk-h">📥 درخواست‌های جدید (${toPersianDigits(pend.length)})</h4>
+    ${pend.length ? pend.map((r) => card(r, 'pend')).join('') : '<p class="muted-text small">درخواست تازه‌ای نیست.</p>'}
+    <h4 class="sch-bk-h">✅ نوبت‌های تأییدشده (${toPersianDigits(conf.length)})</h4>
+    ${conf.length ? conf.map((r) => card(r, 'conf')).join('') : '<p class="muted-text small">نوبت تأییدشده‌ای نیست.</p>'}
+    <h4 class="sch-bk-h">🗓️ زمان‌بندی من</h4>
+    <div class="sch-q sch-bk-form">
+      <p class="sch-q-meta">از چه تاریخی، چند روز، کدام روزهای هفته و چه ساعت‌هایی برای مراجعهٔ حضوری وقت دارید؟</p>
+      <div class="sch-bk-row"><select id="sch-bk-jd">${dOpts}</select><select id="sch-bk-jm">${mOpts}</select><select id="sch-bk-jy">${yOpts}</select></div>
+      <label class="sch-q-meta">تعداد روز (از تاریخ بالا به بعد)</label>
+      <input type="number" id="sch-bk-days" min="1" max="90" value="7" style="width:100px">
+      <label class="sch-q-meta">روزهای هفته‌ای که وقت دارید</label>
+      <div class="sch-bk-wds">${wk}</div>
+      <label class="sch-q-meta">ساعت‌ها (۲۴ ساعته؛ هر تعداد)</label>
+      <div id="sch-bk-times"><div class="sch-bk-trow"><input type="time" value="09:00"><button type="button" class="ghost-btn small-btn" data-bk-deltime="1">✕</button></div></div>
+      <button type="button" class="ghost-btn small-btn" id="sch-bk-addtime">+ ساعت دیگر</button>
+      <p class="muted-text small hidden sch-err" id="sch-bk-err" style="color:#a5473c"></p>
+      <button type="button" class="secondary-btn small-btn sch-save" id="sch-bk-add">➕ افزودن نوبت‌ها</button>
+    </div>
+    <h4 class="sch-bk-h">🕒 نوبت‌های آزاد من</h4>
+    ${freeHtml}`;
+
+  const call = async (path, body, errEl) => {
+    try { await schApi(path, body); return true; }
+    catch (e) {
+      if (e.status === 401) { schAuthFail(e); return false; }
+      if (errEl) { errEl.textContent = e.message || 'انجام نشد.'; errEl.classList.remove('hidden'); }
+      else schMsg(e.message || 'انجام نشد.', true);
+      return false;
+    }
+  };
+  schEl('sch-bk-refresh').addEventListener('click', schBkLoad);
+  box.querySelectorAll('.sch-bk-card').forEach((c) => {
+    const id = Number(c.getAttribute('data-id'));
+    const why = c.querySelector('.sch-bk-why'), er = c.querySelector('.sch-err'), ta = c.querySelector('textarea');
+    c.addEventListener('click', async (ev) => {
+      const b = ev.target && ev.target.closest ? ev.target.closest('[data-bk]') : null;
+      if (!b) return;
+      const act = b.getAttribute('data-bk');
+      er.classList.add('hidden');
+      if (act === 'reject' || act === 'cancel') { why.classList.toggle('hidden'); if (!why.classList.contains('hidden')) ta.focus(); return; }
+      const isPend = !!c.querySelector('[data-bk="confirm"]');
+      let op = act, reason = '';
+      if (act === 'send') {
+        op = isPend ? 'reject' : 'cancel'; reason = ta.value.trim();
+        if (op === 'reject' && reason.length < 3) { er.textContent = 'دلیل رد نوبت را بنویسید.'; er.classList.remove('hidden'); return; }
+      }
+      b.disabled = true;
+      const ok = await call('/shariq/scholar/bk-decide', { slot_id: id, op, reason }, er);
+      b.disabled = false;
+      if (ok) schBkLoad();
+    });
+  });
+  const wrap = schEl('sch-bk-times');
+  schEl('sch-bk-addtime').addEventListener('click', () => {
+    const r = document.createElement('div'); r.className = 'sch-bk-trow';
+    r.innerHTML = '<input type="time"><button type="button" class="ghost-btn small-btn" data-bk-deltime="1">✕</button>';
+    wrap.appendChild(r);
+  });
+  wrap.addEventListener('click', (ev) => {
+    const b = ev.target && ev.target.closest ? ev.target.closest('[data-bk-deltime]') : null;
+    if (!b) return;
+    const rows = wrap.querySelectorAll('.sch-bk-trow');
+    if (rows.length > 1) b.parentNode.remove(); else b.parentNode.querySelector('input').value = '';
+  });
+  schEl('sch-bk-add').addEventListener('click', async () => {
+    const er = schEl('sch-bk-err'); er.classList.add('hidden');
+    const times = Array.from(wrap.querySelectorAll('input[type=time]')).map((i) => i.value).filter(Boolean);
+    const weekdays = Array.from(box.querySelectorAll('.sch-bk-wd input:checked')).map((i) => Number(i.value));
+    if (!times.length) { er.textContent = 'حداقل یک ساعت وارد کنید.'; er.classList.remove('hidden'); return; }
+    if (!weekdays.length) { er.textContent = 'حداقل یک روز هفته را انتخاب کنید.'; er.classList.remove('hidden'); return; }
+    const body = { jy: Number(schEl('sch-bk-jy').value), jm: Number(schEl('sch-bk-jm').value), jd: Number(schEl('sch-bk-jd').value), days: Number(schEl('sch-bk-days').value) || 1, weekdays, times };
+    const btn = schEl('sch-bk-add'); btn.disabled = true; btn.textContent = 'در حال افزودن...';
+    let res = null;
+    try { res = await schApi('/shariq/scholar/bk-add', body); }
+    catch (e) { btn.disabled = false; btn.textContent = '➕ افزودن نوبت‌ها'; if (e.status === 401) { schAuthFail(e); return; } er.textContent = e.message || 'انجام نشد.'; er.classList.remove('hidden'); return; }
+    await schBkLoad();
+    schMsg(toPersianDigits(res.added || 0) + ' نوبت اضافه شد.' + (res.skipped ? ' (' + toPersianDigits(res.skipped) + ' مورد تکراری یا گذشته نادیده گرفته شد.)' : ''), false);
+  });
+  box.querySelectorAll('[data-bk-del]').forEach((b) => b.addEventListener('click', async () => {
+    if (await call('/shariq/scholar/bk-delete', { slot_id: Number(b.getAttribute('data-bk-del')) })) schBkLoad();
+  }));
+  box.querySelectorAll('[data-bk-delday]').forEach((b) => b.addEventListener('click', async () => {
+    if (await call('/shariq/scholar/bk-delete', { gdate: b.getAttribute('data-bk-delday') })) schBkLoad();
+  }));
+}
+
 schEl('sch-tab-pending').addEventListener('click', () => { SCH.tab = 'pending'; schRender(); });
 schEl('sch-tab-mine').addEventListener('click', () => { SCH.tab = 'mine'; schRender(); });
 schEl('sch-tab-fatwa').addEventListener('click', () => { SCH.tab = 'fatwa'; schRender(); });
+schEl('sch-tab-bk').addEventListener('click', () => { SCH.tab = 'bk'; schRender(); schBkLoad(); });
 schEl('sch-close-btn').addEventListener('click', schClose);
 schEl('sch-login-cancel').addEventListener('click', schClose);
 schEl('sch-logout-btn').addEventListener('click', async () => {
@@ -14221,6 +14430,34 @@ function settingsOnTabOpen() {
   });
   const test = $('set-test-btn');
   if (test) test.addEventListener('click', () => { if (typeof window.openAzanTestPanel === 'function') window.openAzanTestPanel(); else msg('این بخش فقط در اپ اندروید کار می‌کند.'); });
+  /* ----- بی‌صدا شدن گوشی هنگام نماز ----- */
+  const silTg = $('set-silence-toggle'), silPerm = $('set-silence-perm'), silMsg = $('set-silence-msg');
+  const sm = (t) => { if (silMsg) silMsg.textContent = t || ''; };
+  const silRefresh = () => {
+    const P = settingsPlugin();
+    if (!silTg || !P || typeof P.silenceStatus !== 'function') return;
+    Promise.resolve(P.silenceStatus()).then((r) => {
+      const need = azPrefs().silence && r && r.access === false;
+      if (silPerm) silPerm.classList.toggle('hidden', !need);
+      sm(need ? 'بدون اجازهٔ «مزاحم نشوید» گوشی فقط روی «لرزش» می‌رود، نه بی‌صدای کامل. با دکمهٔ زیر اجازه بدهید.' : '');
+    }).catch(() => {});
+  };
+  if (silTg) {
+    silTg.checked = azPrefs().silence === true;
+    silTg.addEventListener('change', () => {
+      azPrefs().silence = silTg.checked; azPrefsSave(); applyAz();
+      if (silTg.checked) setTimeout(silRefresh, 600); else { if (silPerm) silPerm.classList.add('hidden'); sm(''); }
+    });
+    silRefresh();
+  }
+  if (silPerm) silPerm.addEventListener('click', () => {
+    const P = settingsPlugin();
+    if (P && typeof P.openSilenceSettings === 'function') {
+      sm('در صفحهٔ باز شده، «عارفان جام» را روشن کنید و برگردید.');
+      Promise.resolve(P.openSilenceSettings()).catch(() => sm('باز نشد.'));
+    } else sm('این APK قدیمی است؛ نسخهٔ جدید را نصب کنید.');
+  });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) silRefresh(); });
   const stop = $('set-stop-btn');
   if (stop) stop.addEventListener('click', () => {
     const P = settingsPlugin();
@@ -16875,6 +17112,8 @@ function cnShowPanel() {
     <button class="secondary-btn ga-start" id="cn-pn-save">ذخیرهٔ رمز تازه</button>
     <button class="ghost-btn" id="cn-pn-out" style="width:100%;margin-top:8px">🚪 خروج از آی‌دی</button>
     <button class="ghost-btn" id="cn-pn-back" style="width:100%;margin-top:8px">بازگشت به مسابقه</button>
+    <button class="ghost-btn cn-exit-btn" id="cn-pn-exit" style="width:100%;margin-top:8px">🚪 خروج از بازی آنلاین (بازگشت به اپ)</button>
+    <p class="cn-note">«خروج از بازی آنلاین» فقط شما را از این بخش بیرون می‌برد؛ آی‌دی و امتیازتان سر جایش می‌ماند. «خروج از آی‌دی» (بالاتر) حساب این گوشی را جدا می‌کند.</p>
   </div>`;
   const msg = document.getElementById('cn-pn-msg');
   const tg = document.getElementById('cn-pw-toggle');
@@ -16885,6 +17124,7 @@ function cnShowPanel() {
   document.getElementById('cn-pn-copy').addEventListener('click', () => cnCopyText(pw ? `آی‌دی: ${me.nick}\nرمز: ${pw}` : String(me.nick || ''), 'cn-pn-copy', '✅ کپی شد', '📋 کپی آی‌دی' + (pw ? ' و رمز' : '')));
   document.getElementById('cn-pn-back').addEventListener('click', () => { cnS.phase = 'home'; cnRenderHome(false); });
   document.getElementById('cn-pn-out').addEventListener('click', cnLogout);
+  document.getElementById('cn-pn-exit').addEventListener('click', cnExitGame);
   const sv = document.getElementById('cn-pn-save');
   sv.addEventListener('click', async () => {
     const p1 = String(document.getElementById('cn-npw1').value || '');
@@ -16904,6 +17144,11 @@ function cnShowPanel() {
       cnShowPanel();
     } catch (e) { sv.disabled = false; sv.textContent = 'ذخیرهٔ رمز تازه'; msg.textContent = cnErrText(e); }
   });
+}
+// «خروج از بازی آنلاین»: فقط از این بخش بیرون می‌رود (بدون پاک‌کردن آی‌دی/امتیاز)؛ مثل دکمهٔ برگشت گوشی
+function cnExitGame() {
+  try { cnLeave(); } catch (e) {}
+  try { goBackInApp(); } catch (e) { try { switchToTab('home'); } catch (e2) {} }
 }
 async function cnLogout() {
   const code = (cnS.me && cnS.me.code) || '';
@@ -16970,6 +17215,7 @@ function cnRenderHome(scrollBoard) {
       <button type="button" class="ghost-btn" id="cn-panel-btn">👤 پنل من (آی‌دی و رمز)</button>
       <button type="button" class="ghost-btn" id="cn-code-other">🔑 ورود با آی‌دی دیگر</button>
     </div>
+    <button type="button" class="ghost-btn cn-exit-btn" id="cn-exit-btn">🚪 خروج از بازی آنلاین (بازگشت به اپ)</button>
   </div>`;
   cnRoot().innerHTML = idCard + `
   <div class="ga-card cn-card cn-profile">
@@ -17021,6 +17267,7 @@ function cnRenderHome(scrollBoard) {
   document.getElementById('cn-start-btn').addEventListener('click', cnStart);
   const cc1 = document.getElementById('cn-panel-btn'); if (cc1) cc1.addEventListener('click', cnShowPanel);
   const cc2 = document.getElementById('cn-code-other'); if (cc2) cc2.addEventListener('click', cnLogout);
+  const cc3 = document.getElementById('cn-exit-btn'); if (cc3) cc3.addEventListener('click', cnExitGame);
   document.getElementById('cn-fl-btn').addEventListener('click', () => cnFlHome());
   cnScopeWire('pr');
   document.getElementById('cn-prac-btn').addEventListener('click', cnPracStart);

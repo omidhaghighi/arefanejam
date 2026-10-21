@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
-<link rel="stylesheet" href="css/style.css?v=149">
+<link rel="stylesheet" href="css/style.css?v=151">
 <script>try{var __mc=parseInt(localStorage.getItem('arefanejam_more_cols'),10);if(__mc>=2&&__mc<=5)document.documentElement.setAttribute('data-more-cols',String(__mc));}catch(e){}</script>
 </head>
 <body>
@@ -1019,6 +1019,10 @@
           <button id="set-test-btn" class="ghost-btn small-btn" type="button">🔔 تست و گزارش وضعیت اذان</button>
           <button id="set-stop-btn" class="ghost-btn small-btn" type="button">⏹ توقف اذانِ در حال پخش</button>
         </div>
+        <label class="switch-row" style="margin-top:12px"><span>🔕 بی‌صدا شدن گوشی هنگام نماز (۱۰ دقیقه قبل تا ۱۰ دقیقه بعد)</span><input type="checkbox" id="set-silence-toggle"></label>
+        <p class="muted-text small" style="line-height:2">پیش‌فرض خاموش است. اگر روشن کنید، گوشی از ۱۰ دقیقه قبل از هر وقت نماز تا ۱۰ دقیقه بعد بی‌صدا می‌شود و بعد به حالت قبلی برمی‌گردد؛ خودِ اذان همچنان پخش می‌شود. اگر خودتان در این مدت حالت صدا را عوض کنید، دخالت نمی‌کنیم.</p>
+        <button id="set-silence-perm" class="ghost-btn small-btn hidden" type="button">🔓 اجازهٔ «مزاحم نشوید» برای بی‌صدای کامل</button>
+        <p class="muted-text small" id="set-silence-msg" style="line-height:2;margin-top:6px"></p>
         <p class="muted-text small" id="set-native-msg" style="line-height:2;margin-top:6px"></p>
       </div>
     </section>
@@ -1865,6 +1869,7 @@
         <button type="button" class="shariq-view-btn active" id="sch-tab-pending">در انتظار پاسخ</button>
         <button type="button" class="shariq-view-btn" id="sch-tab-mine">پاسخ‌های من</button>
         <button type="button" class="shariq-view-btn" id="sch-tab-fatwa">فتواهای من</button>
+        <button type="button" class="shariq-view-btn" id="sch-tab-bk">🗓️ نوبت‌ها</button>
       </div>
       <p class="muted-text small hidden" id="sch-msg"></p>
       <div id="sch-list"></div>
@@ -2061,7 +2066,7 @@
 /* native-bridge.js و app.js (به‌همین ترتیب) فقط بعد از پایان صفحهٔ شروع (ویدیو/عکس/گیف) بارگذاری می‌شوند.
    اگر صفحهٔ شروعی نباشد یا تمام شده باشد، بی‌درنگ بارگذاری می‌شوند. */
 (function () {
-  var list = ['js/native-bridge.js?v=38', 'js/app.js?v=230'], i = 0;
+  var list = ['js/native-bridge.js?v=39', 'js/app.js?v=233'], i = 0;
   function next() {
     if (i >= list.length) return;
     var el = document.createElement('script'); el.src = list[i++];

@@ -40,9 +40,14 @@ public class AzanService extends Service {
 
     // pressing the phone's power button while the azan plays stops the azan
     // (the button always produces a SCREEN_OFF if the screen was on, or a SCREEN_ON if it was off)
-    private static final long POWER_GUARD_MS = 6000L;      // SCREEN_ON in the first 6s is ignored (the azan notification / sticky card (+3s) often wakes the screen by itself)
+    private static final long POWER_GUARD_MS = 4500L;      // SCREEN_ON in the first 4.5s is ignored (the azan notification / sticky card (+3s) often wakes the screen by itself)
     private static final long POWER_OFF_GUARD_MS = 700L;   // SCREEN_OFF is never caused by a notification, so it only needs a tiny guard
     private static final long POWER_STOP_DELAY_MS = 0L;    // after a real power-button press the azan stops IMMEDIATELY
+    // extra ways to stop the azan on phones where the power / fingerprint button does not produce a reliable screen on/off event
+    // (side fingerprint buttons, always-on display, some Chinese ROMs): the VOLUME buttons and unlocking the phone
+    private static final long VOLUME_GUARD_MS = 2500L;     // the volume change made by the app itself (alarm volume 0 -> 60%) is ignored
+    private static final String VOLUME_ACTION = "android.media.VOLUME_CHANGED_ACTION";
+    private static final String VOLUME_STREAM_EXTRA = "android.media.EXTRA_VOLUME_STREAM_TYPE";
     private final android.os.Handler stopHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private boolean stopPending = false;
     private BroadcastReceiver screenReceiver;
@@ -119,6 +124,17 @@ public class AzanService extends Service {
                         screenOnAt = now;
                         if (now - azanStartedAt < POWER_GUARD_MS) return;
                         scheduleDelayedStop("power button/screen on");
+                    } else if (Intent.ACTION_USER_PRESENT.equals(a)) {
+                        // the phone was unlocked (fingerprint / PIN): the user is here, stop the azan.
+                        // (phones without a lock screen send this on every screen-on, so the same 4.5 s guard applies)
+                        if (now - azanStartedAt < POWER_GUARD_MS) return;
+                        scheduleDelayedStop("phone unlocked");
+                    } else if (VOLUME_ACTION.equals(a)) {
+                        // volume button pressed while the azan plays (the azan is on the ALARM stream)
+                        int st = i.getIntExtra(VOLUME_STREAM_EXTRA, -1);
+                        if (st != AudioManager.STREAM_ALARM) return;
+                        if (now - azanStartedAt < VOLUME_GUARD_MS) return;
+                        scheduleDelayedStop("volume button");
                     } else if (Intent.ACTION_SCREEN_OFF.equals(a)) {
                         if (now - azanStartedAt < POWER_OFF_GUARD_MS) return;
                         long timeout = 30000L;
@@ -138,6 +154,8 @@ public class AzanService extends Service {
             IntentFilter f = new IntentFilter();
             f.addAction(Intent.ACTION_SCREEN_ON);
             f.addAction(Intent.ACTION_SCREEN_OFF);
+            f.addAction(Intent.ACTION_USER_PRESENT);
+            f.addAction(VOLUME_ACTION);
             if (Build.VERSION.SDK_INT >= 33) {
                 registerReceiver(screenReceiver, f, Context.RECEIVER_NOT_EXPORTED);
             } else {
