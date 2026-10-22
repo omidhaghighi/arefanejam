@@ -1582,7 +1582,7 @@
     if (document.visibilityState === 'hidden') {
       webHiddenAt = Date.now();
       // کاربر از اپ خارج شد: نسخهٔ آمادهٔ ظاهر همین حالا (نامرئی) اعمال می‌شود تا دفعهٔ بعد که اپ را باز کرد نسخهٔ جدید را ببیند
-      if (webPending && !userIsTyping()) { webPending = false; webApplyStaged(); }
+      if (webPending && !userIsTyping()) { webPending = false; fuHideOnly = false; webApplyStaged(); }
       return;
     }
     if (webHiddenAt && Date.now() - webHiddenAt > 30000 && !userIsTyping()) { webHiddenAt = 0; webApplyStaged(); }
@@ -1607,10 +1607,93 @@
   // اگر نسخهٔ آماده منتظر است و کاربر ۲۰ ثانیه است به صفحه دست نزده (و تایپ نمی‌کند)، همان لحظه اعمال می‌شود
   setInterval(function () {
     if (!webPending || document.visibilityState !== 'visible') return;
+    if (fuHideOnly) return;   // بروزرسانی بی‌صدای «خواندم»: فقط وقتی کاربر از اپ خارج شد (وسط قرآن‌خواندن صفحه عوض نشود)
     if (Date.now() - lastTouchTs < 20000 || userIsTyping()) return;
     webPending = false;
     webApplyStaged();
   }, 5000);
+
+  /* ---------- اعلان اجباری «خواندم»: بروزرسانی بی‌صدا ----------
+     پنجرهٔ «خواندم» در app.js ساخته می‌شود. اینجا فقط (۱) خواندن اعلان ماندگارِ بومی (وقتی اپ از اعلان باز شد) و
+     (۲) بعد از «خواندم»: بستن اعلان بومی + بروزرسانی بی‌صدا مثل بخش «بروزرسانی»، ولی بدون هیچ پنجره/پیام/نوار.
+     نسخهٔ بازار (STORE): هیچ دانلود/نصب/OTA انجام نمی‌شود؛ فقط اعلان بسته و تأیید ثبت می‌شود. */
+  var fuHideOnly = false;
+  var fuBusy = false;
+
+  window.arefFuCheck = function () {
+    try {
+      var P = AU();
+      if (!P || typeof P.forceUpdatePending !== 'function') return;
+      P.forceUpdatePending().then(function (r) {
+        if (r && r.id && typeof window.arefForceUpdateShow === 'function') {
+          window.arefForceUpdateShow({ id: r.id, title: r.title || '', body: r.body || '', link: r.link || '', btn: 'خواندم' });
+        }
+      }).catch(function () {});
+    } catch (e) {}
+  };
+
+  function fuStageWeb() {
+    var P = AU();
+    if (!P || typeof P.webStatus !== 'function' || typeof P.webSync !== 'function') return Promise.resolve();
+    return waitWebIdle().then(function () {
+      if (webBusy) return;
+      webBusy = true;
+      webLastCheck = Date.now();
+      var st = {};
+      return P.webStatus().then(function (s) {
+        st = s || {};
+        if (st.stagedId) { fuHideOnly = true; webPending = true; return; }
+        return withTimeout(webManifestFetch(), 15000).then(function (m) {
+          if (!m || !m.enabled || !m.id || !m.base || !m.files || !m.files.length) return;
+          if (m.id === st.activeId) return;
+          if (m.id === st.badId && Date.now() - (st.badTs || 0) < WEB_BAD_MS) return;
+          return P.webSync({ id: m.id, base: m.base, files: m.files }).then(function () {
+            setUpdateAvail('web', true);
+            fuHideOnly = true; webPending = true;
+          });
+        });
+      }).catch(log).then(function () { webBusy = false; });
+    });
+  }
+
+  function fuStageApk() {
+    var P = AU();
+    if (!P || typeof P.status !== 'function') return Promise.resolve();
+    return withTimeout(fetchInfo(), 15000).then(function (info) {
+      if (!(info && info.enabled && info.version && info.apk_url && isNewer(info.version, CURRENT))) return;
+      var st = {};
+      return P.status().then(function (s) {
+        st = s || {};
+        if (!st.canInstall) return;   // اجازهٔ نصب نیست: هیچ صفحهٔ تنظیماتی به کاربر نشان داده نمی‌شود
+        var ready = st.hasApk && (lsGet(READY_KEY) === String(info.version) || String(st.bgReady || '') === String(info.version));
+        if (ready) return;
+        if (navigator.onLine === false || st.online === false) return;
+        return P.download({ url: info.apk_url }).then(function () { stopPoll(); lsSet(READY_KEY, String(info.version)); });
+      }).then(function () {
+        if (!st.canInstall) return;
+        if (!(lsGet(READY_KEY) === String(info.version) || String(st.bgReady || '') === String(info.version))) return;
+        lsSet(TARGET_KEY, String(info.version));
+        lsSet(AUTO_KEY, '1');
+        pendingSilent = info;   // فقط وقتی کاربر از اپ خارج شد نصب می‌شود (visibilitychange)
+      });
+    });
+  }
+
+  window.arefForceUpdateDone = function (fu) {
+    try {
+      var P = AU();
+      if (P && typeof P.forceUpdateDone === 'function') P.forceUpdateDone({ id: Number(fu && fu.id) || 0 }).catch(function () {});
+    } catch (e) {}
+    if (STORE || fuBusy) return;
+    fuBusy = true;
+    setTimeout(function () {
+      fuStageWeb().catch(log).then(function () { return fuStageApk(); }).catch(log).then(function () { fuBusy = false; });
+    }, 1500);
+  };
+
+  // اعلان ماندگار بومی: وقتی اپ باز شد یا به جلو برگشت
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') window.arefFuCheck(); });
+  setTimeout(function () { window.arefFuCheck(); }, 2500);
 
   function showWebLine() {
     var P = AU();

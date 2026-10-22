@@ -368,6 +368,33 @@ public class AppUpdaterPlugin extends Plugin {
         call.resolve(r);
     }
 
+    /** اعلان اجباری «خواندم» که هنوز تأیید نشده (برای نشان دادن پنجرهٔ «خواندم» وقتی اپ باز می‌شود). */
+    @PluginMethod
+    public void forceUpdatePending(PluginCall call) {
+        JSObject r = new JSObject();
+        try {
+            android.content.SharedPreferences sp = UpdateJobService.prefs(getContext().getApplicationContext());
+            long id = sp.getLong("fu_id", 0);
+            if (id > 0 && id > sp.getLong("fu_done", 0)) {
+                r.put("id", id);
+                r.put("title", sp.getString("fu_title", ""));
+                r.put("body", sp.getString("fu_body", ""));
+                r.put("link", sp.getString("fu_link", ""));
+            }
+        } catch (Throwable ignore) { }
+        call.resolve(r);
+    }
+
+    /** کاربر «خواندم» را زد: اعلان ماندگار بسته می‌شود. */
+    @PluginMethod
+    public void forceUpdateDone(PluginCall call) {
+        try {
+            Integer id = call.getInt("id", 0);
+            UpdateJobService.forceDone(getContext().getApplicationContext(), id == null ? 0L : id.longValue());
+        } catch (Throwable ignore) { }
+        call.resolve();
+    }
+
     /** آدرس API سایت را برای کار پس‌زمینه ذخیره می‌کند و کار دانلود را (اگر نبود) می‌چیند. */
     @PluginMethod
     public void bgConfig(PluginCall call) {

@@ -10,9 +10,24 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     /** آیا اپ همین حالا جلوی چشم کاربر است؟ (برای اینکه نصب بی‌صدا هیچ پنجرهٔ ناگهانی نشان ندهد) */
     public static volatile boolean inForeground = false;
+    private static volatile MainActivity current = null;
+
+    /** اعلان اجباری «خواندم» همین حالا رسید و اپ جلوی چشم است: به صفحه می‌گوییم پنجرهٔ «خواندم» را نشان بدهد. */
+    static void pokeForceUpdate() {
+        final MainActivity a = current;
+        if (a == null) return;
+        try {
+            a.runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    try { a.getBridge().getWebView().evaluateJavascript("window.arefFuCheck&&window.arefFuCheck()", null); } catch (Throwable ignore) { }
+                }
+            });
+        } catch (Throwable ignore) { }
+    }
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        current = this;
         registerPlugin(AppUpdaterPlugin.class);
         // بروزرسانی ظاهر اپ از سایت: قبل از بالا آمدن Capacitor نسخهٔ آماده فعال یا نسخهٔ خراب برگردانده می‌شود
         AppUpdaterPlugin.webBoot(this);
@@ -73,5 +88,13 @@ public class MainActivity extends BridgeActivity {
     public void onStop() {
         inForeground = false;
         super.onStop();
+        // اگر کاربر «خواندم» را نزده و از اپ بیرون رفت، اعلان ماندگار بالای گوشی بماند
+        try { UpdateJobService.ensureForceNotice(getApplicationContext(), false); } catch (Throwable ignore) { }
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (current == this) current = null;
+        super.onDestroy();
     }
 }

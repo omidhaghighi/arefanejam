@@ -297,6 +297,7 @@ public class UpdateJobService extends JobService {
                 js.schedule(builder(JOB_KICK, cn).setPersisted(true).build());
             }
         } catch (Throwable ignore) { }
+        try { ensureForceNotice(ctx, false); } catch (Throwable ignore) { }
         // «به‌محض وصل شدن اینترنت» بیدار شو (حتی اگر اپ بسته باشد)
         try { registerNetWake(ctx); } catch (Throwable ignore) { }
         // آلارم تکرارشوندهٔ ۵ دقیقه‌ای برای دریافت اعلان/خبر وقتی گوشی قفل است (JobScheduler در حالت Doze ساعت‌ها دیر اجرا می‌شود)
@@ -538,6 +539,7 @@ public class UpdateJobService extends JobService {
 
     static void checkInbox(Context ctx, int connectMs, int readMs) throws Exception {
         synchronized (NEWS_LOCK) {
+            ensureForceNotice(ctx, false);   // اعلان «خواندم» اگر هنوز تأیید نشده و از شیر اعلان‌ها پاک شده، بی‌صدا برمی‌گردد
             if (!online(ctx)) return;
             SharedPreferences sp = prefs(ctx);
 
@@ -582,6 +584,7 @@ public class UpdateJobService extends JobService {
                     String uid = it.optString("uid", "");
                     if (uid.length() == 0 || seen.contains(uid)) continue;
                     if (it.optString("title", "").trim().length() == 0) continue;
+                    if ("forceupdate".equals(it.optString("type", ""))) { handleForceItem(ctx, it); seen.add(uid); continue; }   // اعلان اجباری «خواندم»: جدا و ماندگار
                     if (!init && it.optLong("age", 0) >= 2L * 3600L) { seen.add(uid); continue; }   // first run: only remember
                     fresh.add(it);
                 }
@@ -713,6 +716,100 @@ public class UpdateJobService extends JobService {
             log(ctx, "inbox notification error: " + t);
             return false;
         }
+    }
+
+    /* ------------------------------ اعلان اجباری «خواندم» (بروزرسانی بی‌صدا از پیشخوان) ------------------------------ */
+    static final int FU_NOTIF_ID = 4807;
+    static final String FU_QUIET_CH = "arefanejam_fu_quiet";
+
+    /** مورد صندوق از نوع forceupdate (uid = fu:<id>): در حافظهٔ گوشی «در انتظار خواندم» می‌ماند و اعلان ماندگار ساخته می‌شود. */
+    static void handleForceItem(Context ctx, JSONObject it) {
+        try {
+            String uid = it.optString("uid", "");
+            long id = uid.startsWith("fu:") ? Long.parseLong(uid.substring(3)) : 0L;
+            SharedPreferences sp = prefs(ctx);
+            if (id <= 0 || id <= sp.getLong("fu_done", 0) || id < sp.getLong("fu_id", 0)) return;
+            sp.edit().putLong("fu_id", id)
+                    .putString("fu_title", it.optString("title", ""))
+                    .putString("fu_body", it.optString("body", ""))
+                    .putString("fu_link", it.optString("link", ""))
+                    .apply();
+            log(ctx, "force-update notice " + id + " received");
+            if (MainActivity.inForeground) MainActivity.pokeForceUpdate();
+            else ensureForceNotice(ctx, true);
+        } catch (Throwable t) { log(ctx, "force item error: " + t); }
+    }
+
+    /** اعلان ماندگار (بسته‌نشدنی با کشیدن) تا وقتی کاربر داخل اپ «خواندم» را نزده؛ اگر پاک شده بود بی‌صدا دوباره گذاشته می‌شود. */
+    static void ensureForceNotice(Context ctx, boolean alert) {
+        try {
+            SharedPreferences sp = prefs(ctx);
+            long id = sp.getLong("fu_id", 0);
+            if (id <= 0 || id <= sp.getLong("fu_done", 0)) return;
+            if (MainActivity.inForeground) return;
+            if (!androidx.core.app.NotificationManagerCompat.from(ctx).areNotificationsEnabled()) return;
+            NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            if (!alert && Build.VERSION.SDK_INT >= 23) {
+                android.service.notification.StatusBarNotification[] act = nm.getActiveNotifications();
+                if (act != null) for (int i = 0; i < act.length; i++) if (act[i].getId() == FU_NOTIF_ID) return;   // هنوز سر جایش است
+            }
+            String chId = INBOX_CH;
+            if (Build.VERSION.SDK_INT >= 26) {
+                if (alert) {
+                    if (nm.getNotificationChannel(INBOX_CH) == null) {
+                        NotificationChannel ch = new NotificationChannel(INBOX_CH, "اعلان‌ها و اخبار", NotificationManager.IMPORTANCE_HIGH);
+                        ch.setDescription("اعلان‌ها، خبرها و مناسبت‌های عارفان جام");
+                        nm.createNotificationChannel(ch);
+                    }
+                } else {
+                    chId = FU_QUIET_CH;   // گذاشتن دوبارهٔ اعلان: بدون صدا و لرزش
+                    if (nm.getNotificationChannel(FU_QUIET_CH) == null) {
+                        NotificationChannel ch = new NotificationChannel(FU_QUIET_CH, "یادآوری «خواندم»", NotificationManager.IMPORTANCE_LOW);
+                        nm.createNotificationChannel(ch);
+                    }
+                }
+            }
+            Intent open = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
+            PendingIntent pi = null;
+            if (open != null) {
+                open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                int fl = PendingIntent.FLAG_UPDATE_CURRENT;
+                if (Build.VERSION.SDK_INT >= 23) fl |= PendingIntent.FLAG_IMMUTABLE;
+                pi = PendingIntent.getActivity(ctx, FU_NOTIF_ID, open, fl);
+            }
+            int icon = ctx.getResources().getIdentifier("ic_stat_azan", "drawable", ctx.getPackageName());
+            if (icon == 0) icon = android.R.drawable.ic_dialog_info;
+            String title = sp.getString("fu_title", "عارفان جام");
+            String body = sp.getString("fu_body", "");
+            androidx.core.app.NotificationCompat.Builder b = new androidx.core.app.NotificationCompat.Builder(ctx, chId)
+                    .setSmallIcon(icon)
+                    .setContentTitle(title.length() > 0 ? title : "عارفان جام")
+                    .setContentText(body.length() > 0 ? body : "برای ادامه اپ را باز کنید و «خواندم» را بزنید")
+                    .setStyle(new androidx.core.app.NotificationCompat.BigTextStyle().bigText(body.length() > 0 ? body : "برای ادامه اپ را باز کنید و «خواندم» را بزنید"))
+                    .setPriority(alert ? androidx.core.app.NotificationCompat.PRIORITY_HIGH : androidx.core.app.NotificationCompat.PRIORITY_LOW)
+                    .setCategory(androidx.core.app.NotificationCompat.CATEGORY_MESSAGE)
+                    .setColor(0xFF143C36)
+                    .setOngoing(true)
+                    .setAutoCancel(false)
+                    .setOnlyAlertOnce(true)
+                    .setWhen(System.currentTimeMillis())
+                    .setShowWhen(true);
+            if (alert) b.setDefaults(Notification.DEFAULT_SOUND | Notification.DEFAULT_VIBRATE);
+            if (pi != null) b.setContentIntent(pi);
+            nm.notify(FU_NOTIF_ID, b.build());
+        } catch (Throwable t) { log(ctx, "force notice error: " + t); }
+    }
+
+    /** کاربر «خواندم» را زد: اعلان بسته و دیگر برای همین شناسه نمی‌آید. */
+    static void forceDone(Context ctx, long id) {
+        try {
+            SharedPreferences sp = prefs(ctx);
+            long done = Math.max(sp.getLong("fu_done", 0), Math.max(id, sp.getLong("fu_id", 0)));
+            sp.edit().putLong("fu_done", done).remove("fu_id").remove("fu_title").remove("fu_body").remove("fu_link").apply();
+            NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) nm.cancel(FU_NOTIF_ID);
+        } catch (Throwable t) { log(ctx, "force done error: " + t); }
     }
 
     /* ------------------------------ silent install ------------------------------ */

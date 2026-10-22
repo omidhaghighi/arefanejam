@@ -781,6 +781,7 @@ function hwBackCloseModal() {
 }
 function handleHardwareBack() {
   try {
+    if (document.getElementById('fu-overlay')) return;   // اعلان اجباری «خواندم» با دکمهٔ برگشت بسته نمی‌شود
     const ex = document.getElementById('exit-confirm-modal');
     if (ex && !ex.classList.contains('hidden')) { ex.classList.add('hidden'); exitAppNow(); return; }
     if (overlayStack.length) {
@@ -13313,6 +13314,62 @@ function ensureDeviceId() {
 }
 /* ---------- آمار نصب/آنلاین (heartbeat) ---------- */
 var hbLast = 0;
+let hbCitySent = '';
+function hbCityName() {
+  if (state.manualCity && state.manualCity.name) return String(state.manualCity.name).slice(0, 60);
+  const cc = loadCachedCoords();
+  if (cc) {
+    const nc = findNearestCity(cc.lat, cc.lng);
+    if (nc && nc.name && (typeof wxKm !== 'function' || wxKm(cc.lat, cc.lng, nc.lat, nc.lng) <= 120)) return String(nc.name).slice(0, 60);
+  }
+  return '';
+}
+
+/* ---------- اعلان اجباریِ «خواندم» (بروزرسانی بی‌صدا از پیشخوان ← ترافیک) ----------
+   یک پنجرهٔ ساده با یک دکمهٔ «خواندم»؛ بسته نمی‌شود (دکمهٔ برگشت و بیرون‌زدن هم اثری ندارد). با زدن «خواندم» بروزرسانی
+   بی‌صدا در پس‌زمینه شروع می‌شود (کد در native-bridge.js: window.arefForceUpdateDone) و هیچ پیام/پنجره‌ای نشان داده نمی‌شود.
+   منبع: ۱) پاسخ heartbeat (اپ باز) ۲) اعلان بومیِ ماندگار (اپ بسته). هیچ پرسش دوره‌ای جدیدی ساخته نشده است. */
+const FU_ACK_KEY = 'arefanejam_fu_ack';
+function fuAckedId() { try { return parseInt(localStorage.getItem(FU_ACK_KEY) || '0', 10) || 0; } catch (e) { return 0; } }
+function fuShow(fu) {
+  try {
+    const id = parseInt(fu && fu.id, 10) || 0;
+    if (!id || id <= fuAckedId()) return;
+    if (document.getElementById('fu-overlay')) return;
+    const ov = document.createElement('div');
+    ov.id = 'fu-overlay';
+    ov.setAttribute('role', 'alertdialog');
+    ov.style.cssText = 'position:fixed;left:0;top:0;right:0;bottom:0;z-index:2147483000;background:rgba(10,24,21,.82);display:flex;align-items:center;justify-content:center;padding:24px;direction:rtl;-webkit-tap-highlight-color:transparent';
+    const card = document.createElement('div');
+    card.style.cssText = 'background:#fffaf0;color:#143C36;border:2px solid #B08D4E;border-radius:22px;max-width:340px;width:100%;padding:26px 22px 22px;text-align:center;box-shadow:0 14px 40px rgba(0,0,0,.45);font-family:inherit';
+    const h = document.createElement('div');
+    h.style.cssText = 'font-size:19px;font-weight:800;margin-bottom:12px';
+    h.textContent = String(fu.title || 'عارفان جام');
+    const t = document.createElement('div');
+    t.style.cssText = 'font-size:16px;line-height:2;margin-bottom:20px;white-space:pre-line';
+    t.textContent = String(fu.body || '');
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = String(fu.btn || 'خواندم');
+    b.style.cssText = 'background:#143C36;color:#fff;border:0;border-radius:14px;font-size:18px;font-weight:800;padding:12px 0;width:100%;font-family:inherit;cursor:pointer';
+    let done = false;
+    b.addEventListener('click', () => {
+      if (done) return; done = true;
+      try { localStorage.setItem(FU_ACK_KEY, String(id)); } catch (e) {}
+      try { ov.remove(); } catch (e) {}
+      try { if (fu.link) window.open(String(fu.link), '_blank'); } catch (e) {}
+      try { if (typeof window.arefForceUpdateDone === 'function') window.arefForceUpdateDone({ id: id }); } catch (e) {}
+      try { hbLast = 0; sendHeartbeat(); } catch (e) {}   // تأیید را همین حالا به سایت می‌رسانیم (همراه ضربان معمولی)
+    });
+    card.appendChild(h); card.appendChild(t); card.appendChild(b);
+    ov.appendChild(card);
+    // لمس بیرون از کارت هیچ کاری نمی‌کند
+    ov.addEventListener('click', (e) => { e.stopPropagation(); });
+    document.body.appendChild(ov);
+  } catch (e) {}
+}
+window.arefForceUpdateShow = fuShow;
+
 async function sendHeartbeat() {
   const hbS = trafficSec('hb_s', 60);
   if (hbS === 0 || hbS >= 120) {   // حالت صرفه‌جویی: بدون ارسال «خروج به پس‌زمینه» و با فاصلهٔ حداقل نصف دوره
@@ -13334,7 +13391,16 @@ async function sendHeartbeat() {
       hbBody.app_version = 'web';
     }
   } catch (e) {}
-  apiFetch('/heartbeat', { method: 'POST', body: JSON.stringify(hbBody) }).catch(() => {});
+  // شهر کاربر (فقط نام، برای آمار «کاربران هر شهر») — فقط بار اول و وقتی عوض شد
+  try {
+    const cn = hbCityName();
+    if (cn && cn !== hbCitySent) { hbBody.city = cn; hbCitySent = cn; }
+  } catch (e) {}
+  // آخرین اعلان اجباری که کاربر «خواندم» زده؛ تا سایت تأیید کند در هر ضربان همراه است (چند بایت)
+  try { const fa = fuAckedId(); if (fa > 0) hbBody.fu_ack = fa; } catch (e) {}
+  apiFetch('/heartbeat', { method: 'POST', body: JSON.stringify(hbBody) }).then((r) => {
+    try { if (r && r.fu && r.fu.id) fuShow(r.fu); } catch (e) {}
+  }).catch(() => {});
   syncDeviceIdToServiceWorker(device_id);
   try { pvFlush(); } catch (e) {}
 }
