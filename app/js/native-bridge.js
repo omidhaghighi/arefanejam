@@ -1201,8 +1201,11 @@
     setReloadBtnBusy(false);
   }
 
+  // نسخهٔ بازار: دکمهٔ بروزرسانی بالا فقط صفحهٔ اپ در کافه‌بازار را باز می‌کند؛ بروزرسانی را خود بازار انجام می‌دهد
+  // (هیچ دانلود/نصب/OTA از سایت در این نسخه نیست).
+  var BAZAAR_URL = 'https://cafebazaar.ir/app/com.arefanejam.quran';
   function manualUpdate() {
-    if (STORE) return;
+    if (STORE) { browserFallback(BAZAAR_URL); return; }
     if (manualBusy || busyUpdating) return;
     var run = ++manualRun;
     manualBusy = true;
@@ -1439,7 +1442,7 @@
     if (rb) rb.title = 'بروزرسانی';
     if (STORE) {
       // نسخهٔ بازار: دکمهٔ بروزرسانی بالا، یادآور «نرم‌افزار را بروز کنید» و کاشی بروزرسانی نمایش داده نمی‌شوند
-      try { if (rb) rb.style.display = 'none'; } catch (e) {}
+      try { if (rb) rb.title = 'بروزرسانی از کافه‌بازار'; } catch (e) {}   // دکمه می‌ماند و صفحهٔ اپ در بازار را باز می‌کند
       try { var uh0 = document.getElementById('topbar-update-hint'); if (uh0) uh0.style.display = 'none'; } catch (e) {}
       try { var tl0 = document.getElementById('app-update-tile'); if (tl0) tl0.classList.add('hidden'); } catch (e) {}
     }
