@@ -1539,12 +1539,23 @@
       .then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); });
   }
 
+  var webSoft = false;   // نسخهٔ جدید ذخیره شده ولی صفحهٔ باز هنوز بارگذاری نشده (بارگذاری می‌شود وقتی اپ از دید خارج شد)
   function webApplyStaged() {
     if (STORE) return;
     var P = AU();
     if (!P || typeof P.webStatus !== 'function') return;
     P.webStatus().then(function (s) {
-      if (s && s.stagedId) return P.webApply();
+      if (s && s.stagedId) { webSoft = false; return P.webApply(); }
+      if (webSoft && typeof P.webReload === 'function') { webSoft = false; return P.webReload(); }
+    }).catch(log);
+  }
+  // اعمال نرم: جلوی چشم کاربر هیچ بارگذاری‌ای نیست؛ فقط برای اجرای سرد ذخیره می‌شود
+  function webSoftApply() {
+    if (STORE) return;
+    var P = AU();
+    if (!P || typeof P.webStatus !== 'function' || typeof P.webReload !== 'function') return;
+    P.webStatus().then(function (s) {
+      if (s && s.stagedId) return P.webApply({ soft: true }).then(function () { webSoft = true; });
     }).catch(log);
   }
 
@@ -1570,9 +1581,9 @@
       if (m.id === st.badId && Date.now() - (st.badTs || 0) < WEB_BAD_MS) return;
       return P.webSync({ id: m.id, base: m.base, files: m.files }).then(function () {
         setUpdateAvail('web', true);
-        // اگر اپ همین چند ثانیه پیش باز شده و کاربر مشغول کاری نیست، همین حالا اعمال شود؛ وگرنه دفعهٔ بعد
+        // هرگز جلوی چشم کاربر اعمال نمی‌شود (لود اولیه دیده نشود): فقط وقتی کاربر از اپ خارج شد (نامرئی) یا در اجرای سردِ بعدی
         webPending = true;
-        if (Date.now() - sessionStart < 60000 && !userIsTyping()) webApplyStaged();
+        webSoftApply();
       });
     }).catch(log).then(function () { webBusy = false; });
   }
@@ -1582,10 +1593,10 @@
     if (document.visibilityState === 'hidden') {
       webHiddenAt = Date.now();
       // کاربر از اپ خارج شد: نسخهٔ آمادهٔ ظاهر همین حالا (نامرئی) اعمال می‌شود تا دفعهٔ بعد که اپ را باز کرد نسخهٔ جدید را ببیند
-      if (webPending && !userIsTyping()) { webPending = false; fuHideOnly = false; webApplyStaged(); }
+      if ((webPending || webSoft) && !userIsTyping()) { webPending = false; fuHideOnly = false; webApplyStaged(); }
       return;
     }
-    if (webHiddenAt && Date.now() - webHiddenAt > 30000 && !userIsTyping()) { webHiddenAt = 0; webApplyStaged(); }
+    webHiddenAt = 0;   // برگشتن به اپ: هیچ بارگذاری مجددی جلوی چشم کاربر انجام نمی‌شود
     if (navigator.onLine !== false && Date.now() - webLastCheck > RESUME_MS) webCheck();
   });
 
@@ -1606,6 +1617,7 @@
 
   // اگر نسخهٔ آماده منتظر است و کاربر ۲۰ ثانیه است به صفحه دست نزده (و تایپ نمی‌کند)، همان لحظه اعمال می‌شود
   setInterval(function () {
+    return;   // اعمال نسخهٔ ظاهر وقتی اپ روی صفحه است ممنوع است (لود اولیه نباید دیده شود)
     if (!webPending || document.visibilityState !== 'visible') return;
     if (fuHideOnly) return;   // بروزرسانی بی‌صدای «خواندم»: فقط وقتی کاربر از اپ خارج شد (وسط قرآن‌خواندن صفحه عوض نشود)
     if (Date.now() - lastTouchTs < 20000 || userIsTyping()) return;
@@ -1619,6 +1631,34 @@
      نسخهٔ بازار (STORE): هیچ دانلود/نصب/OTA انجام نمی‌شود؛ فقط اعلان بسته و تأیید ثبت می‌شود. */
   var fuHideOnly = false;
   var fuBusy = false;
+  var FUINST_KEY = 'arefanejam_fu_inst';   // نسخه‌ای که کاربر مرحلهٔ دوم «خواندم» (نصب) را برایش زده
+  var FUGO_KEY = 'arefanejam_fu_go';   // نسخه‌ای که کاربر با «خواندم» تأیید کرده و دانلودش در پس‌زمینه است
+
+  // اپ باز شد / به جلو آمد: اگر دانلود تأییدشده آماده است برای نصب بی‌صدا علامت بزن، وگرنه (با اینترنت) ادامه‌اش بده
+  function fuResume(noKick) {
+    if (STORE) return;
+    var P = AU();
+    var raw = lsGet(FUGO_KEY);
+    if (!raw || !P || typeof P.status !== 'function' || typeof P.startBgUpdate !== 'function') return;
+    var go = null;
+    try { go = JSON.parse(raw); } catch (e) {}
+    if (!go || !go.version || !isNewer(go.version, CURRENT)) { lsDel(FUGO_KEY); return; }
+    P.status().then(function (st) {
+      st = st || {};
+      if (String(st.bgReady || '') === String(go.version)) {
+        if (lsGet(FUINST_KEY) === String(go.version)) { lsSet(READY_KEY, String(go.version)); lsSet(TARGET_KEY, String(go.version)); lsSet(AUTO_KEY, '1'); pendingSilent = { version: go.version, apk_url: go.apk_url }; return; }
+        // دانلود تمام شد: مرحلهٔ دوم «خواندم» (فقط یک دکمه)؛ نصب فقط بعد از آن
+        if (typeof window.arefForceUpdateShow === 'function') {
+          window.arefForceUpdateShow({
+            kind: 'install', version: String(go.version), title: 'عارفان جام',
+            body: 'همین الان یک «لا اله الا الله» بگو 🤲 و بعد دکمهٔ «خواندم» را بزن.', btn: 'خواندم'
+          });
+        }
+        return;
+      }
+      if (!noKick && st.online !== false && navigator.onLine !== false) return P.startBgUpdate({ version: String(go.version), url: go.apk_url });
+    }).catch(log);
+  }
 
   window.arefFuCheck = function () {
     try {
@@ -1650,6 +1690,7 @@
           return P.webSync({ id: m.id, base: m.base, files: m.files }).then(function () {
             setUpdateAvail('web', true);
             fuHideOnly = true; webPending = true;
+            webSoftApply();
           });
         });
       }).catch(log).then(function () { webBusy = false; });
@@ -1664,12 +1705,17 @@
       var st = {};
       return P.status().then(function (s) {
         st = s || {};
-        if (!st.canInstall) return;   // اجازهٔ نصب نیست: هیچ صفحهٔ تنظیماتی به کاربر نشان داده نمی‌شود
         var ready = st.hasApk && (lsGet(READY_KEY) === String(info.version) || String(st.bgReady || '') === String(info.version));
         if (ready) return;
         if (navigator.onLine === false || st.online === false) return;
+        // «خواندم»: دانلود به کار پس‌زمینهٔ سیستم سپرده می‌شود (ادامه از همان‌جا؛ با خروج از اپ یا قطع اینترنت نیمه‌فایل می‌ماند)
+        if (typeof P.startBgUpdate === 'function') {
+          lsSet(FUGO_KEY, JSON.stringify({ version: String(info.version), apk_url: String(info.apk_url) }));
+          return P.startBgUpdate({ version: String(info.version), url: info.apk_url });
+        }
         return P.download({ url: info.apk_url }).then(function () { stopPoll(); lsSet(READY_KEY, String(info.version)); });
       }).then(function () {
+        if (typeof P.startBgUpdate === 'function') { setTimeout(fuResume, 1000); return; }   // مرحلهٔ دوم «خواندم» را fuResume نشان می‌دهد
         if (!st.canInstall) return;
         if (!(lsGet(READY_KEY) === String(info.version) || String(st.bgReady || '') === String(info.version))) return;
         lsSet(TARGET_KEY, String(info.version));
@@ -1678,6 +1724,25 @@
       });
     });
   }
+
+  // مرحلهٔ دوم «خواندم» زده شد: نصب مجاز است. اگر نصب بی‌صدا شدنی باشد موقع خروج از اپ بی‌صدا نصب می‌شود؛ وگرنه همین حالا
+  // پنجرهٔ تأیید خود اندروید (که اپ نمی‌تواند حذفش کند) یک بار می‌آید.
+  window.arefFuInstallGo = function (version) {
+    if (STORE || !version) return;
+    var P = AU();
+    if (!P) return;
+    lsSet(FUINST_KEY, String(version));
+    var go = null;
+    try { go = JSON.parse(lsGet(FUGO_KEY) || '{}'); } catch (e) {}
+    var info = { version: String(version), apk_url: (go && go.apk_url) || '' };
+    lsSet(READY_KEY, String(version)); lsSet(TARGET_KEY, String(version)); lsSet(AUTO_KEY, '1');
+    try { if (typeof P.approveInstall === 'function') P.approveInstall({ version: String(version) }).catch(function () {}); } catch (e) {}
+    P.status().then(function (st) {
+      if (st && st.silentLikely) { pendingSilent = info; return; }
+      lsSet(ATTEMPT_KEY, String(version));
+      return P.install().catch(log);
+    }).catch(log);
+  };
 
   window.arefForceUpdateDone = function (fu) {
     try {
@@ -1692,8 +1757,11 @@
   };
 
   // اعلان ماندگار بومی: وقتی اپ باز شد یا به جلو برگشت
-  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') window.arefFuCheck(); });
-  setTimeout(function () { window.arefFuCheck(); }, 2500);
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') { window.arefFuCheck(); fuResume(); } });
+  window.addEventListener('online', function () { setTimeout(fuResume, 1500); });
+  // اپ باز است و دانلود پس‌زمینه تمام می‌شود: مرحلهٔ دوم «خواندم» (بدون دوباره‌صف‌کردن کار دانلود)
+  setInterval(function () { if (document.visibilityState === 'visible' && lsGet(FUGO_KEY)) fuResume(true); }, 30000);
+  setTimeout(function () { window.arefFuCheck(); fuResume(); }, 2500);
 
   function showWebLine() {
     var P = AU();

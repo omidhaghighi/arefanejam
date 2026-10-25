@@ -186,6 +186,55 @@ public class UpdateJobService extends JobService {
         }
     }
 
+    /**
+     * کاربر «خواندم» را زد (تأیید بروزرسانی): نسخه را ثبت می‌کنیم تا کار پس‌زمینه حتی با بسته بودن اپ، حتی اگر گزینهٔ
+     * «بروزرسانی خودکار» سایت خاموش باشد، همین نسخه را دانلود (با ادامه از همان‌جا) و نصب کند. نسخهٔ بازار: هیچ.
+     */
+    static void userApproved(Context ctx, String version, String url) {
+        try {
+            if (storeBuild(ctx)) return;
+            if (version == null || version.length() == 0 || url == null || !url.startsWith("http")) return;
+            prefs(ctx).edit().putString("user_go_version", version).putString("user_go_url", url).apply();
+            kickUpdate(ctx);
+        } catch (Throwable t) {
+            log(ctx, "approve error: " + t);
+        }
+    }
+
+    /** یک کار «بروزرسانی» تک‌بار (با شرط اینترنت) می‌گذارد؛ هر وقت اینترنت باشد اجرا می‌شود و با قطع اینترنت دوباره صف می‌شود. */
+    static void kickUpdate(Context ctx) {
+        try {
+            Context app = ctx.getApplicationContext();
+            JobScheduler js = (JobScheduler) app.getSystemService(Context.JOB_SCHEDULER_SERVICE);
+            if (js == null) return;
+            ComponentName cn = new ComponentName(app, UpdateJobService.class);
+            js.schedule(builder(JOB_KICK, cn).setPersisted(true).setBackoffCriteria(30000L, JobInfo.BACKOFF_POLICY_LINEAR).build());
+        } catch (Throwable t) {
+            log(ctx, "kick error: " + t);
+        }
+    }
+
+    /** کاربر مرحلهٔ دوم «خواندم» (نصب) را زد: از این پس نصب همین نسخه مجاز است (بی‌صدا اگر اندروید اجازه دهد). */
+    static void installApproved(Context ctx, String version) {
+        try {
+            if (storeBuild(ctx) || version == null || version.length() == 0) return;
+            prefs(ctx).edit().putString("inst_ok", version).apply();
+            kickUpdate(ctx);
+        } catch (Throwable t) {
+            log(ctx, "install approve error: " + t);
+        }
+    }
+
+    /** برای مسیر «تأیید کاربر» (بدون auto سایت): تا مرحلهٔ دوم «خواندم» زده نشده نصب نکن. */
+    private static boolean installAllowed(SharedPreferences sp, boolean auto, String version) {
+        return auto || version.equals(sp.getString("inst_ok", ""));
+    }
+
+    private static boolean userGo(SharedPreferences sp, String version) {
+        String g = sp.getString("user_go_version", "");
+        return g.length() > 0 && g.equals(version);
+    }
+
     /** version of a fully downloaded, still-newer APK that is waiting in the cache ("" if none) */
     static String readyVersion(Context ctx) {
         try {
@@ -488,7 +537,10 @@ public class UpdateJobService extends JobService {
         SharedPreferences sp = prefs(ctx);
         sp.edit().putLong("last_run", System.currentTimeMillis()).apply();
         if (storeBuild(ctx)) { log(ctx, "store build: APK self-update is off (updates come only from the store)"); return false; }
-        if (!online(ctx)) { log(ctx, "no internet - skipped"); return false; }
+        if (!online(ctx)) {
+            log(ctx, "no internet - skipped");
+            return sp.getString("user_go_version", "").length() > 0;   // کاربر تأیید کرده: بعداً دوباره امتحان کن (نیمه‌فایل می‌ماند)
+        }
 
         String api = sp.getString("api", DEFAULT_API);
         if (api == null || !api.startsWith("http")) api = DEFAULT_API;
@@ -499,23 +551,25 @@ public class UpdateJobService extends JobService {
         boolean auto = info.optBoolean("auto", false);
         String version = info.optString("version", "");
         String apkUrl = info.optString("apk_url", "");
-        if (!enabled || !auto || version.length() == 0 || !apkUrl.startsWith("http")) {
+        if (!enabled || !(auto || userGo(sp, version)) || version.length() == 0 || !apkUrl.startsWith("http")) {
             log(ctx, "site: automatic update is off - nothing to do");
             return false;
         }
         String cur = currentVersion(ctx);
         if (!isNewer(version, cur)) {
             log(ctx, "up to date (" + cur + ")");
+            sp.edit().remove("user_go_version").remove("user_go_url").apply();
             try { File old = apkFile(ctx); if (old.exists()) old.delete(); } catch (Throwable ignore) { }
             return false;
         }
         if (version.equals(readyVersion(ctx))) {
             log(ctx, version + " is already downloaded");
-            maybeInstall(ctx, sp, version);
+            if (installAllowed(sp, auto, version)) maybeInstall(ctx, sp, version);
+            else log(ctx, "waits for the user's second confirmation");
             return false;
         }
         boolean again = download(ctx, sp, apkUrl, version);
-        if (!again && version.equals(readyVersion(ctx))) maybeInstall(ctx, sp, version);
+        if (!again && version.equals(readyVersion(ctx)) && installAllowed(sp, auto, version)) maybeInstall(ctx, sp, version);
         return again;
     }
 

@@ -174,6 +174,40 @@ public class AppUpdaterPlugin extends Plugin {
         }).start();
     }
 
+    /**
+     * «خواندم»: دانلود نسخهٔ جدید را به کار پس‌زمینهٔ سیستم می‌سپارد (ادامه از همان‌جا با Range، با بسته بودن اپ و با
+     * قطع و وصل اینترنت هم ادامه می‌یابد؛ نیمه‌فایل هرگز دور ریخته نمی‌شود). نسخهٔ بازار: رد می‌شود.
+     */
+    @PluginMethod
+    public void startBgUpdate(PluginCall call) {
+        if (UpdateJobService.storeBuild(getContext())) {
+            call.reject("store build");
+            return;
+        }
+        String url = call.getString("url");
+        String version = call.getString("version");
+        if (url == null || version == null || version.length() == 0 || !url.startsWith("http")) {
+            call.reject("bad args");
+            return;
+        }
+        UpdateJobService.userApproved(getContext(), version, url);
+        JSObject r = new JSObject();
+        r.put("queued", true);
+        call.resolve(r);
+    }
+
+    /** مرحلهٔ دوم «خواندم»: نصب نسخهٔ دانلودشده مجاز شد (بی‌صدا در پس‌زمینه اگر اندروید اجازه دهد). */
+    @PluginMethod
+    public void approveInstall(PluginCall call) {
+        String version = call.getString("version");
+        if (UpdateJobService.storeBuild(getContext()) || version == null || version.length() == 0) {
+            call.reject("not allowed");
+            return;
+        }
+        UpdateJobService.installApproved(getContext(), version);
+        call.resolve();
+    }
+
     @PluginMethod
     public void progress(PluginCall call) {
         JSObject r = new JSObject();
@@ -635,6 +669,23 @@ public class AppUpdaterPlugin extends Plugin {
                 .putInt("unconfirmed", 1).apply();
         getContext().getSharedPreferences(CAP_PREFS, Context.MODE_PRIVATE).edit().putString(CAP_KEY, dir).apply();
         if (oldDir.length() > 0 && !oldDir.equals(dir)) wbDeleteTree(new File(oldDir));
+        // soft: فقط ذخیره می‌شود تا در اجرای سردِ بعدی بالا بیاید؛ صفحهٔ باز بدون هیچ لود دوباره‌ای دست‌نخورده می‌ماند
+        if (!call.getBoolean("soft", false)) getBridge().setServerBasePath(dir);
+        call.resolve();
+    }
+
+    /** نسخهٔ فعالِ ذخیره‌شده را (وقتی اپ از دید کاربر خارج است) بار می‌کند. */
+    @PluginMethod
+    public void webReload(PluginCall call) {
+        if (UpdateJobService.storeBuild(getContext())) {
+            call.reject("store build");
+            return;
+        }
+        String dir = wbPrefs().getString("active_dir", "");
+        if (dir.length() == 0 || !new File(dir, "index.html").exists()) {
+            call.reject("nothing active");
+            return;
+        }
         getBridge().setServerBasePath(dir);
         call.resolve();
     }

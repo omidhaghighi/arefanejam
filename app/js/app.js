@@ -756,6 +756,9 @@ const HW_MODAL_CLOSERS = {
   'note-modal': 'note-cancel-btn',
   'shariq-ask-modal': 'shariq-ask-cancel-btn',
   'shariq-scholar-modal': 'sch-close-btn',
+  'sch-q-modal': 'sch-qm-close',
+  'sch-chat-modal': 'sch-cm-close',
+  'sch-math-modal': 'sch-math-cancel',
   'khatm-new-modal': 'khatm-new-cancel-btn',
   'fb-new-modal': 'fb-new-cancel-btn',
   'quran-invite-modal': 'quran-invite-btn2',
@@ -800,7 +803,7 @@ function handleHardwareBack() {
     const lb = document.getElementById('gallery-lightbox');
     if (lb && !lb.classList.contains('hidden')) { closeGalleryLightbox(); return; }
     if (currentTab === 'contest' && typeof cnInGame === 'function' && cnInGame()) { cnConfirmExit(); return; }
-    if (currentTab === 'contest' && (cnS.phase === 'fl' || cnS.phase === 'review' || cnS.phase === 'season' || cnS.phase === 'prac' || cnS.phase === 'panel')) { cnOpen(); return; }
+    if (currentTab === 'contest' && (cnS.phase === 'fl' || cnS.phase === 'review' || cnS.phase === 'season' || cnS.phase === 'prac' || cnS.phase === 'panel' || cnS.phase === 'help' || cnS.phase === 'prof' || cnS.phase === 'tnl' || cnS.phase === 'tnb')) { if ((cnS.phase === 'tnb') && cnS.tnList) { cnTnHome(); return; } cnOpen(); return; }
     if (currentTab === 'game-ayah' && typeof gaGame !== 'undefined' && gaGame) { gaOpen(); return; }
     if (currentTab === 'shariq' && shariqState && shariqState.activeCategory != null) {
       document.querySelectorAll('#shariq-cats-row .shariq-chip').forEach((c) => c.classList.remove('active'));
@@ -5850,8 +5853,11 @@ function applyHeading(magHeading) {
     let diff = target - cur;
     if (diff > 180) diff -= 360;
     if (diff < -180) diff += 360;
-    const k = Math.min(0.5, 0.07 + Math.abs(diff) / 120);
-    qbHeading += k * diff;
+    // حساسیت کم: لرزش‌های ریز (زیر ۱٫۵ درجه) نادیده گرفته می‌شود و حرکت نرم‌تر دنبال می‌شود
+    if (Math.abs(diff) >= 1.5) {
+      const k = Math.min(0.22, 0.03 + Math.abs(diff) / 260);
+      qbHeading += k * diff;
+    }
   }
   const s = qbEl('qb-scene');
   if (s && !qbGyroMode && s.classList.contains('is-calib')) s.classList.remove('is-calib');
@@ -6063,6 +6069,7 @@ function qbGpsStop() {
   qbGps.id = null; qbGps.on = false; qbGps.ref = null;
 }
 
+let qbCalibShownAt = 0, qbCalibCool = 0;
 let qbNsOpen = false, qbNsAutoDone = false, qbStartedAt = 0, qbGyroSince = 0;
 function qbNoSensorUpdate() {
   try {
@@ -6112,7 +6119,16 @@ setInterval(() => {
   try {
     const s = qbEl('qb-scene');
     if (!s || currentTab !== 'qibla') return;
-    s.classList.toggle('is-calib', qiblaListenerAttached && qbHasLocation() && (qbGyroMode || Date.now() - qbLastHeadingTs > 3500 || (gotNativeHeading && qbNativeAcc <= 0)));
+    // نشانهٔ ∞ فقط وقتی واقعاً ۱۲ ثانیه هیچ جهتی نرسیده نشان داده می‌شود، حداکثر ۵ ثانیه می‌ماند و تا ۵ دقیقه دوباره نمی‌آید (و جلوی استفاده را نمی‌گیرد)
+    const tNow = Date.now();
+    const wantCalib = qiblaListenerAttached && qbHasLocation() && !qbGyroMode && (tNow - qbLastHeadingTs > 12000);
+    if (wantCalib && !qbCalibShownAt && tNow > qbCalibCool) qbCalibShownAt = tNow;
+    let showCalib = false;
+    if (qbCalibShownAt) {
+      if (!wantCalib || tNow - qbCalibShownAt > 5000) { qbCalibCool = tNow + 300000; qbCalibShownAt = 0; }
+      else showCalib = true;
+    }
+    s.classList.toggle('is-calib', showCalib);
     if (qiblaListenerAttached && !qbGyroMode && Date.now() - qbLastHeadingTs > 2500) qbKick();
     const nowT = Date.now();
     if (qbGyroMode) { if (!qbGyroSince) qbGyroSince = nowT; } else qbGyroSince = 0;
@@ -7463,6 +7479,7 @@ async function runSurahDownload(ctl, reciter, todo, workers, onProgress) {
 function setSurahDlState(b, st, have, total, pct) {
   b.classList.remove('is-done', 'is-part', 'is-busy');
   if (st === 'done') { b.textContent = '✅'; b.classList.add('is-done'); b.title = 'صوت این سوره روی گوشی ذخیره است'; }
+  else if (st === 'queued') { b.textContent = '⏳ در صف'; b.classList.add('is-busy'); b.title = 'در صف دانلود؛ به ترتیب دانلود می‌شود (برای حذف از صف بزنید)'; }
   else if (st === 'busy') { b.textContent = toPersianDigits(pct) + '٪'; b.classList.add('is-busy'); b.title = 'در حال دانلود (برای توقف بزنید)'; }
   else if (st === 'part') { b.textContent = 'دانلود سوره'; b.classList.add('is-part'); b.title = 'ادامهٔ دانلود صوت (' + toPersianDigits(have) + ' از ' + toPersianDigits(total) + ' آیه ذخیره است)'; }
   else { b.textContent = 'دانلود سوره'; b.title = 'دانلود سوره'; }
@@ -7475,6 +7492,7 @@ async function refreshSurahAudioIcons() {
     btns.forEach((b) => {
       const n = Number(b.dataset.n);
       if (surahAudioDl && surahAudioDl.num === n) return;
+      if (surahDlQueued(n)) { setSurahDlState(b, 'queued'); return; }
       const r = surahAudioRange(n);
       if (!r) return;
       const c = countInRange(have, r);
@@ -7564,11 +7582,59 @@ function pickReciterForSurah(info) {
   });
 }
 
+/* صف دانلود: کاربر هر چند سوره را که بزند، سوره‌ها «به ترتیب» دانلود می‌شوند (اولی کامل، بعد دومی، ...) */
+let surahDlQueue = [];   // کارهای منتظر: { num, reciter }
+let surahDlRunning = false;
+function surahBtn(n) { return document.querySelector('#quran-surah-list .qs-dl[data-n="' + n + '"]'); }
+function surahDlQueued(n) { return surahDlQueue.some((j) => j.num === n); }
+async function surahQueueRun() {
+  if (surahDlRunning) return;
+  surahDlRunning = true;
+  let abortAll = false;
+  try {
+    while (surahDlQueue.length && !abortAll) {
+      const job = surahDlQueue[0];
+      const n = job.num;
+      const info = surahInfoByNumber(n);
+      const have = await getCachedAyahSet(job.reciter);
+      const todo = [];
+      if (info) for (let i = 0; i < info.count; i++) if (!have.has(info.from + i)) todo.push(info.from + i);
+      if (!todo.length) { surahDlQueue.shift(); continue; }
+      if (!navigator.onLine) { appAlert('audio_surah_need_internet'); abortAll = true; break; }
+      if (silentDl) silentDl.cancelled = true;
+      const ctl = { num: n, cancelled: false };
+      surahAudioDl = ctl;
+      lastAudioDlError = '';
+      let b = surahBtn(n); if (b) setSurahDlState(b, 'busy', 0, todo.length, 0);
+      const res = await runSurahDownload(ctl, job.reciter, todo, 3, (done, failed) => {
+        const bb = surahBtn(n); if (bb) setSurahDlState(bb, 'busy', done, todo.length, Math.min(99, Math.round((done + failed) * 100 / todo.length)));
+      });
+      surahAudioDl = null;
+      surahDlQueue.shift();
+      const detail = lastAudioDlError ? (' (کد خطا: ' + lastAudioDlError + ')') : '';
+      if (res.done === 0 && res.failed > 0) {
+        // اینترنت یا سرور مشکل دارد؛ ادامهٔ صف بی‌فایده است
+        appAlert('audio_surah_fail_all', null, { text: appMsgCfg('audio_surah_fail_all').text + detail });
+        abortAll = true;
+      } else if (res.failed > 0) appAlert('audio_surah_fail_some', { failed: toPersianDigits(res.failed) });
+      else if (ctl.cancelled && !surahDlQueue.length) appAlert('audio_surah_cancelled');
+      await refreshSurahAudioIcons();
+      refreshAudioOfflineStatus();
+    }
+  } catch (e) { lastAudioDlError = String((e && e.message) || e).slice(0, 60); }
+  surahDlQueue = [];
+  surahAudioDl = null;
+  surahDlRunning = false;
+  await refreshSurahAudioIcons();
+  refreshAudioOfflineStatus();
+}
 async function onSurahAudioClick(btn) {
   const n = Number(btn.dataset.n);
-  if (surahAudioDl) {
-    if (surahAudioDl.num === n) surahAudioDl.cancelled = true;
-    else appAlert('audio_surah_busy_other');
+  // لمس سورهٔ در حال دانلود = توقف همان سوره (صف ادامه پیدا می‌کند)؛ لمس سورهٔ منتظر = حذف از صف
+  if (surahAudioDl && surahAudioDl.num === n) { surahAudioDl.cancelled = true; return; }
+  if (surahDlQueued(n)) {
+    surahDlQueue = surahDlQueue.filter((j) => j.num !== n);
+    refreshSurahAudioIcons();
     return;
   }
   if (!window.caches) { appAlert('audio_surah_no_storage'); return; }
@@ -7579,37 +7645,18 @@ async function onSurahAudioClick(btn) {
   if (!pick) return;
   applyReciter(pick.id, { fromDownload: true }); // قاریِ انتخابی همان قاریِ پخش می‌شود
   if (pick.mode === 'use') return;
-
-  const reciter = pick.id;
-  const r = { from: info.from, count: info.count };
-  const have = await getCachedAyahSet(reciter);
-  const todo = [];
-  for (let i = 0; i < r.count; i++) if (!have.has(r.from + i)) todo.push(r.from + i);
-  if (!todo.length) { refreshSurahAudioIcons(); return; }
   if (!navigator.onLine) { appAlert('audio_surah_need_internet'); return; }
-  if (silentDl) silentDl.cancelled = true;
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
-
-  const ctl = { num: n, cancelled: false };
-  surahAudioDl = ctl;
-  lastAudioDlError = '';
-  setSurahDlState(btn, 'busy', 0, todo.length, 0);
-  const res = await runSurahDownload(ctl, reciter, todo, 3, (done, failed) => {
-    setSurahDlState(btn, 'busy', done, todo.length, Math.min(99, Math.round((done + failed) * 100 / todo.length)));
-  });
-  surahAudioDl = null;
-  await refreshSurahAudioIcons();
-  refreshAudioOfflineStatus();
-  const detail = lastAudioDlError ? (' (کد خطا: ' + lastAudioDlError + ')') : '';
-  if (res.done === 0 && res.failed > 0) appAlert('audio_surah_fail_all', null, { text: appMsgCfg('audio_surah_fail_all').text + detail });
-  else if (res.failed > 0) appAlert('audio_surah_fail_some', { failed: toPersianDigits(res.failed) });
-  else if (ctl.cancelled) appAlert('audio_surah_cancelled');
+  if (surahDlQueued(n) || (surahAudioDl && surahAudioDl.num === n)) return;
+  surahDlQueue.push({ num: n, reciter: pick.id });
+  if (surahDlRunning) setSurahDlState(btn, 'queued');
+  surahQueueRun();
 }
 
 /* ---- لمس یک آیه: اگر صوت سورهٔ آن ذخیره نیست، بی‌صدا و در پس‌زمینه کل سوره با همین قاری ذخیره می‌شود ---- */
 async function silentEnsureSurahAudio(globalAyah) {
   try {
-    if (!window.caches || !navigator.onLine || surahAudioDl) return;
+    if (!window.caches || !navigator.onLine || surahAudioDl || surahDlRunning) return;
     if (Date.now() < silentBackoffUntil) return;
     const info = surahOfGlobalAyah(Number(globalAyah));
     if (!info) return;
@@ -10212,18 +10259,33 @@ let newsCache = [];
 async function loadNewsList() {
   const el = document.getElementById('news-list-content');
   el.innerHTML = '<p class="muted-text small">در حال بارگذاری...</p>';
+  let fromCache = false, err = null;
   try {
-    newsCache = await apiFetch('/news');
-    el.innerHTML = '';
-    if (!newsCache.length) { el.innerHTML = '<p class="note-empty">فعلاً خبری ثبت نشده است.</p>'; return; }
-    newsCache.forEach((n, i) => {
-      const card = document.createElement('div');
-      card.className = 'news-card';
-      card.innerHTML = `${n.image ? `<img src="${n.image}">` : ''}<h4>${n.title}</h4><p class="muted-text small">${n.excerpt}</p><span class="news-date">${n.date}</span>`;
-      card.addEventListener('click', () => openNewsDetail(i));
-      el.appendChild(card);
-    });
-  } catch (e) { el.innerHTML = '<p class="note-empty">در حال حاضر امکان دریافت اخبار نیست.</p>'; }
+    const d = await apiFetch('/news');
+    if (!Array.isArray(d)) throw new Error('bad_news');
+    newsCache = d;
+    try { localStorage.setItem('arefNewsCache', JSON.stringify(d)); } catch (e2) { /* حافظه پر است */ }
+  } catch (e) {
+    err = e;
+    let c = null;
+    try { c = JSON.parse(localStorage.getItem('arefNewsCache') || 'null'); } catch (e3) { c = null; }
+    if (Array.isArray(c) && c.length) { newsCache = c; fromCache = true; }
+    else {
+      el.innerHTML = '<p class="note-empty">در حال حاضر امکان دریافت اخبار نیست. اینترنت را بررسی کنید.</p><button type="button" class="ghost-btn" id="news-retry-btn" style="width:100%">🔄 تلاش دوباره</button>';
+      const rb = document.getElementById('news-retry-btn'); if (rb) rb.addEventListener('click', loadNewsList);
+      return;
+    }
+  }
+  el.innerHTML = '';
+  if (fromCache) el.innerHTML = '<p class="muted-text small" style="text-align:center">📡 اتصال برقرار نشد؛ آخرین اخبار ذخیره‌شده نمایش داده می‌شود.</p>';
+  if (!newsCache.length) { el.innerHTML = '<p class="note-empty">فعلاً خبری ثبت نشده است.</p>'; return; }
+  newsCache.forEach((n, i) => {
+    const card = document.createElement('div');
+    card.className = 'news-card';
+    card.innerHTML = `${n.image ? `<img src="${n.image}">` : ''}<h4>${n.title}</h4><p class="muted-text small">${n.excerpt}</p><span class="news-date">${n.date}</span>`;
+    card.addEventListener('click', () => openNewsDetail(i));
+    el.appendChild(card);
+  });
 }
 function openNewsDetail(index) {
   const n = newsCache[index];
@@ -10722,6 +10784,29 @@ function shariqEsc(s) {
 }
 function shariqText(s) { return shariqEsc(s).replace(/\r?\n/g, '<br>'); }
 // باز/بسته کردن کادر پاسخ با انیمیشن، بدون سقف ارتفاع: پاسخ هر قدر بلند باشد کامل دیده می‌شود
+// وقتی سوال قبلی بسته می‌شود، سوالِ کلیک‌شده همان‌جای صفحه می‌ماند (بدون اسکرول به بالا)
+function shariqKeepPos(anchorEl, fn) {
+  let sp = anchorEl.parentElement;
+  while (sp && sp !== document.body && sp !== document.documentElement) {
+    const o = getComputedStyle(sp).overflowY;
+    if ((o === 'auto' || o === 'scroll') && sp.scrollHeight > sp.clientHeight) break;
+    sp = sp.parentElement;
+  }
+  const scroller = (!sp || sp === document.body || sp === document.documentElement) ? (document.scrollingElement || document.documentElement) : sp;
+  const before = anchorEl.getBoundingClientRect().top;
+  let stop = false;
+  const cancel = () => { stop = true; };
+  window.addEventListener('touchstart', cancel, { once: true, passive: true });
+  window.addEventListener('wheel', cancel, { once: true, passive: true });
+  fn();
+  const t0 = performance.now();
+  (function step() {
+    if (stop) return;
+    const d = anchorEl.getBoundingClientRect().top - before;
+    if (Math.abs(d) > 0.5) scroller.scrollTop += d;
+    if (performance.now() - t0 < 520) requestAnimationFrame(step);
+  })();
+}
 function shariqSetWrap(wrap, open) {
   if (!wrap) return;
   if (wrap._shT) { clearTimeout(wrap._shT); wrap._shT = null; }
@@ -10885,10 +10970,12 @@ async function loadShariqList(categoryId) {
     const qBtn = card.querySelector('.shariq-q');
     const wrap = card.querySelector('.shariq-a-wrap');
     qBtn.addEventListener('click', () => {
-      const opening = !wrap.classList.contains('is-open');
-      el.querySelectorAll('.shariq-a-wrap').forEach((w) => { if (w !== wrap || !opening) shariqSetWrap(w, false); });
-      el.querySelectorAll('.shariq-q').forEach((q) => q.classList.remove('is-open'));
-      if (opening) { shariqSetWrap(wrap, true); qBtn.classList.add('is-open'); }
+      shariqKeepPos(qBtn, () => {
+        const opening = !wrap.classList.contains('is-open');
+        el.querySelectorAll('.shariq-a-wrap').forEach((w) => { if (w !== wrap || !opening) shariqSetWrap(w, false); });
+        el.querySelectorAll('.shariq-q').forEach((q) => q.classList.remove('is-open'));
+        if (opening) { shariqSetWrap(wrap, true); qBtn.classList.add('is-open'); }
+      });
     });
     el.appendChild(card);
   });
@@ -11255,10 +11342,12 @@ function shariqRenderFatwas() {
       <div class="shariq-a-wrap"><div class="shariq-a">${shariqText(item.body)}${item.teacher ? '<span class="shariq-by">نویسندهٔ فتوا: ' + shariqEsc(item.teacher) + '</span>' : ''}</div></div>`;
     const qBtn = card.querySelector('.shariq-q'), wrap = card.querySelector('.shariq-a-wrap');
     qBtn.addEventListener('click', () => {
-      const opening = !wrap.classList.contains('is-open');
-      el.querySelectorAll('.shariq-a-wrap').forEach((w) => { if (w !== wrap || !opening) shariqSetWrap(w, false); });
-      el.querySelectorAll('.shariq-q').forEach((q) => q.classList.remove('is-open'));
-      if (opening) { shariqSetWrap(wrap, true); qBtn.classList.add('is-open'); }
+      shariqKeepPos(qBtn, () => {
+        const opening = !wrap.classList.contains('is-open');
+        el.querySelectorAll('.shariq-a-wrap').forEach((w) => { if (w !== wrap || !opening) shariqSetWrap(w, false); });
+        el.querySelectorAll('.shariq-q').forEach((q) => q.classList.remove('is-open'));
+        if (opening) { shariqSetWrap(wrap, true); qBtn.classList.add('is-open'); }
+      });
     });
     el.appendChild(card);
   });
@@ -11356,6 +11445,7 @@ async function schReload(silentLoginOnFail) {
     schMsg('');
     schRender();
     if (SCH.tab !== 'bk') schBkLoad();   // فقط برای نمایش تعداد درخواست‌های تازهٔ نوبت روی تب
+    schChatLoad(true);
   } catch (e) {
     if (e.status === 401) { schAuthFail(e); return; }
     schEl('sch-list').innerHTML = '';
@@ -11440,7 +11530,9 @@ function schRender() {
   schEl('sch-tab-mine').classList.toggle('active', SCH.tab === 'mine');
   schEl('sch-tab-fatwa').classList.toggle('active', isFatwa);
   schEl('sch-tab-bk').classList.toggle('active', SCH.tab === 'bk');
+  schEl('sch-tab-chat').classList.toggle('active', SCH.tab === 'chat');
   if (SCH.tab === 'bk') { schBkRender(); return; }
+  if (SCH.tab === 'chat') { schChatRender(); return; }
   schEl('sch-tab-fatwa').textContent = 'فتواهای من (' + toPersianDigits(SCH.fatwas.length) + ')';
   if (isFatwa) {
     box.innerHTML = '';
@@ -11457,65 +11549,285 @@ function schRender() {
     return;
   }
   list.forEach((q) => {
-    const card = document.createElement('div');
-    card.className = 'sch-q';
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'sch-q sch-qrow';
     card.innerHTML =
       '<p class="sch-q-text">' + shariqEsc(q.question_text) + '</p>' +
-      '<p class="sch-q-meta">' + shariqEsc(pend ? (q.created_at || '') : (q.answered_at || '')) + '</p>' +
-      '<textarea class="sch-answer" rows="8" placeholder="پاسخ را بنویسید..."></textarea>' +
-      '<select class="sch-cat">' + schCatOptions(pend ? '' : q.category_id) + '</select>' +
-      '<input type="text" class="sch-newcat hidden" maxlength="80" placeholder="نام دسته‌بندی جدید (مثلاً: احکام نماز)">' +
-      '<p class="muted-text small hidden sch-err" style="color:#a5473c"></p>' +
-      '<button type="button" class="secondary-btn small-btn sch-save">' + (pend ? 'ثبت پاسخ' : 'به‌روزرسانی پاسخ') + '</button>';
-    const ta = card.querySelector('.sch-answer'), sel = card.querySelector('.sch-cat'), nc = card.querySelector('.sch-newcat'), er = card.querySelector('.sch-err'), btn = card.querySelector('.sch-save');
-    if (!pend) ta.value = q.answer_text || '';
-    sel.addEventListener('change', () => { nc.classList.toggle('hidden', sel.value !== '__new'); if (sel.value === '__new') nc.focus(); });
-    btn.addEventListener('click', async () => {
-      const txt = ta.value.trim();
-      er.classList.add('hidden');
-      if (txt.length < 3) { er.textContent = 'متن پاسخ را بنویسید.'; er.classList.remove('hidden'); return; }
-      const body = { question_id: q.id, answer_text: txt };
-      if (sel.value === '__new') {
-        const nm = nc.value.trim();
-        if (!nm) { er.textContent = 'نام دسته‌بندی جدید را بنویسید.'; er.classList.remove('hidden'); return; }
-        body.new_category = nm;
-      } else if (sel.value) body.category_id = Number(sel.value);
-      btn.disabled = true; const old = btn.textContent; btn.textContent = 'در حال ثبت...';
-      try {
-        const d = await schApi('/shariq/scholar/answer', body);
-        if (d && Array.isArray(d.categories)) SCH.cats = d.categories;
-        shariqCacheSet('cats', null); // فهرست دسته‌های عمومی دفعهٔ بعد تازه گرفته شود
-        await schReloadKeepDrafts();
-      } catch (e) {
-        btn.disabled = false; btn.textContent = old;
-        if (e.status === 401) { schAuthFail(e); return; }
-        er.textContent = e.message; er.classList.remove('hidden');
-        if (e.status === 409 || e.status === 404) schReloadKeepDrafts();
-      }
-    });
+      '<p class="sch-q-meta">' + shariqEsc(pend ? (q.created_at || '') : (q.answered_at || '')) + ' — ' + (pend ? 'برای پاسخ‌دادن لمس کنید' : 'لمس کنید: مشاهده / ویرایش') + '</p>';
+    card.addEventListener('click', () => schQModal(q, pend));
     box.appendChild(card);
   });
 }
 // بعد از ثبت پاسخ: فهرست‌ها تازه می‌شود (سوال پاسخ‌داده‌شده از «در انتظار» می‌رود) و دسته‌بندی‌های تازه در کشویی می‌نشینند
 async function schReloadKeepDrafts() {
-  if (SCH.tab === 'fatwa') { await schReload(); return; }
   if (SCH.tab === 'bk') { await schBkLoad(); return; }
-  const drafts = {};
-  schEl('sch-list').querySelectorAll('.sch-q').forEach((c, i) => {
-    const t = c.querySelector('.sch-answer').value, s = c.querySelector('.sch-cat').value, n = c.querySelector('.sch-newcat').value;
-    const key = (SCH.tab === 'pending' ? SCH.pending : SCH.mine)[i];
-    if (key) drafts[key.id] = { t, s, n };
-  });
   await schReload();
-  schEl('sch-list').querySelectorAll('.sch-q').forEach((c, i) => {
-    const q = (SCH.tab === 'pending' ? SCH.pending : SCH.mine)[i];
-    const d = q && drafts[q.id];
-    if (!d) return;
-    c.querySelector('.sch-answer').value = d.t;
-    const sel = c.querySelector('.sch-cat'); sel.value = d.s;
-    if (d.s === '__new') { const nc = c.querySelector('.sch-newcat'); nc.classList.remove('hidden'); nc.value = d.n; }
+}
+
+
+/* ---------- سوال ریاضی ساده (جلوگیری از لمس اشتباه) ---------- */
+function schMathGate() {
+  return new Promise((resolve) => {
+    const m = schEl('sch-math-modal'), q = schEl('sch-math-q'), inp = schEl('sch-math-in'), er = schEl('sch-math-err');
+    const ok = schEl('sch-math-ok'), cancel = schEl('sch-math-cancel');
+    let ans = 0;
+    const fa = (n) => (typeof toPersianDigits === 'function' ? toPersianDigits(n) : String(n));
+    const nextQ = () => {
+      const a = 1 + Math.floor(Math.random() * 9), b = 1 + Math.floor(Math.random() * 9);
+      ans = a + b; q.textContent = fa(a) + ' + ' + fa(b) + ' = ؟'; inp.value = '';
+    };
+    const norm = (v) => String(v || '').replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/\D/g, '');
+    const done = (v) => { m.classList.add('hidden'); ok.onclick = null; cancel.onclick = null; inp.onkeydown = null; resolve(v); };
+    const check = () => {
+      if (norm(inp.value) !== '' && Number(norm(inp.value)) === ans) { done(true); return; }
+      er.classList.remove('hidden'); nextQ(); setTimeout(() => { try { inp.focus(); } catch (e) {} }, 50);
+    };
+    er.classList.add('hidden'); nextQ();
+    ok.onclick = check; cancel.onclick = () => done(false);
+    inp.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); check(); } };
+    m.classList.remove('hidden');
+    setTimeout(() => { try { inp.focus(); } catch (e) {} }, 80);
   });
 }
+
+/* ---------- پنجرهٔ بازشوی سوال: پاسخ، ویرایش (دکمهٔ «ویرایش پاسخ» ← «تأیید»)، حذف تکراری، مشورت ---------- */
+function schQClose() { const m = schEl('sch-q-modal'); if (m) m.classList.add('hidden'); }
+function schQModal(q, pend) {
+  const m = schEl('sch-q-modal'), box = schEl('sch-q-box');
+  let editing = !!pend;
+  box.innerHTML =
+    '<div class="sch-qm-head"><h3>' + (pend ? 'پاسخ به سوال' : 'پاسخ من') + '</h3><button type="button" id="sch-qm-close" class="ghost-btn small-btn">✕ بستن</button></div>' +
+    '<p class="sch-q-text">' + shariqEsc(q.question_text) + '</p>' +
+    '<p class="sch-q-meta">' + shariqEsc(pend ? (q.created_at || '') : (q.answered_at || '')) + '</p>' +
+    '<textarea class="sch-answer" rows="10" placeholder="پاسخ را بنویسید..."></textarea>' +
+    '<select class="sch-cat">' + schCatOptions(pend ? '' : q.category_id) + '</select>' +
+    '<input type="text" class="sch-newcat hidden" maxlength="80" placeholder="نام دسته‌بندی جدید (مثلاً: احکام نماز)">' +
+    '<p class="muted-text small hidden sch-err" style="color:#a5473c"></p>' +
+    '<div class="sch-main-actions"></div>' +
+    '<div class="sch-actions-2"><button type="button" class="ghost-btn small-btn sch-chat-btn">💬 مشورت / ارجاع به علما</button><button type="button" class="ghost-btn small-btn sch-danger sch-del-btn">🗑️ حذف سوال تکراری</button></div>';
+  const ta = box.querySelector('.sch-answer'), sel = box.querySelector('.sch-cat'), nc = box.querySelector('.sch-newcat'), er = box.querySelector('.sch-err');
+  const acts = box.querySelector('.sch-main-actions');
+  if (!pend) ta.value = q.answer_text || '';
+  sel.addEventListener('change', () => { nc.classList.toggle('hidden', sel.value !== '__new'); if (sel.value === '__new') nc.focus(); });
+  const showErr = (t) => { er.textContent = t; er.classList.toggle('hidden', !t); };
+  const setEditing = (on) => {
+    editing = on; ta.readOnly = !on; sel.disabled = !on; nc.disabled = !on;
+    acts.innerHTML = '';
+    const mk = (txt, cls, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = cls; b.textContent = txt; b.style.width = '100%'; b.style.marginTop = '8px'; b.addEventListener('click', () => fn(b)); acts.appendChild(b); return b; };
+    if (on) {
+      mk(pend ? 'ثبت پاسخ' : '✅ تأیید ویرایش', 'secondary-btn small-btn', async (b) => {
+        const txt = ta.value.trim(); showErr('');
+        if (txt.length < 3) { showErr('متن پاسخ را بنویسید.'); return; }
+        const body = { question_id: q.id, answer_text: txt };
+        if (sel.value === '__new') { const nm = nc.value.trim(); if (!nm) { showErr('نام دسته‌بندی جدید را بنویسید.'); return; } body.new_category = nm; }
+        else if (sel.value) body.category_id = Number(sel.value);
+        if (!(await schMathGate())) return;   // سوال ریاضی ساده؛ جواب نداد = ارسال نمی‌شود
+        b.disabled = true; const old = b.textContent; b.textContent = 'در حال ثبت...';
+        try {
+          const d = await schApi('/shariq/scholar/answer', body);
+          if (d && Array.isArray(d.categories)) SCH.cats = d.categories;
+          shariqCacheSet('cats', null);
+          schQClose(); await schReload();
+        } catch (e) {
+          b.disabled = false; b.textContent = old;
+          if (e.status === 401) { schQClose(); schAuthFail(e); return; }
+          showErr(e.message);
+          if (e.status === 409 || e.status === 404) { schReload(); }
+        }
+      });
+      if (!pend) mk('انصراف از ویرایش', 'ghost-btn small-btn', () => { ta.value = q.answer_text || ''; sel.value = q.category_id == null ? '' : String(q.category_id); nc.classList.add('hidden'); showErr(''); setEditing(false); });
+    } else {
+      mk('✏️ ویرایش پاسخ', 'secondary-btn small-btn', () => { setEditing(true); try { ta.focus(); } catch (e) {} });
+    }
+  };
+  setEditing(editing);
+  box.querySelector('#sch-qm-close').addEventListener('click', schQClose);
+  box.querySelector('.sch-chat-btn').addEventListener('click', () => { schQClose(); schChatCompose(q); });
+  box.querySelector('.sch-del-btn').addEventListener('click', async (ev) => {
+    showErr('');
+    if (!(await schMathGate())) return;
+    const b = ev.currentTarget; b.disabled = true;
+    try {
+      await schApi('/shariq/scholar/q-delete', { question_id: q.id });
+      schQClose(); await schReload();
+    } catch (e) {
+      b.disabled = false;
+      if (e.status === 401) { schQClose(); schAuthFail(e); return; }
+      showErr(e.message);
+    }
+  });
+  m.classList.remove('hidden');
+}
+
+/* ---------- گفتگوی علما: ساخت گفتگو، ارجاع به عالم دیگر، گفت‌وگو و جمع‌بندی ---------- */
+const SCHC = { me: 0, scholars: [], threads: [], cur: 0, lastId: 0, timer: null, busy: false };
+const SCHC_SEEN_KEY = 'arefanejam_sch_chat_seen';
+function schcSeen() { try { return JSON.parse(localStorage.getItem(SCHC_SEEN_KEY) || '{}') || {}; } catch (e) { return {}; } }
+function schcMarkSeen(id, last) { try { const o = schcSeen(); if ((o[id] || 0) < last) { o[id] = last; localStorage.setItem(SCHC_SEEN_KEY, JSON.stringify(o)); } } catch (e) {} }
+function schcUnread(t) { return t.last_id > (schcSeen()[t.id] || 0) && t.last_by !== SCHC.me; }
+function schcTime(at) {
+  try { const d = new Date(String(at).replace(' ', 'T')); if (!isNaN(d)) return d.toLocaleString('fa-IR', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) {}
+  return String(at || '');
+}
+function schcTabLabel() {
+  const n = SCHC.threads.filter((t) => schcUnread(t)).length;
+  schEl('sch-tab-chat').textContent = '💬 گفتگوی علما' + (n ? ' (' + toPersianDigits(n) + ' جدید)' : '');
+}
+async function schChatLoad(quiet) {
+  if (SCHC.busy) return;
+  SCHC.busy = true;
+  try {
+    SCH.token = schTokenLoad();
+    const d = await schApi('/shariq/scholar/chat-list', {});
+    SCHC.me = d.me || 0; SCHC.scholars = d.scholars || []; SCHC.threads = d.threads || [];
+    schcTabLabel();
+    if (SCH.tab === 'chat') schChatRender();
+  } catch (e) {
+    if (e.status === 401) { schAuthFail(e); return; }
+    if (!quiet && SCH.tab === 'chat') schMsg(e.message || 'بارگذاری گفتگوها انجام نشد.', true);
+  } finally { SCHC.busy = false; }
+}
+function schChatRender() {
+  const box = schEl('sch-list'); box.innerHTML = '';
+  const top = document.createElement('div'); top.className = 'sch-row'; top.style.marginBottom = '10px';
+  top.innerHTML = '<button type="button" class="secondary-btn small-btn sch-save">➕ گفتگوی جدید</button><button type="button" class="ghost-btn small-btn sch-refresh">🔄</button>';
+  top.querySelector('.sch-save').addEventListener('click', () => schChatCompose(null));
+  top.querySelector('.sch-refresh').addEventListener('click', () => schChatLoad(false));
+  box.appendChild(top);
+  if (!SCHC.threads.length) { const e = document.createElement('div'); e.className = 'shariq-empty'; e.innerHTML = '<span class="shariq-empty-icon">💬</span>هنوز گفتگویی نیست. برای مشورت با علما یکی بسازید.'; box.appendChild(e); return; }
+  SCHC.threads.forEach((t) => {
+    const c = document.createElement('button'); c.type = 'button'; c.className = 'sch-q sch-qrow sch-chat-row';
+    const unread = schcUnread(t);
+    c.innerHTML = '<p class="sch-q-text">' + shariqEsc(t.title) +
+      (t.status === 'concluded' ? '<span class="sch-badge ok">✅ جمع‌بندی شد</span>' : '') +
+      (t.ref_to === SCHC.me && t.status !== 'concluded' ? '<span class="sch-badge ref">📨 ارجاع به شما</span>' : (t.ref_name && t.status !== 'concluded' ? '<span class="sch-badge ref">ارجاع به ' + shariqEsc(t.ref_name) + '</span>' : '')) +
+      (unread ? '<span class="sch-badge">جدید</span>' : '') + '</p>' +
+      '<p class="sch-q-meta">' + shariqEsc((t.last_name ? t.last_name + ': ' : '') + t.last_preview) + '</p>' +
+      '<p class="sch-q-meta">' + toPersianDigits(t.msgs) + ' پیام — ' + shariqEsc(schcTime(t.last_at)) + '</p>';
+    c.addEventListener('click', () => schChatOpen(t.id));
+    box.appendChild(c);
+  });
+}
+function schChatStop() { if (SCHC.timer) { clearInterval(SCHC.timer); SCHC.timer = null; } SCHC.cur = 0; }
+function schChatClose() { schChatStop(); const m = schEl('sch-chat-modal'); if (m) m.classList.add('hidden'); schChatLoad(true); }
+// ساخت گفتگوی تازه (q = سوالِ مرتبط یا null)
+function schChatCompose(q) {
+  const m = schEl('sch-chat-modal'), box = schEl('sch-chat-box');
+  schChatStop();
+  const opts = '<option value="">— بدون ارجاع (برای همهٔ علما) —</option>' + (SCHC.scholars || []).filter((s) => s.id !== SCHC.me).map((s) => '<option value="' + s.id + '">' + shariqEsc(s.name) + '</option>').join('');
+  box.innerHTML =
+    '<div class="sch-qm-head"><h3>گفتگوی جدید</h3><button type="button" id="sch-cm-close" class="ghost-btn small-btn">✕ بستن</button></div>' +
+    (q ? '<p class="sch-q-text" style="max-height:30vh;overflow:auto">' + shariqEsc(q.question_text) + '</p>' : '') +
+    '<input type="text" class="sch-c-title" maxlength="200" placeholder="عنوان گفتگو" style="margin-bottom:8px">' +
+    '<textarea class="sch-answer sch-c-body" rows="5" maxlength="3000" placeholder="پیام اول (مثلاً: نظر شما دربارهٔ این سوال چیست؟)"></textarea>' +
+    '<select class="sch-cat sch-c-ref">' + opts + '</select>' +
+    '<p class="muted-text small hidden sch-err" style="color:#a5473c"></p>' +
+    '<button type="button" class="secondary-btn small-btn sch-c-go" style="width:100%">شروع گفتگو</button>';
+  box.querySelector('#sch-cm-close').addEventListener('click', schChatClose);
+  const ti = box.querySelector('.sch-c-title'), bo = box.querySelector('.sch-c-body'), rf = box.querySelector('.sch-c-ref'), er = box.querySelector('.sch-err'), go = box.querySelector('.sch-c-go');
+  if (q) ti.value = String(q.question_text || '').replace(/\s+/g, ' ').slice(0, 80);
+  go.addEventListener('click', async () => {
+    er.classList.add('hidden');
+    if (ti.value.trim().length < 2 || !bo.value.trim()) { er.textContent = 'عنوان و پیام اول را بنویسید.'; er.classList.remove('hidden'); return; }
+    go.disabled = true;
+    try {
+      const body = { title: ti.value.trim(), body: bo.value.trim() };
+      if (q) body.question_id = q.id;
+      if (rf.value) body.ref_to = Number(rf.value);
+      const d = await schApi('/shariq/scholar/chat-new', body);
+      await schChatLoad(true);
+      schChatOpen(d.id);
+    } catch (e) {
+      go.disabled = false;
+      if (e.status === 401) { schChatClose(); schAuthFail(e); return; }
+      er.textContent = e.message; er.classList.remove('hidden');
+    }
+  });
+  m.classList.remove('hidden');
+}
+async function schChatOpen(id) {
+  const m = schEl('sch-chat-modal'), box = schEl('sch-chat-box');
+  schChatStop(); SCHC.cur = id; SCHC.lastId = 0;
+  box.innerHTML =
+    '<div class="sch-qm-head"><h3 class="sch-ct-title">گفتگو</h3><button type="button" id="sch-cm-close" class="ghost-btn small-btn">✕ بستن</button></div>' +
+    '<div class="sch-ct-q hidden"></div><p class="sch-ct-status small hidden" style="color:#3d8f7d;font-weight:700;margin:4px 0"></p>' +
+    '<div class="sch-msgs"></div>' +
+    '<textarea class="sch-answer sch-ct-in" rows="3" maxlength="3000" placeholder="پیام شما..."></textarea>' +
+    '<p class="muted-text small hidden sch-err" style="color:#a5473c"></p>' +
+    '<div class="sch-row"><button type="button" class="secondary-btn small-btn sch-save sch-ct-send">ارسال</button><button type="button" class="ghost-btn small-btn sch-ct-sum">✅ ثبت به‌عنوان جمع‌بندی</button></div>' +
+    '<div class="sch-actions-2"><select class="sch-cat sch-ct-ref" style="flex:1 1 55%;margin:0"></select><button type="button" class="ghost-btn small-btn sch-ct-refer">ارجاع</button></div>';
+  box.querySelector('#sch-cm-close').addEventListener('click', schChatClose);
+  const msgs = box.querySelector('.sch-msgs'), inp = box.querySelector('.sch-ct-in'), er = box.querySelector('.sch-err');
+  const showErr = (t) => { er.textContent = t || ''; er.classList.toggle('hidden', !t); };
+  box.querySelector('.sch-ct-ref').innerHTML = '<option value="">ارجاع به عالم دیگر...</option>' + (SCHC.scholars || []).filter((s) => s.id !== SCHC.me).map((s) => '<option value="' + s.id + '">' + shariqEsc(s.name) + '</option>').join('');
+  m.classList.remove('hidden');
+  const addMsgs = (list) => {
+    const near = msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 80 || SCHC.lastId === 0;
+    list.forEach((x) => {
+      const d = document.createElement('div');
+      d.className = 'sch-msg' + (x.kind === 'sys' ? ' sys' : '') + (x.kind === 'summary' ? ' summary' : '') + (x.scholar_id === SCHC.me && x.kind !== 'sys' ? ' me' : '');
+      d.innerHTML = (x.kind === 'sys' ? '' : '<span class="who">' + shariqEsc(x.name) + (x.kind === 'summary' ? ' — جمع‌بندی' : '') + '</span>') + shariqEsc(x.body) + (x.kind === 'sys' ? '' : '<span class="tm">' + shariqEsc(schcTime(x.at)) + '</span>');
+      msgs.appendChild(d);
+      if (x.id > SCHC.lastId) SCHC.lastId = x.id;
+    });
+    if (near) msgs.scrollTop = msgs.scrollHeight;
+    schcMarkSeen(id, SCHC.lastId);
+  };
+  const applyThread = (d) => {
+    SCHC.me = d.me || SCHC.me;
+    const t = d.thread;
+    box.querySelector('.sch-ct-title').textContent = t.title;
+    const qd = box.querySelector('.sch-ct-q');
+    if (t.question_text && qd.classList.contains('hidden')) {
+      qd.classList.remove('hidden');
+      const pendQ = (SCH.pending || []).find((x) => x.id === t.question_id);
+      qd.innerHTML = '<p class="sch-q-text" style="max-height:22vh;overflow:auto;background:#faf6ea;padding:8px;border-radius:8px">' + shariqEsc(t.question_text) + '</p>' + (pendQ ? '<button type="button" class="ghost-btn small-btn sch-ct-goq">📝 رفتن به پاسخ این سوال</button>' : '');
+      const gq = qd.querySelector('.sch-ct-goq');
+      if (gq) gq.addEventListener('click', () => { schChatClose(); schQModal(pendQ, true); });
+    }
+    const st = box.querySelector('.sch-ct-status');
+    st.classList.toggle('hidden', t.status !== 'concluded' && !t.ref_name);
+    st.textContent = t.status === 'concluded' ? '✅ این گفتگو جمع‌بندی شده است (پیام تازه آن را دوباره باز می‌کند).' : (t.ref_name ? '📨 ارجاع‌شده به: ' + t.ref_name : '');
+  };
+  const pull = async () => {
+    if (SCHC.cur !== id || m.classList.contains('hidden')) { schChatStop(); return; }
+    try {
+      SCH.token = schTokenLoad();
+      const d = await schApi('/shariq/scholar/chat-thread', { id, after: SCHC.lastId });
+      applyThread(d);
+      if (d.msgs && d.msgs.length) addMsgs(d.msgs);
+    } catch (e) {
+      if (e.status === 401) { schChatClose(); schAuthFail(e); return; }
+      if (e.status === 404) { schChatClose(); schMsg('این گفتگو پاک شده است.', true); schChatLoad(true); return; }
+    }
+  };
+  await pull();
+  SCHC.timer = setInterval(pull, 10000);
+  const post = async (kind) => {
+    const txt = inp.value.trim(); showErr('');
+    if (!txt) { showErr('پیام را بنویسید.'); return; }
+    if (kind === 'summary' && !window.confirm('این پیام به‌عنوان جمع‌بندی ثبت و گفتگو «جمع‌بندی‌شده» می‌شود. ادامه؟')) return;
+    try {
+      await schApi('/shariq/scholar/chat-post', { id, body: txt, kind });
+      inp.value = ''; await pull();
+    } catch (e) { if (e.status === 401) { schChatClose(); schAuthFail(e); return; } showErr(e.message); }
+  };
+  box.querySelector('.sch-ct-send').addEventListener('click', () => post('msg'));
+  box.querySelector('.sch-ct-sum').addEventListener('click', () => post('summary'));
+  box.querySelector('.sch-ct-refer').addEventListener('click', async () => {
+    const to = Number(box.querySelector('.sch-ct-ref').value); showErr('');
+    if (!to) { showErr('عالم مورد نظر را انتخاب کنید.'); return; }
+    try { await schApi('/shariq/scholar/chat-refer', { id, to }); box.querySelector('.sch-ct-ref').value = ''; await pull(); }
+    catch (e) { if (e.status === 401) { schChatClose(); schAuthFail(e); return; } showErr(e.message); }
+  });
+}
+// نشان «جدید» روی تب گفتگو (فقط وقتی پنل باز است؛ هر ۵۰ ثانیه، سبک)
+setInterval(() => {
+  const pm = document.getElementById('sch-panel');
+  if (!pm || pm.classList.contains('hidden') || document.hidden || !schTokenLoad()) return;
+  schChatLoad(true);
+}, 50000);
 
 /* ---------- پنل عالم: «🗓️ نوبت‌ها» (زمان‌بندی من + درخواست‌های نوبت + تأیید/رد با دلیل/لغو) ----------
    نوبت‌های هر عالم جداست؛ کاربر در اپ همهٔ نوبت‌های آزاد را می‌بیند (با نام عالم). درخواست جدید «در انتظار تأیید» است:
@@ -11667,6 +11979,7 @@ schEl('sch-tab-pending').addEventListener('click', () => { SCH.tab = 'pending'; 
 schEl('sch-tab-mine').addEventListener('click', () => { SCH.tab = 'mine'; schRender(); });
 schEl('sch-tab-fatwa').addEventListener('click', () => { SCH.tab = 'fatwa'; schRender(); });
 schEl('sch-tab-bk').addEventListener('click', () => { SCH.tab = 'bk'; schRender(); schBkLoad(); });
+schEl('sch-tab-chat').addEventListener('click', () => { SCH.tab = 'chat'; schRender(); schChatLoad(false); });
 schEl('sch-close-btn').addEventListener('click', schClose);
 schEl('sch-login-cancel').addEventListener('click', schClose);
 schEl('sch-logout-btn').addEventListener('click', async () => {
@@ -13333,8 +13646,9 @@ const FU_ACK_KEY = 'arefanejam_fu_ack';
 function fuAckedId() { try { return parseInt(localStorage.getItem(FU_ACK_KEY) || '0', 10) || 0; } catch (e) { return 0; } }
 function fuShow(fu) {
   try {
-    const id = parseInt(fu && fu.id, 10) || 0;
-    if (!id || id <= fuAckedId()) return;
+    const isInst = !!(fu && fu.kind === 'install');   // مرحلهٔ دوم: «لا اله الا الله» ← نصب نسخهٔ دانلودشده
+    const id = isInst ? 1 : (parseInt(fu && fu.id, 10) || 0);
+    if (!id || (!isInst && id <= fuAckedId())) return;
     if (document.getElementById('fu-overlay')) return;
     const ov = document.createElement('div');
     ov.id = 'fu-overlay';
@@ -13355,6 +13669,11 @@ function fuShow(fu) {
     let done = false;
     b.addEventListener('click', () => {
       if (done) return; done = true;
+      if (isInst) {
+        try { ov.remove(); } catch (e) {}
+        try { if (typeof window.arefFuInstallGo === 'function') window.arefFuInstallGo(String(fu.version || '')); } catch (e) {}
+        return;
+      }
       try { localStorage.setItem(FU_ACK_KEY, String(id)); } catch (e) {}
       try { ov.remove(); } catch (e) {}
       try { if (fu.link) window.open(String(fu.link), '_blank'); } catch (e) {}
@@ -15793,7 +16112,7 @@ bnrLoad();
     const CREATE = { head: ['manager'].concat(ALL_STAFF), manager: ALL_STAFF, deputy: ['dean', 'teacher', 'student', 'parent'], dean: ['student', 'parent'], teacher: ['student', 'parent'], student: ['parent'] };
     const ATT_ROLES = ['head', 'manager', 'deputy', 'dean', 'teacher'];
     const ATT = { present: ['حاضر', '✅', 'ح'], absent: ['غایب', '❌', 'غ'], late: ['تأخیر', '⏰', 'ت'], excused: ['غیبت موجه', '📝', 'م'] };
-    const S = { token: '', me: null, users: [], viewId: null, busy: false, sheet: null };
+    const S = { token: '', me: null, users: [], viewId: null, busy: false, sheet: null, reg: null };
     try { S.token = localStorage.getItem(TOKEN_KEY) || ''; } catch (e) {}
 
     const $ = (id) => document.getElementById(id);
@@ -15815,8 +16134,8 @@ bnrLoad();
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           const err = new Error(data.message || 'خطا در ارتباط با سرور');
-          err.status = res.status; err.httpError = true;
-          if (res.status === 401 && S.token && path !== '/students/login') stuForceLogout('نشست شما تمام شده؛ دوباره وارد شوید.');
+          err.status = res.status; err.httpError = true; err.code = data.code || '';
+          if (res.status === 401 && S.token && path !== '/students/login') stuForceLogout(/قطع|قرارداد|اخراج|فعال نیست/.test(data.message || '') ? data.message : 'نشست شما تمام شده؛ دوباره وارد شوید.');
           throw err;
         }
         return data;
@@ -15837,6 +16156,7 @@ bnrLoad();
           const l = $('students-tile-label'); if (l && d && d.title) l.textContent = d.title;
         }
         const t = $('stu-title'); if (t && d && d.title) t.textContent = d.title;
+        if (d && d.reg) { S.reg = d.reg; const hh = $('stu-reg-hint'); if (hh) hh.textContent = d.reg.hint || ''; }
         const intro = $('stu-intro');
         if (intro) { const txt = (d && d.intro) || ''; intro.textContent = txt; intro.classList.toggle('hidden', !txt); }
       } catch (e) {}
@@ -15846,6 +16166,7 @@ bnrLoad();
     /* ----- ورود / خروج ----- */
     function showOnly(which) {
       $('stu-login').classList.toggle('hidden', which !== 'login');
+      const rg = $('stu-reg'); if (rg) rg.classList.toggle('hidden', which !== 'reg');
       $('stu-main').classList.toggle('hidden', which !== 'main');
     }
     function stuForceLogout(msg) {
@@ -15946,7 +16267,7 @@ bnrLoad();
       h += '<div class="stu-card">';
       h += '<div class="stu-avatar stu-av-' + esc(u.role) + '">' + esc((u.full_name || '؟').trim().charAt(0)) + '</div>';
       h += '<h3 class="stu-name">' + esc(u.full_name) + '</h3>';
-      h += '<div class="stu-chips">' + chip(u) + (u.active ? '' : '<span class="stu-chip stu-chip-off">⛔ غیرفعال</span>') + '</div>';
+      h += '<div class="stu-chips">' + chip(u) + (u.active ? '' : '<span class="stu-chip stu-chip-off">' + (u.emp_status === 'fired' ? '⛔ اخراج‌شده' : (u.emp_status === 'ended' ? '⏹ پایان قرارداد' : '⛔ غیرفعال')) + '</span>') + '</div>';
       h += '<div class="stu-rows">';
       h += row('نام کاربری', u.username);
       h += row('تلفن', u.phone);
@@ -15958,6 +16279,9 @@ bnrLoad();
         h += row('زیر نظر', p);
       }
       h += row('توضیحات', u.info);
+      if (meView && S.me.org) h += row('مجموعه', S.me.org);
+      if (!u.active && u.emp_note) h += row(u.emp_status === 'fired' ? 'دلیل اخراج' : 'توضیح', u.emp_note);
+      if (!meView && u.perms && u.perms.length && S.me.perm_keys) h += row('اختیارات', u.perms.map((k) => S.me.perm_keys[k] || k).join('، '));
       h += '</div>';
       h += '<div class="stu-actions">';
       if (meView) {
@@ -15965,7 +16289,12 @@ bnrLoad();
         h += '<button type="button" class="ghost-btn small-btn" data-stu="password">🔑 تغییر رمز</button>';
         h += '<button type="button" class="ghost-btn small-btn" data-stu="logout">🚪 خروج</button>';
       } else {
-        h += '<button type="button" class="ghost-btn small-btn" data-stu="edit">✏️ ویرایش</button>';
+        if (S.me.can_edit || S.me.can_pass) h += '<button type="button" class="ghost-btn small-btn" data-stu="edit">' + (S.me.can_edit ? '✏️ ویرایش' : '🔑 تعیین رمز') + '</button>';
+        if (S.me.can_perms && ['student', 'parent'].indexOf(u.role) === -1) h += '<button type="button" class="ghost-btn small-btn" data-stu="perms">🛡️ اختیارات</button>';
+        if (S.me.can_employ && !!CREATE[S.me.role] && u.role !== 'parent') {
+          if (u.active) h += '<button type="button" class="ghost-btn small-btn" data-stu="fire">⛔ اخراج</button><button type="button" class="ghost-btn small-btn" data-stu="endc">⏹ پایان قرارداد</button>';
+          else h += '<button type="button" class="ghost-btn small-btn" data-stu="hire">✅ استخدام / فعال‌سازی مجدد</button>';
+        }
         if (u.children > 0) h += '<button type="button" class="ghost-btn small-btn" disabled title="ابتدا زیرمجموعه‌ها را حذف کنید">🗑️ حذف</button>';
         else h += '<button type="button" class="danger-btn small-btn" data-stu="delete">🗑️ حذف</button>';
       }
@@ -16005,7 +16334,7 @@ bnrLoad();
           });
           h += '</div>';
         }
-        h += '<button type="button" class="secondary-btn stu-add-btn" data-stu="add">' + (isStu ? '➕ افزودن ولی / سرپرست' : '➕ افزودن کاربر جدید') + '</button></div>';
+        if (S.me.can_add) h += '<button type="button" class="secondary-btn stu-add-btn" data-stu="add">' + (isStu ? '➕ افزودن ولی / سرپرست' : '➕ افزودن کاربر جدید') + '</button></div>';
       }
       box.innerHTML = h;
       try { window.scrollTo(0, 0); } catch (e) {}
@@ -16120,18 +16449,20 @@ bnrLoad();
         h += '<p class="muted-text small" id="stu-f-feat"></p>';
         if (parent.role === 'student') h += field('نسبت', '<select id="stu-f-rel">' + Object.keys(REL).map((k) => '<option value="' + k + '">' + esc(REL[k]) + '</option>').join('') + '</select>');
         h += field('نام و نام خانوادگی', '<input type="text" id="stu-f-name" maxlength="80">');
-        h += field('نام کاربری (انگلیسی)', '<input type="text" id="stu-f-user" dir="ltr" maxlength="32" autocapitalize="none" autocomplete="off" placeholder="مثلاً ali.rezaei">');
+        if (S.me.nid_login) h += field('کد ملی (۱۰ رقم؛ همین کد، نام کاربری فرد می‌شود)', '<input type="text" id="stu-f-user" dir="ltr" inputmode="numeric" maxlength="10" autocomplete="off" placeholder="مثلاً ۰۰۱۲۳۴۵۶۷۸">');
+        else h += field('نام کاربری (انگلیسی)', '<input type="text" id="stu-f-user" dir="ltr" maxlength="32" autocapitalize="none" autocomplete="off" placeholder="مثلاً ali.rezaei">');
         h += field('رمز عبور (حداقل ۶ نویسه)', '<input type="text" id="stu-f-pass" dir="ltr" maxlength="100" autocomplete="off">');
         h += field('تلفن (اختیاری)', '<input type="tel" id="stu-f-phone" dir="ltr" maxlength="20">');
         h += field('توضیحات (اختیاری)', '<textarea id="stu-f-info" rows="3" maxlength="1000"></textarea>');
       } else if (kind === 'edit') {
         h += '<h3>ویرایش «' + esc(u.full_name) + '»</h3>';
-        h += field('نام و نام خانوادگی', '<input type="text" id="stu-f-name" maxlength="80" value="' + esc(u.full_name) + '">');
-        h += field('تلفن', '<input type="tel" id="stu-f-phone" dir="ltr" maxlength="20" value="' + esc(u.phone) + '">');
-        if (u.role === 'parent') h += field('نسبت', '<select id="stu-f-rel">' + Object.keys(REL).map((k) => '<option value="' + k + '"' + (u.relation === k ? ' selected' : '') + '>' + esc(REL[k]) + '</option>').join('') + '</select>');
-        h += field('توضیحات', '<textarea id="stu-f-info" rows="3" maxlength="1000">' + esc(u.info) + '</textarea>');
-        h += field('رمز جدید (اگر نمی‌خواهید عوض شود خالی بگذارید)', '<input type="text" id="stu-f-pass" dir="ltr" maxlength="100" autocomplete="off">');
-        h += '<label class="stu-f stu-f-check"><input type="checkbox" id="stu-f-active"' + (u.active ? ' checked' : '') + '> <span>حساب فعال است</span></label>';
+        const canE = S.me.can_edit !== false;
+        if (canE) { h += field('نام و نام خانوادگی', '<input type="text" id="stu-f-name" maxlength="80" value="' + esc(u.full_name) + '">');
+        h += field('تلفن', '<input type="tel" id="stu-f-phone" dir="ltr" maxlength="20" value="' + esc(u.phone) + '">'); }
+        if (canE && u.role === 'parent') h += field('نسبت', '<select id="stu-f-rel">' + Object.keys(REL).map((k) => '<option value="' + k + '"' + (u.relation === k ? ' selected' : '') + '>' + esc(REL[k]) + '</option>').join('') + '</select>');
+        if (canE) h += field('توضیحات', '<textarea id="stu-f-info" rows="3" maxlength="1000">' + esc(u.info) + '</textarea>');
+        if (S.me.can_pass !== false) h += field('رمز جدید (اگر نمی‌خواهید عوض شود خالی بگذارید)', '<input type="text" id="stu-f-pass" dir="ltr" maxlength="100" autocomplete="off">');
+        if (canE && !S.me.nid_login) h += '<label class="stu-f stu-f-check"><input type="checkbox" id="stu-f-active"' + (u.active ? ' checked' : '') + '> <span>حساب فعال است</span></label>';
       } else if (kind === 'profile') {
         h += '<h3>ویرایش اطلاعات من</h3>';
         h += field('نام و نام خانوادگی', '<input type="text" id="stu-f-name" maxlength="80" value="' + esc(u.full_name) + '">');
@@ -16163,7 +16494,10 @@ bnrLoad();
         if (kind === 'add') {
           await stuFetch('/students/save', { role: val('stu-f-role'), parent_id: u.id, full_name: val('stu-f-name'), username: val('stu-f-user'), password: val('stu-f-pass'), phone: val('stu-f-phone'), info: val('stu-f-info'), relation: val('stu-f-rel') });
         } else if (kind === 'edit') {
-          await stuFetch('/students/save', { id: u.id, full_name: val('stu-f-name'), phone: val('stu-f-phone'), info: val('stu-f-info'), relation: val('stu-f-rel'), password: val('stu-f-pass'), active: $('stu-f-active').checked ? 1 : 0 });
+          const body = { id: u.id, password: val('stu-f-pass') };
+          if ($('stu-f-name')) { body.full_name = val('stu-f-name'); body.phone = val('stu-f-phone'); body.info = val('stu-f-info'); body.relation = val('stu-f-rel'); }
+          if ($('stu-f-active')) body.active = $('stu-f-active').checked ? 1 : 0;
+          await stuFetch('/students/save', body);
         } else if (kind === 'profile') {
           await stuFetch('/students/profile', { full_name: val('stu-f-name'), phone: val('stu-f-phone') });
         } else if (kind === 'password') {
@@ -16173,8 +16507,92 @@ bnrLoad();
         await stuRefreshAll();
         stuRender();
         if (kind === 'password') { try { await appAlert('stu_done', null, { text: 'رمز عبور شما تغییر کرد.', title: 'انجام شد', icon: '✅', tone: 'success' }); } catch (e) {} }
-      } catch (e) { err.textContent = e.message || 'ذخیره نشد.'; btn.disabled = false; }
+      } catch (e) {
+        err.textContent = e.message || 'ذخیره نشد.'; btn.disabled = false;
+        if (kind === 'add' && e.code === 'dup_nid') {
+          const nid = val('stu-f-user');
+          err.insertAdjacentHTML('afterend', '<button type="button" class="ghost-btn" id="stu-f-review" style="width:100%;margin-bottom:8px">🔍 درخواست بررسی (اگر کد ملی را درست می‌دانید)</button>');
+          $('stu-f-review').onclick = async () => {
+            $('stu-f-review').disabled = true;
+            try { const d = await stuFetch('/students/review', { national_id: nid }); err.textContent = d.message || 'درخواست ثبت شد.'; $('stu-f-review').remove(); }
+            catch (e2) { err.textContent = e2.message || 'ثبت نشد.'; $('stu-f-review').disabled = false; }
+          };
+        }
+      }
     }
+
+    /* ----- اخراج / پایان قرارداد / استخدام و تفویض اختیار ----- */
+    async function doEmploy(u, action) {
+      let note = '';
+      if (action === 'fire' || action === 'endc') {
+        note = window.prompt(action === 'fire' ? 'دلیل اخراج را بنویسید (به خود فرد نشان داده می‌شود):' : 'توضیح پایان قرارداد (اختیاری؛ به خود فرد نشان داده می‌شود):', '');
+        if (note === null) return;
+        if (action === 'fire' && note.trim().length < 3) { try { await appAlert('stu_err', null, { text: 'برای اخراج باید دلیل بنویسید.', title: 'دلیل لازم است', icon: '⚠️', tone: 'warn' }); } catch (e) {} return; }
+      }
+      try {
+        await stuFetch('/students/employ', { id: u.id, action: action === 'endc' ? 'end' : action, note: note.trim() });
+        await stuRefreshAll(); stuRender();
+      } catch (e) { try { await appAlert('stu_err', null, { text: e.message || 'انجام نشد.', title: 'خطا', icon: '⚠️', tone: 'warn' }); } catch (e2) {} }
+    }
+    function renderPerms(u) {
+      const keys = S.me.perm_keys || {};
+      let h = '<div class="stu-topbar"><button type="button" class="ghost-btn small-btn" data-stu="cancel">‹ انصراف</button></div><div class="stu-card stu-form"><h3>اختیارات «' + esc(u.full_name) + '»</h3><p class="muted-text small">مشخص کنید این فرد (' + esc(u.role_label || '') + ') علاوه بر وظیفهٔ معمولش چه کارهایی را در مجموعهٔ شما می‌تواند انجام دهد. (کار روی کاربرانِ زیرمجموعهٔ خودش.)</p>';
+      Object.keys(keys).forEach((k) => { h += '<label class="stu-f stu-f-check"><input type="checkbox" class="stu-perm" value="' + esc(k) + '"' + ((u.perms || []).indexOf(k) !== -1 ? ' checked' : '') + '> <span>' + esc(keys[k]) + '</span></label>'; });
+      h += '<p class="error-text" id="stu-f-err"></p><button type="button" class="secondary-btn" id="stu-f-save" style="width:100%">ذخیره</button></div>';
+      $('stu-main').innerHTML = h;
+      try { window.scrollTo(0, 0); } catch (e) {}
+      $('stu-f-save').onclick = async () => {
+        const perms = Array.prototype.map.call(document.querySelectorAll('#stu-main .stu-perm:checked'), (x) => x.value);
+        $('stu-f-save').disabled = true;
+        try { await stuFetch('/students/perms', { id: u.id, perms }); await stuRefreshAll(); stuRender(); }
+        catch (e) { $('stu-f-err').textContent = e.message || 'ذخیره نشد.'; $('stu-f-save').disabled = false; }
+      };
+    }
+
+    /* ----- ثبت‌نام مدیر مجموعه (بدون ورود) ----- */
+    function regCityOptions() {
+      const all = window.IRAN_CITIES || (typeof IRAN_CITIES !== 'undefined' ? IRAN_CITIES : []);
+      return '<option value="">— شهر را انتخاب کنید —</option>' + all.map((x) => '<option value="' + esc(x.name) + '">' + esc(x.name) + '</option>').join('');
+    }
+    function showReg() {
+      const R = S.reg || {};
+      const types = R.types || { mosque: 'مسجد', hawza: 'حوزه', hifz: 'دارالحفظ', school: 'مدرسه' };
+      const inp = (id, ph, ex) => '<input type="text" id="' + id + '" placeholder="' + esc(ph) + '" style="margin-bottom:8px"' + (ex || '') + '>';
+      let h = '<h3>🏫 ثبت‌نام مدیر مجموعه</h3><p class="muted-text small">' + esc(R.intro || 'تنها اگر مدیر مجموعه مورد هستید از این قسمت ثبت نام کنید و بعد مدیر سایر افراد مجموعه را اضافه خواهد کرد.') + '</p>';
+      h += inp('stu-r-first', 'نام', ' maxlength="40"') + inp('stu-r-last', 'نام خانوادگی', ' maxlength="60"');
+      h += inp('stu-r-nid', 'کد ملی (۱۰ رقم)', ' dir="ltr" inputmode="numeric" maxlength="10"') + inp('stu-r-phone', 'شماره تماس (۰۹۱۲۱۲۳۴۵۶۷)', ' dir="ltr" inputmode="numeric" maxlength="14"');
+      h += '<input type="text" id="stu-r-pass" dir="ltr" autocomplete="new-password" placeholder="رمز دلخواه (حداقل ۶ نویسه)" style="margin-bottom:8px" maxlength="100">';
+      h += '<select id="stu-r-type" style="margin-bottom:8px"><option value="">— نوع مجموعه —</option>' + Object.keys(types).map((k) => '<option value="' + esc(k) + '">' + esc(types[k]) + '</option>').join('') + '</select>';
+      h += '<select id="stu-r-city" style="margin-bottom:8px">' + regCityOptions() + '</select>';
+      h += '<p class="error-text" id="stu-r-err"></p><div id="stu-r-extra"></div>';
+      h += '<button type="button" class="secondary-btn" id="stu-r-send" style="width:100%">📤 ارسال درخواست</button><button type="button" class="ghost-btn" id="stu-r-back" style="width:100%;margin-top:8px">بازگشت</button>';
+      $('stu-reg').innerHTML = h;
+      showOnly('reg');
+      $('stu-r-back').onclick = () => showOnly('login');
+      const body = () => ({ first_name: $('stu-r-first').value.trim(), last_name: $('stu-r-last').value.trim(), national_id: $('stu-r-nid').value.trim(), phone: $('stu-r-phone').value.trim(), password: $('stu-r-pass').value, org_type: $('stu-r-type').value, city: $('stu-r-city').value });
+      $('stu-r-send').onclick = async () => {
+        const err = $('stu-r-err'); err.textContent = ''; $('stu-r-extra').innerHTML = '';
+        const b = body();
+        if (!b.first_name || !b.last_name || !b.national_id || !b.phone || !b.password || !b.org_type || !b.city) { err.textContent = 'همهٔ خانه‌ها را پر کنید.'; return; }
+        $('stu-r-send').disabled = true;
+        try {
+          const d = await stuFetch('/students/reg', b);
+          $('stu-reg').innerHTML = '<h3>✅ ثبت شد</h3><p class="muted-text">' + esc(d.message || (R.thanks || '')) + '</p><button type="button" class="secondary-btn" id="stu-r-ok" style="width:100%">بازگشت به ورود</button>';
+          $('stu-r-ok').onclick = () => showOnly('login');
+        } catch (e) {
+          err.textContent = e.message || 'ثبت نشد.'; $('stu-r-send').disabled = false;
+          if (e.code === 'dup_nid') {
+            $('stu-r-extra').innerHTML = '<button type="button" class="ghost-btn" id="stu-r-review" style="width:100%;margin-bottom:8px">🔍 درخواست بررسی</button>';
+            $('stu-r-review').onclick = async () => {
+              $('stu-r-review').disabled = true;
+              try { const d2 = await stuFetch('/students/review', b); err.textContent = d2.message || 'درخواست بررسی ثبت شد.'; $('stu-r-extra').innerHTML = ''; }
+              catch (e2) { err.textContent = e2.message || 'ثبت نشد.'; $('stu-r-review').disabled = false; }
+            };
+          }
+        }
+      };
+    }
+    const ro = $('stu-reg-open'); if (ro) ro.addEventListener('click', showReg);
 
     async function doDelete(u) {
       let ok = false;
@@ -16836,6 +17254,8 @@ bnrLoad();
       else if (act === 'add') renderForm('add', cur);
       else if (act === 'edit') renderForm('edit', cur);
       else if (act === 'delete') doDelete(cur);
+      else if (act === 'fire' || act === 'endc' || act === 'hire') doEmploy(cur, act);
+      else if (act === 'perms') renderPerms(cur);
       else if (act === 'cancel') { S.sheet = null; stuRender(); }
       else if (act === 'sheet') openSheet(cur.id, '');
       else if (act === 'sheet-prev' || act === 'sheet-next') {
@@ -16888,7 +17308,7 @@ function cnInGame() { return cnS.phase === 'count' || cnS.phase === 'play' || cn
 function cnLeave() {
   if (cnS.phase === 'idle') return;
   cnStopTimers();
-  cnS.phase = 'idle'; cnS.answers = []; cnS.round = null; cnS.locked = false;
+  cnS.phase = 'idle'; cnS.answers = []; cnS.round = null; cnS.locked = false; cnS.mode = ''; cnS.tn = null;
   cnSetPlaying(false);
 }
 
@@ -16958,7 +17378,7 @@ function cnShowOffline() {
 /* ---------- صفحهٔ اصلی مسابقه ---------- */
 async function cnOpen() {
   cnStopTimers(); cnSetPlaying(false);
-  cnS.locked = false; cnS.answers = []; cnS.round = null; cnS.leagueId = 0;
+  cnS.locked = false; cnS.answers = []; cnS.round = null; cnS.leagueId = 0; cnS.mode = ''; cnS.tn = null;
   if (!navigator.onLine) { if (cnShowCachedOffline()) return; cnShowOffline(); return; }
   cnS.phase = 'loading';
   // نمایش فوری آخرین وضعیت ذخیره‌شده (تا منتظر سرور نمانید)، بعد به‌روزرسانی از سرور
@@ -17295,11 +17715,14 @@ function cnRenderHome(scrollBoard) {
     </div>
     <button type="button" class="ghost-btn cn-exit-btn" id="cn-exit-btn">🚪 خروج از بازی آنلاین (بازگشت به اپ)</button>
   </div>`;
+  const realName = me.real_name ? `<div class="cn-realname">✔ ${cnEsc(me.real_name)}${me.city ? ' — ' + cnEsc(me.city) : ''}</div>` : '';
   cnRoot().innerHTML = idCard + `
+  <div class="cn-helprow"><button type="button" class="ghost-btn" id="cn-help-btn">📖 راهنما (قوانین مسابقه)</button></div>
   <div class="ga-card cn-card cn-profile">
     <div class="cn-hero">🏆</div>
     <div class="cn-yourname">نام شما در مسابقه</div>
     <div class="cn-nick" dir="ltr">${cnEsc(me.nick)}</div>
+    ${realName}
     <div class="cn-badge ${cnLeagueClass(me.league)}">${cnEsc(me.league_name)}</div>
     ${(me.gold || me.silver || me.bronze) ? `<div class="cn-troph">جایزه‌های لیگ دوستان:${cnTroph(me.gold, me.silver, me.bronze)}</div>` : ''}
     <div class="cn-stats">
@@ -17313,6 +17736,7 @@ function cnRenderHome(scrollBoard) {
     <button class="secondary-btn ga-start" id="cn-start-btn" ${canPlay ? '' : 'disabled'}>🚀 شروع مسابقه (${cnFa(s.questions || 10)} سؤال)</button>
   </div>
   ${cnSeasonCardHtml(me)}
+  ${cnTnCardHtml(me)}
   <div class="ga-card cn-card cn-prac">
     <h3 class="cn-h">📖 تمرین آزاد و مرور من</h3>
     <p class="cn-note">بدون امتیاز و بدون محدودیت؛ فقط برای یادگیری. محدودهٔ دلخواه (جزء یا سوره) را انتخاب کنید.</p>
@@ -17326,16 +17750,6 @@ function cnRenderHome(scrollBoard) {
     <p class="cn-note">آی‌دی شما برای دعوت: <b dir="ltr">${cnEsc(me.nick)}</b></p>
     <button class="secondary-btn ga-start" id="cn-fl-btn">👥 لیگ‌های دوستان${me.invites ? ' 🔴 ' + cnFa(me.invites) + ' دعوت' : ''}</button>
   </div>
-  <div class="ga-card cn-card cn-rules">
-    <h3 class="cn-h">قوانین</h3>
-    <ul class="ga-rules">
-      <li>هر دور <b>${cnFa(s.questions || 10)} سؤال</b> است: «آیهٔ بعد از این آیه چیست؟» با ۴ گزینه (فقط ۳ کلمهٔ اول آیه).</li>
-      <li>برای هر سؤال فقط <b>${cnFa(s.seconds || 15)} ثانیه</b> وقت دارید و به سؤال قبلی <b>برنمی‌گردید</b>.</li>
-      <li>پاسخ درست ۶۰ تا ۱۰۰ امتیاز دارد (هرچه سریع‌تر، بیشتر)؛ پاسخ غلط یا بی‌پاسخ ۰. امتیاز دور = <b>میانگین ${cnFa(s.questions || 10)} سؤال</b> (۰ تا ۱۰۰).</li>
-      <li>پاسخ‌ها فقط در سؤال آخر با دکمهٔ «ارسال» یک‌جا فرستاده می‌شود. مجموع امتیاز دورها، لیگ شما را مشخص می‌کند.</li>
-      <li>مسابقه آنلاین است؛ اگر وسط بازی اینترنت قطع شود، دور لغو می‌شود و چیزی ثبت نمی‌شود.</li>
-    </ul>
-  </div>
   <div class="ga-card cn-card" id="cn-board-card">
     <h3 class="cn-h">🏅 جدول رده‌بندی لیگ‌ها</h3>
     <div class="cn-chips">${chips}</div>
@@ -17343,6 +17757,9 @@ function cnRenderHome(scrollBoard) {
     <div id="cn-board"></div>
   </div>`;
   document.getElementById('cn-start-btn').addEventListener('click', cnStart);
+  const hb = document.getElementById('cn-help-btn'); if (hb) hb.addEventListener('click', cnShowHelp);
+  const tb1 = document.getElementById('cn-tn-btn'); if (tb1) tb1.addEventListener('click', () => cnTnHome());
+  const tb2 = document.getElementById('cn-prof-btn'); if (tb2) tb2.addEventListener('click', cnShowProfile);
   const cc1 = document.getElementById('cn-panel-btn'); if (cc1) cc1.addEventListener('click', cnShowPanel);
   const cc2 = document.getElementById('cn-code-other'); if (cc2) cc2.addEventListener('click', cnLogout);
   const cc3 = document.getElementById('cn-exit-btn'); if (cc3) cc3.addEventListener('click', cnExitGame);
@@ -17378,7 +17795,7 @@ async function cnLoadBoard(idx) {
     let meShown = false;
     d.rows.forEach((r) => {
       if (r.me) meShown = true;
-      h += `<div class="cn-tr${r.me ? ' me' : ''}"><span>${r.rank <= 3 ? medal[r.rank - 1] : cnFa(r.rank)}</span><span class="cn-rn" dir="ltr">${cnEsc(r.nick)}${r.me ? ' (شما)' : ''}${cnTroph(r.g, r.s, r.b) ? '<small class="cn-tr-t">' + cnTroph(r.g, r.s, r.b) + '</small>' : ''}</span><span>${cnNum(r.points)}</span><span>${cnFa(r.rounds)}</span></div>`;
+      h += `<div class="cn-tr${r.me ? ' me' : ''}"><span>${r.rank <= 3 ? medal[r.rank - 1] : cnFa(r.rank)}</span><span class="cn-rn" dir="ltr">${cnEsc(r.nick)}${r.me ? ' (شما)' : ''}${r.name ? '<small class="cn-tr-n" dir="rtl">' + cnEsc(r.name) + (r.city ? ' — ' + cnEsc(r.city) : '') + '</small>' : ''}${cnTroph(r.g, r.s, r.b) ? '<small class="cn-tr-t">' + cnTroph(r.g, r.s, r.b) + '</small>' : ''}</span><span>${cnNum(r.points)}</span><span>${cnFa(r.rounds)}</span></div>`;
     });
     h += '</div>';
     if (d.me && d.me.league === idx && !meShown) {
@@ -17553,7 +17970,7 @@ async function cnSend() {
   if (btn) { btn.disabled = true; btn.textContent = 'در حال ارسال…'; }
   let res;
   try {
-    res = await cnPost('/contest/submit', { device_id: cnS.device, round_id: cnS.round.round_id, answers: cnS.answers });
+    res = await cnPost(cnS.mode === 'tn' ? '/tn/submit' : '/contest/submit', { device_id: cnS.device, round_id: cnS.round.round_id, answers: cnS.answers });
   } catch (e) {
     if (currentTab !== 'contest') return;
     if (e.code === 'network' || e.code === 'bad_json' || /^http_5/.test(e.code || '')) {
@@ -17575,6 +17992,7 @@ async function cnSend() {
 function cnShowResult(res) {
   cnStopTimers(); cnSetPlaying(false);
   const me = res.me || cnS.me || {};
+  if (!res.tn) cnS.mode = '';
   cnS.me = me; cnS.phase = 'result'; cnS.round = null; cnS.answers = []; cnSaveHome();
   cnMisAdd(res.detail);
   const sc = Number(res.score) || 0;
@@ -17589,6 +18007,7 @@ function cnShowResult(res) {
     </div>`;
   });
   if (res.league) { cnRenderLeagueResult(res, rev); return; }
+  if (res.tn) { cnRenderTnResult(res, rev, emoji, sc); return; }
   const canAgain = me.plays_left !== 0;
   cnRoot().innerHTML = `
   <div class="ga-card cn-card cn-result">
@@ -17612,6 +18031,260 @@ function cnShowResult(res) {
   const ag = document.getElementById('cn-again-btn');
   if (ag) ag.addEventListener('click', async () => { await cnOpen(); if (cnS.phase === 'home') cnStart(); });
   document.getElementById('cn-board-btn').addEventListener('click', async () => { await cnOpen(); if (cnS.phase === 'home') { try { document.getElementById('cn-board-card').scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} } });
+  try { window.scrollTo(0, 0); } catch (e) {}
+}
+
+/* ======================================================================
+   راهنما، احراز هویت (نام و شهر) و مسابقات دوره‌ای
+   - راهنما: همان قوانین قبلی، حالا پشت یک دکمه (بالای بخش بازی).
+   - احراز هویت: فقط حروف/عدد/فهرست؛ سرور دوباره همه را بررسی می‌کند. فقط مدیر همهٔ اطلاعات را می‌بیند.
+   - مسابقهٔ دوره‌ای: با تأیید مدیر؛ رشته را کاربر انتخاب می‌کند؛ بعد از پایان فقط امتیازها دیده می‌شود.
+   ====================================================================== */
+function cnShowHelp() {
+  cnStopTimers(); cnSetPlaying(false);
+  cnS.phase = 'help';
+  const s = cnS.settings || {};
+  cnRoot().innerHTML = `<div class="ga-card cn-card cn-rules">
+    <h3 class="cn-h">📖 راهنما و قوانین</h3>
+    <ul class="ga-rules">
+      <li>هر دور <b>${cnFa(s.questions || 10)} سؤال</b> است: «آیهٔ بعد از این آیه چیست؟» با ۴ گزینه (فقط ۳ کلمهٔ اول آیه).</li>
+      <li>برای هر سؤال فقط <b>${cnFa(s.seconds || 15)} ثانیه</b> وقت دارید و به سؤال قبلی <b>برنمی‌گردید</b>.</li>
+      <li>پاسخ درست ۶۰ تا ۱۰۰ امتیاز دارد (هرچه سریع‌تر، بیشتر)؛ پاسخ غلط یا بی‌پاسخ ۰. امتیاز دور = <b>میانگین ${cnFa(s.questions || 10)} سؤال</b> (۰ تا ۱۰۰).</li>
+      <li>پاسخ‌ها فقط در سؤال آخر با دکمهٔ «ارسال» یک‌جا فرستاده می‌شود. مجموع امتیاز دورها، لیگ شما را مشخص می‌کند.</li>
+      <li>مسابقهٔ اصلی فصل و محدودیت روزانه ندارد؛ هر وقت خواستید بازی کنید.</li>
+      <li>مسابقه آنلاین است؛ اگر وسط بازی اینترنت قطع شود، دور لغو می‌شود و چیزی ثبت نمی‌شود.</li>
+      <li>«مسابقات دوره‌ای» تاریخ شروع و پایان دارد و فقط برای کسانی است که ثبت‌نامشان را مدیر تأیید کرده است؛ بعد از پایان فقط امتیازها دیده می‌شود.</li>
+    </ul>
+    <button class="secondary-btn ga-start" id="cn-help-back">بازگشت</button>
+  </div>`;
+  document.getElementById('cn-help-back').addEventListener('click', cnOpen);
+}
+
+function cnTnCardHtml(me) {
+  const st = me.prof || 'none';
+  let line;
+  if (st === 'approved') line = 'ثبت‌نام شما تأیید شده است ✅ می‌توانید در مسابقات دوره‌ای شرکت کنید.';
+  else if (st === 'pending') line = '⏳ ثبت‌نام شما ارسال شد و منتظر تأیید مدیر است.';
+  else if (st === 'rejected') line = '❌ ثبت‌نام شما تأیید نشد؛ اطلاعات را اصلاح و دوباره بفرستید.';
+  else line = 'برای شرکت در مسابقات دوره‌ای و نمایش نام واقعی‌تان در جدول‌ها، ثبت‌نام کنید (نیاز به تأیید مدیر دارد).';
+  const lab = st === 'approved' ? '🧾 اطلاعات من' : (st === 'none' ? '📝 ثبت‌نام و احراز هویت' : '🧾 وضعیت ثبت‌نام');
+  return `<div class="ga-card cn-card cn-tncard">
+    <h3 class="cn-h">🏁 مسابقات دوره‌ای</h3>
+    <p class="cn-note">${line}</p>
+    <button class="secondary-btn ga-start" id="cn-tn-btn">🏁 دیدن مسابقه‌ها</button>
+    <button class="ghost-btn" id="cn-prof-btn" style="width:100%;margin-top:8px">${lab}</button>
+  </div>`;
+}
+
+function cnCityOptions(sel) {
+  const all = window.IRAN_CITIES || (typeof IRAN_CITIES !== 'undefined' ? IRAN_CITIES : []);
+  let h = '<option value="">— شهر را انتخاب کنید —</option>';
+  all.forEach((c) => { h += `<option value="${cnEsc(c.name)}"${c.name === sel ? ' selected' : ''}>${cnEsc(c.name)}</option>`; });
+  return h;
+}
+
+async function cnShowProfile() {
+  cnStopTimers(); cnSetPlaying(false);
+  cnS.phase = 'prof';
+  if (!navigator.onLine) { cnShowOffline(); return; }
+  cnRoot().innerHTML = '<div class="ga-card cn-card"><p class="muted-text">در حال بارگذاری…</p></div>';
+  let d;
+  try { d = await cnPost('/contest/profile/get', { device_id: cnS.device }); }
+  catch (e) { if (currentTab === 'contest') cnFlErrCard(e, cnShowProfile); return; }
+  if (currentTab !== 'contest' || cnS.phase !== 'prof') return;
+  const p = d.profile || { status: 'none', show_main: 1 };
+  const locked = p.status === 'approved';
+  const dis = locked ? 'disabled' : '';
+  const stTxt = { none: '', pending: '⏳ منتظر تأیید مدیر است. تا آن موقع می‌توانید اطلاعات را اصلاح کنید.', approved: '✅ تأیید شده است. فقط نام و شهر شما در جدول‌ها دیده می‌شود؛ سن و شماره تماس فقط برای مدیر است.', rejected: '❌ تأیید نشد' + (p.reject_note ? ' — ' + cnEsc(p.reject_note) : '') + '. اطلاعات را اصلاح و دوباره بفرستید.' }[p.status] || '';
+  cnRoot().innerHTML = `<div class="ga-card cn-card cn-profform">
+    <h3 class="cn-h">📝 ثبت‌نام و احراز هویت</h3>
+    ${stTxt ? `<p class="cn-note ${p.status === 'rejected' ? 'cn-warn' : ''}">${stTxt}</p>` : '<p class="cn-note">اطلاعات شما فقط برای مدیر مسابقه است؛ بعد از تأیید، فقط «نام، نام خانوادگی و شهر» شما در جدول‌ها نمایش داده می‌شود.</p>'}
+    <input type="text" id="cn-pf-first" class="cn-input" maxlength="40" placeholder="نام" value="${cnEsc(p.first_name || '')}" ${dis}>
+    <input type="text" id="cn-pf-last" class="cn-input" maxlength="60" placeholder="نام خانوادگی" value="${cnEsc(p.last_name || '')}" ${dis} style="margin-top:8px">
+    <input type="text" inputmode="numeric" id="cn-pf-age" class="cn-input" maxlength="3" placeholder="سن (عدد)" value="${p.age ? cnEsc(String(p.age)) : ''}" ${dis} style="margin-top:8px">
+    <select id="cn-pf-city" class="cn-input" ${dis} style="margin-top:8px">${cnCityOptions(p.city || '')}</select>
+    <input type="tel" inputmode="numeric" id="cn-pf-phone" class="cn-input" dir="ltr" maxlength="14" placeholder="شماره تماس (۰۹۱۲۱۲۳۴۵۶۷)" value="${cnEsc(p.phone || '')}" ${dis} style="margin-top:8px;text-align:center">
+    <label class="cn-note" style="display:block;margin-top:10px"><input type="checkbox" id="cn-pf-show" ${p.show_main === 0 ? '' : 'checked'} ${dis}> نام و شهرم بعد از تأیید در جدول مسابقهٔ اصلی هم نمایش داده شود</label>
+    <p class="cn-note cn-warn" id="cn-pf-err"></p>
+    ${locked ? '' : '<button class="secondary-btn ga-start" id="cn-pf-save">📤 ارسال برای تأیید</button>'}
+    <button class="ghost-btn" id="cn-pf-back" style="width:100%;margin-top:8px">بازگشت</button>
+  </div>`;
+  document.getElementById('cn-pf-back').addEventListener('click', cnOpen);
+  const sv = document.getElementById('cn-pf-save');
+  if (sv) sv.addEventListener('click', async () => {
+    const err = document.getElementById('cn-pf-err');
+    const body = {
+      device_id: cnS.device,
+      first_name: document.getElementById('cn-pf-first').value.trim(),
+      last_name: document.getElementById('cn-pf-last').value.trim(),
+      age: document.getElementById('cn-pf-age').value.trim(),
+      city: document.getElementById('cn-pf-city').value,
+      phone: document.getElementById('cn-pf-phone').value.trim(),
+      show_main: document.getElementById('cn-pf-show').checked ? 1 : 0
+    };
+    if (!body.first_name || !body.last_name || !body.age || !body.city || !body.phone) { err.textContent = 'همهٔ خانه‌ها را پر کنید.'; return; }
+    if (!navigator.onLine) { err.textContent = 'اینترنت وصل نیست.'; return; }
+    err.textContent = ''; sv.disabled = true; sv.textContent = 'در حال ارسال…';
+    try {
+      const r = await cnPost('/contest/profile/save', body);
+      if (cnS.me) cnS.me.prof = (r.profile && r.profile.status) || 'pending';
+      cnSaveHome();
+      try { appAlert('contest_prof_ok', null, { text: 'اطلاعات شما ثبت شد و بعد از تأیید مدیر می‌توانید در مسابقات دوره‌ای شرکت کنید.', title: 'ثبت شد', icon: '✅', tone: 'ok' }); } catch (e2) {}
+      cnShowProfile();
+    } catch (e) { sv.disabled = false; sv.textContent = '📤 ارسال برای تأیید'; err.textContent = cnErrText(e); }
+  });
+}
+
+/* ---------- فهرست مسابقه‌های دوره‌ای ---------- */
+async function cnTnHome() {
+  cnStopTimers(); cnSetPlaying(false);
+  cnS.phase = 'tnl'; cnS.mode = '';
+  if (!navigator.onLine) { cnShowOffline(); return; }
+  cnRoot().innerHTML = '<div class="ga-card cn-card"><p class="muted-text">در حال بارگذاری…</p></div>';
+  let d;
+  try { d = await cnPost('/tn/list', { device_id: cnS.device }); }
+  catch (e) { if (currentTab === 'contest') cnFlErrCard(e, cnTnHome); return; }
+  if (currentTab !== 'contest' || cnS.phase !== 'tnl') return;
+  cnS.tnList = d;
+  const prof = (d.profile && d.profile.status) || 'none';
+  if (cnS.me) cnS.me.prof = prof;
+  let h = '';
+  if (prof !== 'approved') {
+    h += `<div class="ga-card cn-card"><p class="cn-note ${prof === 'rejected' ? 'cn-warn' : ''}">${prof === 'pending' ? '⏳ ثبت‌نام شما منتظر تأیید مدیر است؛ بعد از تأیید می‌توانید بازی کنید. فعلاً فقط جدول‌ها را می‌بینید.' : (prof === 'rejected' ? '❌ ثبت‌نام شما تأیید نشد. اطلاعات را اصلاح کنید.' : 'برای شرکت در مسابقه ابتدا ثبت‌نام کنید و منتظر تأیید مدیر بمانید. فعلاً فقط جدول‌ها را می‌بینید.')}</p>
+      <button class="secondary-btn ga-start" id="cn-tn-prof">📝 ${prof === 'none' ? 'ثبت‌نام و احراز هویت' : 'وضعیت ثبت‌نام'}</button></div>`;
+  }
+  if (!(d.events || []).length) h += '<div class="ga-card cn-card"><p class="muted-text small" style="text-align:center">فعلاً مسابقهٔ دوره‌ای تعریف نشده است.</p></div>';
+  (d.events || []).forEach((e) => {
+    const stTxt = e.state === 'live' ? '🟢 در جریان — ' + cnFlTime(e.ends_in) + ' مانده' : (e.state === 'upcoming' ? '⏳ شروع در ' + cnFlTime(e.starts_in) : '🏁 پایان یافته (فقط امتیازها)');
+    let fl = '';
+    (e.fields || []).forEach((f) => {
+      const mine = e.my && e.my.field_id === f.id;
+      const canPick = prof === 'approved' && e.state !== 'ended' && (!e.my || (e.my.rounds === 0 && !mine));
+      fl += `<div class="cn-tn-field${mine ? ' mine' : ''}"><div><b>${cnEsc(f.title)}</b><small> ${cnEsc(f.label)}</small>${mine ? ' <span class="cn-fl-badge member">✅ رشتهٔ شما</span>' : ''}</div>
+        <div class="cn-fl-b">${canPick ? `<button type="button" class="secondary-btn small-btn" data-act="pick" data-t="${e.id}" data-f="${f.id}">${e.my ? 'تغییر به این رشته' : 'انتخاب این رشته'}</button>` : ''}
+        <button type="button" class="ghost-btn small-btn" data-act="board" data-t="${e.id}" data-f="${f.id}">🏅 جدول</button></div></div>`;
+    });
+    let my = '';
+    if (e.my) my = `<p class="cn-note">امتیاز شما: <b>${cnNum(e.my.points)}</b> · ${cnFa(e.my.rounds)} دور${e.my.rank ? ' · رتبه ' + cnFa(e.my.rank) : ''}${e.daily_limit ? ' · امروز ' + cnFa(e.today) + ' از ' + cnFa(e.daily_limit) : ''}</p>`;
+    const canPlay = prof === 'approved' && e.my && e.state === 'live';
+    h += `<div class="ga-card cn-card cn-tn-card">
+      <h3 class="cn-h">${cnEsc(e.title)}</h3>
+      ${e.descr ? `<p class="cn-note">${cnEsc(e.descr)}</p>` : ''}
+      <p class="cn-note">📅 ${cnEsc(e.starts_j)} تا ${cnEsc(e.ends_j)}<br>${stTxt}</p>
+      ${e.max_rounds ? `<p class="cn-note">سقف دورها: ${cnFa(e.max_rounds)}</p>` : ''}
+      ${my}
+      ${canPlay ? `<button class="secondary-btn ga-start" data-act="play" data-t="${e.id}">🚀 شروع دور (${cnFa((cnS.settings || {}).questions || 10)} سؤال)</button>` : ''}
+      ${fl}
+      <button class="ghost-btn" style="width:100%;margin-top:8px" data-act="center" data-t="${e.id}">🏆 جدول مرکز (نفرات اول تا سوم)</button>
+    </div>`;
+  });
+  h += '<button class="ghost-btn" id="cn-tn-back" style="width:100%;margin-top:4px">بازگشت</button>';
+  cnRoot().innerHTML = h;
+  document.getElementById('cn-tn-back').addEventListener('click', cnOpen);
+  const pb = document.getElementById('cn-tn-prof'); if (pb) pb.addEventListener('click', cnShowProfile);
+  cnRoot().querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => {
+    const a = b.dataset.act, t = Number(b.dataset.t), f = Number(b.dataset.f || 0);
+    if (a === 'pick') cnTnPick(t, f, b);
+    else if (a === 'board') cnTnBoard(t, f);
+    else if (a === 'center') cnTnCenter(t);
+    else if (a === 'play') cnTnStart(t, b);
+  }));
+}
+async function cnTnPick(t, f, btn) {
+  if (btn) btn.disabled = true;
+  try { await cnPost('/tn/join', { device_id: cnS.device, tn_id: t, field_id: f }); }
+  catch (e) { try { appAlert('contest_tn_err', null, { text: cnErrText(e), title: 'انجام نشد', icon: '⚠️', tone: 'warn' }); } catch (e2) {} }
+  cnTnHome();
+}
+async function cnTnBoard(t, f) {
+  cnS.phase = 'tnb';
+  if (!navigator.onLine) { cnShowOffline(); return; }
+  cnRoot().innerHTML = '<div class="ga-card cn-card"><p class="muted-text">در حال بارگذاری…</p></div>';
+  let d;
+  try { d = await shariqGet('/tn/board?tn_id=' + t + '&field_id=' + f + '&device_id=' + encodeURIComponent(cnS.device)); }
+  catch (e) { if (currentTab === 'contest') cnFlErrCard(e, () => cnTnBoard(t, f)); return; }
+  if (currentTab !== 'contest' || cnS.phase !== 'tnb') return;
+  const medal = ['🥇', '🥈', '🥉'];
+  let h = `<div class="ga-card cn-card"><h3 class="cn-h">🏅 ${cnEsc(d.title)} — ${cnEsc(d.field.title)}</h3><p class="cn-note">${cnEsc(d.field.label)}${d.state === 'ended' ? ' · 🏁 مسابقه پایان یافته' : ''}</p>`;
+  if (!d.rows.length) h += '<p class="muted-text small" style="text-align:center;padding:10px">هنوز امتیازی ثبت نشده است.</p>';
+  else {
+    h += '<div class="cn-table"><div class="cn-tr cn-th"><span>#</span><span>نام</span><span>امتیاز</span><span>دور</span></div>';
+    d.rows.forEach((r) => {
+      h += `<div class="cn-tr${r.me ? ' me' : ''}"><span>${r.rank <= 3 ? medal[r.rank - 1] : cnFa(r.rank)}</span><span class="cn-rn" dir="rtl">${cnEsc(r.name)}${r.me ? ' (شما)' : ''}<small class="cn-tr-n">${cnEsc(r.city)}</small></span><span>${cnNum(r.points)}</span><span>${cnFa(r.rounds)}</span></div>`;
+    });
+    h += '</div>';
+  }
+  h += `<p class="muted-text small" style="text-align:center;margin-top:8px">${cnFa(d.size)} نفر در این رشته</p></div><button class="ghost-btn" id="cn-tnb-back" style="width:100%">بازگشت</button>`;
+  cnRoot().innerHTML = h;
+  document.getElementById('cn-tnb-back').addEventListener('click', cnTnHome);
+}
+async function cnTnCenter(t) {
+  cnS.phase = 'tnb';
+  if (!navigator.onLine) { cnShowOffline(); return; }
+  cnRoot().innerHTML = '<div class="ga-card cn-card"><p class="muted-text">در حال بارگذاری…</p></div>';
+  let d;
+  try { d = await shariqGet('/tn/center?tn_id=' + t); }
+  catch (e) { if (currentTab === 'contest') cnFlErrCard(e, () => cnTnCenter(t)); return; }
+  if (currentTab !== 'contest' || cnS.phase !== 'tnb') return;
+  const medal = ['🥇', '🥈', '🥉'];
+  let h = `<div class="ga-card cn-card"><h3 class="cn-h">🏆 جدول مرکز — ${cnEsc(d.title)}</h3><p class="cn-note">نفرات اول تا سوم هر رشته${d.state === 'ended' ? ' · 🏁 نتیجهٔ نهایی' : ''}</p>`;
+  d.fields.forEach((f) => {
+    h += `<div class="cn-tn-center"><div class="cn-tn-ft"><b>${cnEsc(f.title)}</b><small> ${cnEsc(f.label)} · ${cnFa(f.size)} نفر</small></div>`;
+    if (!f.top.length) h += '<p class="muted-text small">هنوز امتیازی نیست.</p>';
+    f.top.forEach((r, i) => { h += `<div class="cn-tr"><span>${medal[i]}</span><span class="cn-rn" dir="rtl">${cnEsc(r.name)}<small class="cn-tr-n">${cnEsc(r.city)}</small></span><span>${cnNum(r.points)}</span><span>${cnFa(r.rounds)}</span></div>`; });
+    h += '</div>';
+  });
+  h += '</div><button class="ghost-btn" id="cn-tnb-back" style="width:100%">بازگشت</button>';
+  cnRoot().innerHTML = h;
+  document.getElementById('cn-tnb-back').addEventListener('click', cnTnHome);
+}
+
+/* ---------- بازی در مسابقهٔ دوره‌ای (همان جریان دور عادی، فقط آدرس‌ها فرق دارد) ---------- */
+async function cnTnStart(t, btn) {
+  if (cnS.phase !== 'tnl') return;
+  if (!navigator.onLine) { cnShowOffline(); return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'در حال آماده‌سازی…'; }
+  let res;
+  try { res = await cnPost('/tn/start', { device_id: cnS.device, tn_id: t }); }
+  catch (e) {
+    if (currentTab !== 'contest') return;
+    try { appAlert('contest_start_err', null, { text: cnErrText(e), title: 'شروع نشد', icon: '⚠️', tone: 'warn' }); } catch (e2) {}
+    cnTnHome();
+    return;
+  }
+  if (currentTab !== 'contest') return;
+  cnS.mode = 'tn'; cnS.tnId = t;
+  cnS.round = res; cnS.i = 0; cnS.answers = []; cnS.okList = []; cnS.locked = true;
+  cnS.limitMs = (Number(res.seconds) || 15) * 1000;
+  cnS.phase = 'count';
+  cnSetPlaying(true);
+  cnCountdown(3);
+}
+function cnRenderTnResult(res, rev, emoji, sc) {
+  const tn = res.tn || {};
+  const canAgain = tn.left_rounds !== 0 && tn.left_today !== 0;
+  cnRoot().innerHTML = `
+  <div class="ga-card cn-card cn-result">
+    <div class="ga-hero">${emoji}</div>
+    <p class="cn-note">${cnEsc(tn.title)} — ${cnEsc(tn.field)}</p>
+    <div class="ga-score"><b>${cnFa(sc)}</b> از ۱۰۰</div>
+    <p class="cn-note">✅ ${cnFa(res.correct)} پاسخ درست از ${cnFa((res.detail || []).length)}</p>
+    <div class="cn-stats">
+      <div><b>${cnNum(tn.points)}</b><span>امتیاز در این مسابقه</span></div>
+      <div><b>${cnFa(tn.rank)}</b><span>رتبه در رشته</span></div>
+      <div><b>${cnFa(tn.rounds)}</b><span>دور</span></div>
+    </div>
+    ${tn.left_rounds > 0 ? `<p class="cn-note">دورهای باقی‌مانده: <b>${cnFa(tn.left_rounds)}</b></p>` : ''}
+    ${tn.left_today === 0 ? '<p class="cn-note cn-warn">سهمیهٔ امروز در این مسابقه تمام شد؛ فردا دوباره بیایید.</p>' : ''}
+    <div class="ga-result-btns">
+      ${canAgain ? '<button class="secondary-btn" id="cn-tn-again">🔁 دور جدید</button>' : ''}
+      <button class="ghost-btn" id="cn-tn-list">🏁 مسابقه‌ها و جدول</button>
+    </div>
+  </div>
+  <div class="ga-card cn-card cn-review"><h3 class="cn-h">مرور سؤال‌ها</h3>${rev}</div>`;
+  const ag = document.getElementById('cn-tn-again');
+  if (ag) ag.addEventListener('click', async () => { const t = cnS.tnId; await cnTnHome(); if (cnS.phase === 'tnl') cnTnStart(t, null); });
+  document.getElementById('cn-tn-list').addEventListener('click', () => cnTnHome());
   try { window.scrollTo(0, 0); } catch (e) {}
 }
 
@@ -17953,7 +18626,7 @@ function cnScopeRead(p) {
 function cnSeasonLeft(sec) { return sec < 0 ? 'پایان فصل با اعلام مدیر' : (sec <= 0 ? 'در حال پایان' : cnFlTime(sec) + ' مانده'); }
 function cnSeasonCardHtml(me) {
   const se = cnS.season;
-  if (!se) return '';
+  if (!se || se.off) return '';
   return `<div class="ga-card cn-card cn-season">
     <h3 class="cn-h">📅 فصل ${cnFa(se.no)}</h3>
     <p class="cn-note">⏳ ${cnSeasonLeft(se.left)}</p>
@@ -17977,7 +18650,7 @@ async function cnSeasonOpen() {
   const medal = ['🥇', '🥈', '🥉'];
   let top = '';
   (d.top || []).forEach((r) => {
-    top += `<div class="cn-tr${r.me ? ' me' : ''}"><span>${r.rank <= 3 ? medal[r.rank - 1] : cnFa(r.rank)}</span><span class="cn-rn" dir="ltr">${cnEsc(r.nick)}${r.me ? ' (شما)' : ''}${cnTroph(r.sg, r.ss, r.sb) ? '<small class="cn-tr-t">' + cnTroph(r.sg, r.ss, r.sb) + '</small>' : ''}</span><span>${cnNum(r.gain)}</span><span></span></div>`;
+    top += `<div class="cn-tr${r.me ? ' me' : ''}"><span>${r.rank <= 3 ? medal[r.rank - 1] : cnFa(r.rank)}</span><span class="cn-rn" dir="ltr">${cnEsc(r.nick)}${r.me ? ' (شما)' : ''}${r.name ? '<small class="cn-tr-n" dir="rtl">' + cnEsc(r.name) + (r.city ? ' — ' + cnEsc(r.city) : '') + '</small>' : ''}${cnTroph(r.sg, r.ss, r.sb) ? '<small class="cn-tr-t">' + cnTroph(r.sg, r.ss, r.sb) + '</small>' : ''}</span><span>${cnNum(r.gain)}</span><span></span></div>`;
   });
   let hist = '';
   (d.history || []).forEach((h) => {

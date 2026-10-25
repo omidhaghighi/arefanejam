@@ -5505,3 +5505,44 @@ body.dark-mode .bk-confirm-wait { background: #35290f; border-color: #6b5320; co
 .sch-bk-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .sch-bk-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 12px; background: rgba(30,143,106,.14); color: #1E8F6A; font-size: 12.5px; font-weight: 700; }
 .sch-bk-chip button { border: 0; background: transparent; color: #a5473c; cursor: pointer; font-size: 12px; padding: 0; }
+
+/* راهنما، احراز هویت و مسابقات دوره‌ای */
+.cn-helprow { margin: 0 0 10px; }
+.cn-helprow .ghost-btn { width: 100%; }
+.cn-realname { margin: 4px 0 6px; font-size: 14px; font-weight: 700; color: var(--ink); }
+.cn-tr-n { display: block; font-size: 11px; font-weight: 400; opacity: .75; font-family: var(--font-ui); }
+.cn-tn-field { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; margin-top: 8px; background: var(--paper-alt); text-align: right; }
+.cn-tn-field.mine { border-color: #2FA67C; }
+.cn-tn-field small { opacity: .75; }
+.cn-tn-center { text-align: right; border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; }
+.cn-tn-ft { margin-bottom: 4px; }
+.cn-profform .cn-input { width: 100%; box-sizing: border-box; }
+
+
+/* ---- پنل عالم: ردیف سوال (بازشو)، گفتگوی علما ---- */
+.sch-tabs { flex-wrap: wrap; }
+.sch-tabs .shariq-view-btn { flex: 1 1 22%; }
+.sch-qrow { display: block; width: 100%; text-align: right; cursor: pointer; font-family: inherit; color: inherit; }
+.sch-qrow .sch-q-text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; margin-bottom: 4px; }
+.sch-qrow .sch-q-meta { margin: 0; }
+.sch-qm-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.sch-qm-head h3 { margin: 0; }
+.sch-actions-2 { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.sch-actions-2 button { flex: 1 1 40%; }
+.sch-danger { color: #a5473c !important; }
+.sch-answer[readonly] { background: #f6f1e4; }
+.sch-chat-row { border-right-color: #3d8f7d; }
+.sch-badge { display: inline-block; font-size: 11px; border-radius: 10px; padding: 2px 9px; margin-inline-start: 6px; background: #a5473c; color: #fff; }
+.sch-badge.ok { background: #3d8f7d; }
+.sch-badge.ref { background: #b08d4e; }
+.sch-msgs { max-height: 46vh; overflow-y: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--line); border-radius: 12px; padding: 8px; margin: 8px 0; background: var(--paper); }
+.sch-msg { max-width: 88%; margin: 6px 0; padding: 7px 10px; border-radius: 12px; background: #efe8d6; font-size: 13px; line-height: 1.9; white-space: pre-wrap; word-break: break-word; }
+.sch-msg.me { margin-inline-start: auto; background: #d9efe9; }
+.sch-msg .who { display: block; font-size: 11px; font-weight: 700; color: var(--gold); }
+.sch-msg .tm { display: block; font-size: 10px; color: #8A8378; margin-top: 2px; }
+.sch-msg.sys { max-width: 100%; text-align: center; background: transparent; font-size: 11.5px; color: #8A8378; }
+.sch-msg.summary { max-width: 100%; background: #e3f3e7; border: 1px solid #9ccfa8; }
+body.dark-mode .sch-msg { background: #24343a; }
+body.dark-mode .sch-msg.me { background: #1e4a42; }
+body.dark-mode .sch-msg.summary { background: #1f3d2a; }
+body.dark-mode .sch-answer[readonly] { background: #1b2a2f; }
