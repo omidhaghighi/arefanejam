@@ -96,7 +96,31 @@ public class UpdateJobService extends JobService {
             return System.currentTimeMillis() - last >= (long) (pollMs(ctx) * 0.9);
         } catch (Throwable t) { return true; }
     }
-    static final String INBOX_CH = "arefanejam_inbox";
+    static final String INBOX_CH = "arefanejam_inbox";        // اعلان‌های مدیر (و هر چیز دیگر)
+    static final String NEWS_CH = "arefanejam_news";          // خبرها
+    static final String EVENT_CH = "arefanejam_events";       // مناسبت‌های تقویم
+    static final String PERSONAL_CH = "arefanejam_personal";  // پیام‌های شخصی: پاسخ پشتیبانی، نوبت، مسابقه
+
+    /** هر نوع اعلان کانال جدا دارد تا خاموش‌کردن یکی در تنظیمات اندروید به بقیه (و به اذان) آسیب نزند. */
+    static String channelFor(JSONObject it) {
+        String t = it.optString("type", "");
+        if ("news".equals(t)) return NEWS_CH;
+        if ("event".equals(t)) return EVENT_CH;
+        if ("feedback".equals(t) || "booking".equals(t) || "contest".equals(t)) return PERSONAL_CH;
+        return INBOX_CH;
+    }
+
+    private static void ensureInboxChannel(NotificationManager nm, String chId) {
+        if (Build.VERSION.SDK_INT < 26 || nm == null || nm.getNotificationChannel(chId) != null) return;
+        String name, desc;
+        if (NEWS_CH.equals(chId)) { name = "خبرها"; desc = "خبرهای تازهٔ عارفان جام"; }
+        else if (EVENT_CH.equals(chId)) { name = "مناسبت‌ها"; desc = "مناسبت‌های تقویم"; }
+        else if (PERSONAL_CH.equals(chId)) { name = "پیام‌های شخصی"; desc = "پاسخ پشتیبانی، نوبت و مسابقه"; }
+        else { name = "اعلان‌های عارفان جام"; desc = "اعلان‌های مدیر و پیام‌های مهم"; }
+        NotificationChannel ch = new NotificationChannel(chId, name, NotificationManager.IMPORTANCE_HIGH);
+        ch.setDescription(desc);
+        nm.createNotificationChannel(ch);
+    }
     static final String INBOX_GROUP = "arefanejam_inbox_group";
     static final String PREFS = "arefanejam_bg_update";
     static final String DEFAULT_API = "https://arefanejam.com/wp-json/arefanejam/v1";
@@ -685,6 +709,24 @@ public class UpdateJobService extends JobService {
 
     /** returns false if nothing could be shown (e.g. notifications are not allowed) */
     private static boolean showInboxNotifications(Context ctx, java.util.List<JSONObject> list) {
+        // هر کانال جدا نشان داده می‌شود (اگر کاربر یکی را خاموش کرده باشد، فقط همان بی‌صدا می‌ماند)
+        java.util.LinkedHashMap<String, java.util.List<JSONObject>> parts = new java.util.LinkedHashMap<String, java.util.List<JSONObject>>();
+        for (JSONObject it : list) {
+            String ch = channelFor(it);
+            java.util.List<JSONObject> l = parts.get(ch);
+            if (l == null) { l = new java.util.ArrayList<JSONObject>(); parts.put(ch, l); }
+            l.add(it);
+        }
+        boolean ok = true;
+        int idx = 0;
+        for (java.util.Map.Entry<String, java.util.List<JSONObject>> e : parts.entrySet()) {
+            if (!showInboxNotificationsCh(ctx, e.getValue(), e.getKey(), 4803 + (idx == 0 ? 0 : 40 + idx))) ok = false;
+            idx++;
+        }
+        return ok;
+    }
+
+    private static boolean showInboxNotificationsCh(Context ctx, java.util.List<JSONObject> list, String chId, int sumId) {
         try {
             if (!androidx.core.app.NotificationManagerCompat.from(ctx).areNotificationsEnabled()) {
                 log(ctx, "inbox: notifications are not allowed - waits");
@@ -692,11 +734,7 @@ public class UpdateJobService extends JobService {
             }
             NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm == null) return false;
-            if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(INBOX_CH) == null) {
-                NotificationChannel ch = new NotificationChannel(INBOX_CH, "اعلان‌ها و اخبار", NotificationManager.IMPORTANCE_HIGH);
-                ch.setDescription("اعلان‌ها، خبرها و مناسبت‌های عارفان جام");
-                nm.createNotificationChannel(ch);
-            }
+            ensureInboxChannel(nm, chId);
             Intent open = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
             PendingIntent pi = null;
             if (open != null) {
@@ -715,7 +753,7 @@ public class UpdateJobService extends JobService {
                     String title = it.optString("title", "").trim();
                     String body = it.optString("body", "").trim();
                     long ageMs = Math.max(0L, it.optLong("age", 0)) * 1000L;
-                    androidx.core.app.NotificationCompat.Builder b = new androidx.core.app.NotificationCompat.Builder(ctx, INBOX_CH)
+                    androidx.core.app.NotificationCompat.Builder b = new androidx.core.app.NotificationCompat.Builder(ctx, chId)
                             .setSmallIcon(icon)
                             .setContentTitle(title)
                             .setContentText(body.length() > 0 ? body : title)
@@ -752,7 +790,7 @@ public class UpdateJobService extends JobService {
                 for (int i = n - 1; i >= n - shown; i--) st.addLine(list.get(i).optString("title", "").trim());   // newest first
                 if (n > shown) st.setSummaryText("و " + (n - shown) + " مورد دیگر");
                 String title = n + " پیام تازه از عارفان جام";
-                androidx.core.app.NotificationCompat.Builder b = new androidx.core.app.NotificationCompat.Builder(ctx, INBOX_CH)
+                androidx.core.app.NotificationCompat.Builder b = new androidx.core.app.NotificationCompat.Builder(ctx, chId)
                         .setSmallIcon(icon)
                         .setContentTitle(title)
                         .setContentText(list.get(n - 1).optString("title", "").trim())
@@ -763,7 +801,7 @@ public class UpdateJobService extends JobService {
                         .setColor(0xFF143C36)
                         .setAutoCancel(true);
                 if (pi != null) b.setContentIntent(pi);
-                nm.notify(4803, b.build());
+                nm.notify(sumId, b.build());
             }
             return true;
         } catch (Throwable t) {
