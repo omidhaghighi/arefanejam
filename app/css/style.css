@@ -5546,3 +5546,9 @@ body.dark-mode .sch-msg { background: #24343a; }
 body.dark-mode .sch-msg.me { background: #1e4a42; }
 body.dark-mode .sch-msg.summary { background: #1f3d2a; }
 body.dark-mode .sch-answer[readonly] { background: #1b2a2f; }
+
+/* نقش‌های تازهٔ دانش‌آموزان: استاد مکتب و استاد شعبه حفظ */
+.stu-av-mkt_teacher  { background: linear-gradient(145deg, #4fb59a, #1f7a63); }
+.stu-av-hifz_teacher { background: linear-gradient(145deg, #5b8fd8, #2a4f9a); }
+.stu-chip-mkt_teacher  { background: rgba(79,181,154,.18); color: #1f7a63; }
+.stu-chip-hifz_teacher { background: rgba(91,143,216,.18); color: #2a4f9a; }

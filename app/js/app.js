@@ -11437,9 +11437,10 @@ async function schOpen() {
   schShow('panel'); schEl('sch-list').innerHTML = '<p class="muted-text small">در حال بارگذاری...</p>';
   await schReload(true);
 }
-async function schReload(silentLoginOnFail) {
+async function schReload(silentLoginOnFail, keepList) {
   try {
     const d = await schApi('/shariq/scholar/data', {});
+    SCH.mathGate = !!d.math_gate;
     SCH.name = d.name || ''; SCH.cats = d.categories || []; SCH.pending = d.pending || []; SCH.mine = d.mine || []; SCH.fatwas = d.fatwas || []; SCH.fcats = d.fcats || [];
     schEl('sch-title').textContent = SCH.name ? 'خوش آمدید، ' + SCH.name : 'پاسخ به سوالات';
     schMsg('');
@@ -11448,7 +11449,7 @@ async function schReload(silentLoginOnFail) {
     schChatLoad(true);
   } catch (e) {
     if (e.status === 401) { schAuthFail(e); return; }
-    schEl('sch-list').innerHTML = '';
+    if (!keepList) schEl('sch-list').innerHTML = '';
     schMsg(e.message, true);
   }
 }
@@ -11568,6 +11569,7 @@ async function schReloadKeepDrafts() {
 
 /* ---------- سوال ریاضی ساده (جلوگیری از لمس اشتباه) ---------- */
 function schMathGate() {
+  if (!SCH.mathGate) return Promise.resolve(true);   // پیش‌فرض خاموش؛ از پیشخوان (تعریف عالم) روشن می‌شود
   return new Promise((resolve) => {
     const m = schEl('sch-math-modal'), q = schEl('sch-math-q'), inp = schEl('sch-math-in'), er = schEl('sch-math-err');
     const ok = schEl('sch-math-ok'), cancel = schEl('sch-math-cancel');
@@ -11593,6 +11595,19 @@ function schMathGate() {
 
 /* ---------- پنجرهٔ بازشوی سوال: پاسخ، ویرایش (دکمهٔ «ویرایش پاسخ» ← «تأیید»)، حذف تکراری، مشورت ---------- */
 function schQClose() { const m = schEl('sch-q-modal'); if (m) m.classList.add('hidden'); }
+// بعد از حذف سوال: پیام «حذف شد» + یک لود کوچک؛ عالم از پنل/تب فعلی بیرون نمی‌رود و می‌تواند سوال‌های دیگر را پاسخ بدهد یا حذف کند
+async function schAfterDelete(q) {
+  schQClose();
+  const same = (x) => String(x.id) === String(q.id);
+  SCH.pending = (SCH.pending || []).filter((x) => !same(x));
+  SCH.mine = (SCH.mine || []).filter((x) => !same(x));
+  if (SCH.tab === 'pending' || SCH.tab === 'mine') schRender();
+  schMsg('✅ سوال مورد نظر حذف شد. در حال به‌روزرسانی فهرست…');
+  await schReload(false, true);
+  const m = schEl('sch-msg');
+  if (m && m.classList.contains('hidden')) schMsg('✅ سوال مورد نظر حذف شد.');
+  setTimeout(() => { const mm = schEl('sch-msg'); if (mm && mm.textContent.indexOf('حذف شد') !== -1) schMsg(''); }, 3500);
+}
 function schQModal(q, pend) {
   const m = schEl('sch-q-modal'), box = schEl('sch-q-box');
   let editing = !!pend;
@@ -11645,17 +11660,20 @@ function schQModal(q, pend) {
   box.querySelector('#sch-qm-close').addEventListener('click', schQClose);
   box.querySelector('.sch-chat-btn').addEventListener('click', () => { schQClose(); schChatCompose(q); });
   box.querySelector('.sch-del-btn').addEventListener('click', async (ev) => {
+    const b = ev.currentTarget;   // باید پیش از هر await خوانده شود؛ بعد از await مقدار آن null است (علت کار نکردن حذف)
     showErr('');
-    if (!(await schMathGate())) return;
-    const b = ev.currentTarget; b.disabled = true;
+    if (SCH.mathGate) { if (!(await schMathGate())) return; }
+    else if (!window.confirm('این سوال حذف شود؟')) return;
+    b.disabled = true;
     try {
       await schApi('/shariq/scholar/q-delete', { question_id: q.id });
-      schQClose(); await schReload();
     } catch (e) {
       b.disabled = false;
       if (e.status === 401) { schQClose(); schAuthFail(e); return; }
       showErr(e.message);
+      return;
     }
+    schAfterDelete(q);   // عالم در همان پنل و همان تب می‌ماند
   });
   m.classList.remove('hidden');
 }
@@ -16103,14 +16121,14 @@ bnrLoad();
 (function () {
   try {
     const TOKEN_KEY = 'arefanejam_stu_token';
-    const LEVEL = { head: 1, manager: 2, deputy: 3, dean: 4, teacher: 5, accountant: 6, janitor: 6, driver: 6, student: 7, parent: 8 };
-    const LABEL = { head: 'رئیس سازمان', manager: 'مدیر', deputy: 'معاون', dean: 'ناظم', teacher: 'معلم', accountant: 'حسابدار', janitor: 'سرایدار', driver: 'راننده', student: 'دانش‌آموز', parent: 'ولی / سرپرست' };
-    const ICON = { head: '👑', manager: '🏫', deputy: '🧑‍💼', dean: '📏', teacher: '👨‍🏫', accountant: '🧾', janitor: '🔑', driver: '🚌', student: '🎓', parent: '👪' };
+    const LEVEL = { head: 1, manager: 2, deputy: 3, dean: 4, teacher: 5, mkt_teacher: 5, hifz_teacher: 5, accountant: 6, janitor: 6, driver: 6, student: 7, parent: 8 };
+    const LABEL = { head: 'رئیس سازمان', manager: 'مدیر', deputy: 'معاون', dean: 'ناظم', teacher: 'معلم', mkt_teacher: 'استاد مکتب', hifz_teacher: 'استاد شعبه حفظ', accountant: 'حسابدار', janitor: 'سرایدار', driver: 'راننده', student: 'دانش‌آموز', parent: 'ولی / سرپرست' };
+    const ICON = { head: '👑', manager: '🏫', deputy: '🧑‍💼', dean: '📏', teacher: '👨‍🏫', mkt_teacher: '🕌', hifz_teacher: '📖', accountant: '🧾', janitor: '🔑', driver: '🚌', student: '🎓', parent: '👪' };
     const REL = { father: 'پدر', mother: 'مادر', guardian: 'سرپرست', grandpa: 'پدربزرگ', grandma: 'مادربزرگ', uncle: 'عمو', mamu: 'دایی', aunt: 'عمه', khaleh: 'خاله', brother: 'برادر', sister: 'خواهر', other: 'ولی دیگر' };
     // هر نقش چه نقش‌هایی را می‌تواند زیر نظر داشته باشد (همان جدول سرور؛ سرور هم دوباره کنترل می‌کند)
-    const ALL_STAFF = ['deputy', 'dean', 'teacher', 'accountant', 'janitor', 'driver', 'student', 'parent'];
-    const CREATE = { head: ['manager'].concat(ALL_STAFF), manager: ALL_STAFF, deputy: ['dean', 'teacher', 'student', 'parent'], dean: ['student', 'parent'], teacher: ['student', 'parent'], student: ['parent'] };
-    const ATT_ROLES = ['head', 'manager', 'deputy', 'dean', 'teacher'];
+    const ALL_STAFF = ['deputy', 'dean', 'teacher', 'mkt_teacher', 'hifz_teacher', 'accountant', 'janitor', 'driver', 'student', 'parent'];
+    const CREATE = { head: ['manager'].concat(ALL_STAFF), manager: ALL_STAFF, deputy: ['dean', 'teacher', 'mkt_teacher', 'hifz_teacher', 'student', 'parent'], dean: ['student', 'parent'], teacher: ['student', 'parent'], mkt_teacher: ['student', 'parent'], hifz_teacher: ['student', 'parent'], student: ['parent'] };
+    const ATT_ROLES = ['head', 'manager', 'deputy', 'dean', 'teacher', 'mkt_teacher', 'hifz_teacher'];
     const ATT = { present: ['حاضر', '✅', 'ح'], absent: ['غایب', '❌', 'غ'], late: ['تأخیر', '⏰', 'ت'], excused: ['غیبت موجه', '📝', 'م'] };
     const S = { token: '', me: null, users: [], viewId: null, busy: false, sheet: null, reg: null };
     try { S.token = localStorage.getItem(TOKEN_KEY) || ''; } catch (e) {}
@@ -16302,7 +16320,7 @@ bnrLoad();
 
       if (meView && S.me.features && S.me.features.length) h += '<div class="section-block"><h3>امکانات شما</h3><ul class="stu-feat">' + S.me.features.map((f) => '<li>' + esc(f) + '</li>').join('') + '</ul></div>';
       if (meView) h += '<div class="section-block"><button type="button" class="secondary-btn sv-hub-btn" data-stu="sv-home">🏫 خدمات مدرسه</button><p class="muted-text small">تیکت، نمرات و وضعیت درسی، آزمون آنلاین، انضباطی، شهریه و سرویس مدرسه (بر اساس نقش شما).</p></div>';
-      else if (u.role === 'student' && ['head', 'manager', 'deputy', 'dean', 'teacher'].indexOf(S.me.role) !== -1) h += '<div class="section-block"><button type="button" class="secondary-btn sv-hub-btn" data-stu="sv-ov" data-id="' + u.id + '" data-back="cancel">📊 وضعیت درسی ' + esc(u.full_name) + '</button></div>';
+      else if (u.role === 'student' && ['head', 'manager', 'deputy', 'dean', 'teacher', 'mkt_teacher', 'hifz_teacher'].indexOf(S.me.role) !== -1) h += '<div class="section-block"><button type="button" class="secondary-btn sv-hub-btn" data-stu="sv-ov" data-id="' + u.id + '" data-back="cancel">📊 وضعیت درسی ' + esc(u.full_name) + '</button></div>';
       const myRole = S.me.role;
       const viewerIsStaff = !!CREATE[myRole] && myRole !== 'student';
       // ولی: فرزند + اعلان‌ها
@@ -16616,6 +16634,9 @@ bnrLoad();
     const EXM_LET = ['الف', 'ب', 'ج', 'د', 'ه', 'و'];
     const inRoles = (arr) => !!S.me && arr.indexOf(S.me.role) !== -1;
     const isMgr = () => inRoles(['head', 'manager']);
+    const isTeach = () => inRoles(['teacher', 'mkt_teacher', 'hifz_teacher']);   // معلم / استاد مکتب / استاد شعبه حفظ
+    const canExam = () => !!(S.me && S.me.can_exam);     // اجازهٔ بانک سوال و آزمون (از مدیر مجموعه)
+    const canRev = () => !!(S.me && S.me.can_review);    // اجازهٔ تأیید/رد سوال‌های بانک
     const gv = (id) => { const e = $(id); return e ? e.value : ''; };
     const latin = (s) => String(s == null ? '' : s)
       .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
@@ -16675,9 +16696,9 @@ bnrLoad();
         add('sv-fee-st', '💰', 'شهریه و پرداخت‌ها', 'هزینه‌ها، پرداخت‌شده و مانده', kid);
         add('sv-bus', '🚌', 'سرویس مدرسه', 'راننده و شمارهٔ تماس');
       }
-      if (inRoles(['head', 'manager', 'deputy', 'dean', 'teacher'])) add('sv-stl', '🎓', 'وضعیت درسی دانش‌آموزان', 'حضور و غیاب، نمرات، آزمون‌ها، انضباطی');
-      if (inRoles(['student', 'teacher', 'head', 'manager'])) add('sv-ex', '📝', 'آزمون آنلاین', r === 'student' ? 'آزمون‌های من' : (r === 'teacher' ? 'ساخت آزمون، بانک سوال، پیشنهاد سوال' : 'بانک سوال، تأیید پیشنهادها، رشته‌ها'));
-      if (inRoles(['head', 'manager', 'deputy', 'teacher'])) add('sv-gr', '🧮', 'ثبت نمره', 'ثبت نمرهٔ کل کلاس و اعلام به اولیا');
+      if (inRoles(['head', 'manager', 'deputy', 'dean', 'teacher', 'mkt_teacher', 'hifz_teacher'])) add('sv-stl', '🎓', 'وضعیت درسی دانش‌آموزان', 'حضور و غیاب، نمرات، آزمون‌ها، انضباطی');
+      if (inRoles(['student', 'head', 'manager']) || canExam() || canRev()) add('sv-ex', '📝', 'آزمون آنلاین', r === 'student' ? 'آزمون‌های من' : (isMgr() ? 'بانک سوال، تأیید پیشنهادها، رشته‌ها' : (canExam() ? 'ساخت آزمون، بانک سوال، پیشنهاد سوال' + (canRev() ? '، تأیید سوال‌ها' : '') : 'تأیید یا رد سوال‌های بانک')));
+      if (inRoles(['head', 'manager', 'deputy', 'teacher', 'mkt_teacher', 'hifz_teacher'])) add('sv-gr', '🧮', 'ثبت نمره', 'ثبت نمرهٔ کل کلاس و اعلام به اولیا');
       if (inRoles(['head', 'manager', 'deputy', 'dean'])) add('sv-dc', '⚖️', 'موارد انضباطی', 'تشویق، تذکر و تخلف با اعلان به اولیا');
       if (inRoles(['head', 'manager', 'accountant'])) add('sv-fee', '💰', 'شهریه و حسابداری', 'ثبت هزینه و پرداخت، مانده حساب');
       if (inRoles(['head', 'manager', 'deputy', 'driver'])) add('sv-bus', '🚌', 'سرویس مدرسه', r === 'driver' ? 'دانش‌آموزان من و اعلان به اولیا' : 'تخصیص دانش‌آموز به راننده');
@@ -16797,7 +16818,7 @@ bnrLoad();
       svLoading('🧮 ثبت نمره', 'sv-home');
       const list = await svStudents(true);
       let fl = [];
-      if (S.me.role === 'teacher') { try { fl = (await stuFetch('/exams/fields', {})).fields || []; } catch (e) { fl = []; } }
+      if (isTeach() && canExam()) { try { fl = (await stuFetch('/exams/fields', {})).fields || []; } catch (e) { fl = []; } }
       if (!list.length) { svShell('🧮 ثبت نمره', 'sv-home', '<p class="muted-text small">دانش‌آموزی برای ثبت نمره ندارید.</p>'); return; }
       let h = field('درس', '<input type="text" id="sv-g-sub" list="sv-g-dl" maxlength="90" value="' + esc(fl[0] ? fl[0].name : '') + '"><datalist id="sv-g-dl">' + fl.map((x) => '<option value="' + esc(x.name) + '">').join('') + '</datalist>');
       h += field('عنوان (میان‌ترم، کوییز، تکلیف…)', '<input type="text" id="sv-g-title" maxlength="150">');
@@ -16980,11 +17001,17 @@ bnrLoad();
       svStop();
       if (S.me.role === 'student') { await svExStudent(); return; }
       let b = '';
-      if (S.me.role === 'teacher') b = svBtn('sv-ex-new', '➕ ساخت آزمون') + svBtn('sv-ex-bank', '📚 بانک سوال') + svBtn('sv-ex-qnew', '💡 پیشنهاد سوال');
-      else b = svBtn('sv-ex-bank', '📚 بانک سوال') + svBtn('sv-ex-pend', '🕓 پیشنهادهای معلمان') + svBtn('sv-ex-flds', '🗂️ رشته‌ها و معلم‌ها') + svBtn('sv-ex-qnew', '➕ سوال جدید');
+      if (isMgr()) b = svBtn('sv-ex-bank', '📚 بانک سوال') + svBtn('sv-ex-pend', '🕓 پیشنهادهای معلمان') + svBtn('sv-ex-flds', '🗂️ رشته‌ها و معلم‌ها') + svBtn('sv-ex-qnew', '➕ سوال جدید');
+      else {
+        if (canExam()) b += svBtn('sv-ex-new', '➕ ساخت آزمون');
+        b += svBtn('sv-ex-bank', '📚 بانک سوال');
+        if (canExam()) b += svBtn('sv-ex-qnew', '💡 پیشنهاد سوال');
+        if (canRev()) b += svBtn('sv-ex-pend', '🕓 سوال‌های در انتظار تأیید');
+      }
       svShell('📝 آزمون آنلاین', 'sv-home', '<div class="sv-btns">' + b + '</div><h4>آزمون‌ها</h4><div id="sv-body"><p class="muted-text small">در حال بارگذاری…</p></div>');
-      const d = await stuFetch('/exams/ex/list', {});
       const box = $('sv-body'); if (!box) return;
+      if (!isMgr() && !canExam()) { box.innerHTML = '<p class="muted-text small">برای ساخت آزمون اجازه ندارید؛ فقط سوال‌های بانک را می‌توانید تأیید یا رد کنید.</p>'; return; }
+      const d = await stuFetch('/exams/ex/list', {});
       if (!d.items.length) { box.innerHTML = '<p class="muted-text small">هنوز آزمونی ساخته نشده است.</p>'; return; }
       let h = '';
       d.items.forEach((e) => {
@@ -17087,8 +17114,8 @@ bnrLoad();
       const d = await stuFetch('/exams/q/list', { field_id: fid || 0, status: status || '' });
       SV.qs = {}; d.questions.forEach((q) => { SV.qs[q.id] = q; });
       let h = '<div class="sv-filter"><select id="sv-qf"><option value="0">همهٔ رشته‌ها</option>' + SV.fields.map((f) => '<option value="' + f.id + '"' + (f.id === fid ? ' selected' : '') + '>' + esc(f.name) + '</option>').join('') + '</select>';
-      if (isMgr()) h += '<select id="sv-qs"><option value="">همهٔ وضعیت‌ها</option>' + Object.keys(Q_STATUS).map((k) => '<option value="' + k + '"' + (k === status ? ' selected' : '') + '>' + Q_STATUS[k] + '</option>').join('') + '</select>';
-      h += '</div>' + svBtn('sv-ex-qnew', isMgr() ? '➕ سوال جدید' : '💡 پیشنهاد سوال', '', 'secondary-btn sv-wide');
+      if (isMgr() || canRev()) h += '<select id="sv-qs"><option value="">همهٔ وضعیت‌ها</option>' + Object.keys(Q_STATUS).map((k) => '<option value="' + k + '"' + (k === status ? ' selected' : '') + '>' + Q_STATUS[k] + '</option>').join('') + '</select>';
+      h += '</div>' + ((isMgr() || canExam()) ? svBtn('sv-ex-qnew', isMgr() ? '➕ سوال جدید' : '💡 پیشنهاد سوال', '', 'secondary-btn sv-wide') : '');
       if (!d.questions.length) h += '<p class="muted-text small">سوالی پیدا نشد.</p>';
       d.questions.forEach((q) => { h += svQCard(q); });
       svShell('📚 بانک سوال', 'sv-ex', h);
