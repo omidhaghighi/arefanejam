@@ -174,6 +174,23 @@ jobs:
             \( -size 96x96 xc:none -fill black -draw "circle 58,42 58,14" \) \
             -compose DstOut -composite $RES/drawable/ic_stat_azan.png
 
+      - name: Mushaf fonts (official King Fahd Complex QCF fonts, fetched at build time from a pinned public copy and checked by SHA-256)
+        run: |
+          mkdir -p app/qcf/f
+          ok=1
+          git clone --quiet https://github.com/mustafa0x/qpc-fonts.git /tmp/qpc || ok=0
+          if [ "$ok" = 1 ]; then git -C /tmp/qpc checkout --quiet 8a4f39d563ea69c994416a1692827e38156c548d || ok=0; fi
+          if [ "$ok" = 1 ]; then
+            for p in $(seq 1 604); do n=$(printf %03d $p); cp /tmp/qpc/mushaf-woff2/QCF_P$n.woff2 app/qcf/f/$n.woff2 || ok=0; done
+          fi
+          if [ "$ok" = 1 ]; then (cd app/qcf/f && sha256sum -c --quiet ../../../native-assets/qcf-fonts.sha256) || ok=0; fi
+          if [ "$ok" = 1 ]; then
+            echo "Mushaf fonts OK: $(ls app/qcf/f | wc -l) files"
+          else
+            echo "::warning::Mushaf fonts could not be fetched; the app will use the old Quran reader"
+            rm -rf app/qcf
+          fi
+
       - name: Sync web files into Android project
         run: npx cap sync android
 
