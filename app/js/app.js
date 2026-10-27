@@ -19413,4 +19413,730 @@ try {
   srchEl('gs-close').addEventListener('click', gsClose);
 } catch (e) { /* جست‌وجوی کلی اختیاری است؛ خطا نباید اپ را متوقف کند */ }
 
+/* ===================== مصحف مدینه با فونت‌های رسمی مجمع ملک فهد (QCF) — تمام‌صفحه =====================
+   فقط «ظاهر» مصحف صفحه‌ای را عوض می‌کند: هر صفحه با همان فونتِ ویژهٔ همان صفحه (QCF_P001 … QCF_P604) و با همان خط‌بندیِ
+   ۱۵خطیِ مصحف چاپی کشیده می‌شود. پخش صوت، نشان‌کردن آیه، ردیابِ خواندن و اشتراک‌گذاری همان سازوکارهای قبلی‌اند.
+   فایل‌های فونت/چیدمان (پوشهٔ qcf/) فقط داخل APK هستند (حجم زیاد؛ از راه OTA نمی‌آیند). اگر داخل APK نبودند
+   (مثلاً APK قدیمی که فقط OTA گرفته)، خودکار همان مصحف قبلی نشان داده می‌شود و هیچ چیز خراب نمی‌شود. */
+var QCF = { ready: false, loading: null, L: null, M: null, pre: null, page: 0, tok: 0, faces: {}, faceOrder: [], text: null, textTried: false,
+            sel: -1, ayahs: [], blocks: [], uiOn: false, night: false, bright: 1, longTimer: null, popup: null, screen: null };
+
+/*QCF-PURE-START*/
+function qcfFaceUrl(page) { return 'qcf/f/' + ('00' + page).slice(-3) + '.woff2'; }
+
+// ساختن DOM یک صفحه؛ P = داده‌های همان صفحه از layout.json. خروجی: { el, rowSpans, slotH }
+function qcfBuildPage(P, page, W, H, M, o) {
+  o = o || {};
+  const mx = o.mx == null ? 10 : o.mx, pt = o.pt == null ? 8 : o.pt, pb = o.pb == null ? 8 : o.pb;
+  const availW = Math.max(100, W - 2 * mx);
+  const slotH = Math.max(18, (H - pt - pb) / 15);
+  const root = document.createElement('div');
+  root.className = 'qf-pg' + (page <= 2 ? ' qf-center' : '');
+  root.style.padding = pt + 'px ' + mx + 'px ' + pb + 'px';
+  const fam = 'QCF' + page;
+  const rowSpans = P.r.map(function () { return []; });
+  let ri = 0, rowLeft = P.r.length ? P.r[0][2] : 0;
+  P.l.forEach(function (it) {
+    const line = document.createElement('div');
+    line.className = 'qf-line';
+    line.style.height = slotH + 'px';
+    if (it[0] === 1) {            // عنوان سوره (قاب + نام)
+      line.className += ' qf-hline';
+      const fr = document.createElement('span');
+      fr.className = 'qf-hfr'; fr.textContent = 'ﰠ';
+      fr.style.fontSize = (availW * 0.98 / 8) + 'px';
+      const nm = document.createElement('span');
+      nm.className = 'qf-hnm';
+      nm.textContent = 'ﮌ ' + String.fromCodePoint(M.sn[it[1] - 1]);
+      nm.style.fontSize = Math.min(slotH * 0.62, availW * 0.11) + 'px';
+      line.appendChild(fr); line.appendChild(nm);
+    } else if (it[0] === 2) {     // بسم الله
+      line.className += ' qf-bline';
+      const b = document.createElement('span');
+      b.className = 'qf-bsm'; b.textContent = 'ﰡ';
+      b.style.fontSize = Math.min(availW * 0.66 / 6.41, slotH * 0.9) + 'px';
+      line.appendChild(b);
+    } else {                      // یک خط از متن
+      const g = it[1], w = it[2];
+      const full = w >= P.W * 0.93;
+      let fs = availW * P.u / (full ? w : P.W);
+      fs = Math.min(fs, slotH * 1.05);
+      const wrap = document.createElement('span');
+      wrap.className = 'qf-gl';
+      wrap.style.fontFamily = fam;
+      wrap.style.fontSize = fs + 'px';
+      let cur = null, curRow = -1;
+      for (let k = 0; k < g.length; k++) {
+        if (rowLeft === 0 && ri < P.r.length - 1) { ri++; rowLeft = P.r[ri][2]; }
+        if (curRow !== ri) {
+          cur = document.createElement('span');
+          cur.className = 'qf-a';
+          cur.dataset.r = ri;
+          wrap.appendChild(cur);
+          rowSpans[ri].push(cur);
+          curRow = ri;
+        }
+        cur.textContent += g.charAt(k);
+        rowLeft--;
+      }
+      line.appendChild(wrap);
+    }
+    root.appendChild(line);
+  });
+  return { el: root, rowSpans: rowSpans, slotH: slotH };
+}
+/*QCF-PURE-END*/
+
+/* ---------- بارگذاری داده‌ها و فونت‌ها ---------- */
+function qcfFetchJson(url) {
+  return fetch(url, { cache: 'force-cache' }).then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); });
+}
+function qcfInit() {
+  if (QCF.ready) return Promise.resolve(true);
+  if (QCF.loading) return QCF.loading;
+  QCF.loading = Promise.all([qcfFetchJson('qcf/layout.json'), qcfFetchJson('qcf/meta.json')]).then(function (r) {
+    if (!r[0] || !r[0].p || r[0].p.length !== 604 || !r[1] || !r[1].surahs || r[1].surahs.length !== 114) throw new Error('bad data');
+    QCF.L = r[0]; QCF.M = r[1];
+    const pre = [0, 0]; let acc = 0;
+    r[1].surahs.forEach(function (s) { pre[s[0]] = acc; acc += s[2]; });
+    QCF.pre = pre;
+    try { QCF.night = localStorage.getItem('arefanejam_qcf_night') === '1'; } catch (e) {}
+    try { const b = parseFloat(localStorage.getItem('arefanejam_qcf_bright')); if (b >= 0.25 && b <= 1) QCF.bright = b; } catch (e) {}
+    QCF.ready = true;
+    qcfLoadStaticFaces();
+    return true;
+  }).catch(function () { QCF.loading = null; QCF.ready = false; return false; });
+  return QCF.loading;
+}
+function qcfLoadStaticFaces() {
+  try {
+    [['QCFB', 'qcf/bsml.woff2'], ['QCFH', 'qcf/hafs.woff2']].forEach(function (d) {
+      const f = new FontFace(d[0], 'url(' + d[1] + ')');
+      f.load().then(function () { document.fonts.add(f); }).catch(function () {});
+    });
+  } catch (e) {}
+}
+function qcfLoadFace(page) {
+  if (page < 1 || page > 604) return Promise.resolve();
+  if (QCF.faces[page]) return QCF.faces[page];
+  const f = new FontFace('QCF' + page, 'url(' + qcfFaceUrl(page) + ')');
+  const p = f.load().then(function () { document.fonts.add(f); return f; }).catch(function () { delete QCF.faces[page]; return null; });
+  QCF.faces[page] = p;
+  QCF.faceOrder.push(page);
+  while (QCF.faceOrder.length > 14) { // حافظه: فقط چند صفحهٔ آخر نگه داشته می‌شوند
+    const old = QCF.faceOrder.shift();
+    if (Math.abs(old - page) <= 2) { QCF.faceOrder.push(old); break; }
+    const pr = QCF.faces[old]; delete QCF.faces[old];
+    if (pr) pr.then(function (ff) { if (ff) try { document.fonts.delete(ff); } catch (e) {} });
+  }
+  return p;
+}
+
+/* ---------- داده‌های سوره/جزء/صفحه ---------- */
+function qcfJuzOfPage(page) {
+  const j = QCF.M.juz; let r = 1;
+  for (let i = 0; i < j.length; i++) { if (j[i] <= page) r = i + 1; else break; }
+  return r;
+}
+function qcfSurahName(s) {
+  try {
+    const l = (typeof qsAllSurahs !== 'undefined' && qsAllSurahs) || [];
+    for (let i = 0; i < l.length; i++) if (l[i].number === s && l[i].name) return l[i].name;
+  } catch (e) {}
+  return QCF.M.surahs[s - 1][4];
+}
+function qcfPlainName(s) { return String(QCF.M.surahs[s - 1][4]).replace(/[ً-ٰٟۖ-ۭـ]/g, ''); }
+function qcfMakeAyahs(page) {
+  const P = QCF.L.p[page - 1], juz = qcfJuzOfPage(page);
+  return P.r.map(function (r) {
+    return { number: QCF.pre[r[0]] + r[1], numberInSurah: r[1], surahNumber: r[0], surahName: qcfSurahName(r[0]),
+             surahAyahCount: QCF.M.surahs[r[0] - 1][2], juz: juz, page: page, text: '' };
+  });
+}
+function qcfFindPage(surah, ayah) {
+  const sinfo = QCF.M.surahs[surah - 1];
+  if (!sinfo) return 1;
+  if (!ayah || ayah <= 1) return sinfo[1];
+  for (let p = sinfo[1]; p <= 604; p++) {
+    const r = QCF.L.p[p - 1].r;
+    for (let i = 0; i < r.length; i++) if (r[i][0] === surah && r[i][1] === ayah) return p;
+    if (r.length && r[0][0] > surah) break;
+  }
+  return sinfo[1];
+}
+function qcfLoadText() {
+  if (QCF.text || QCF.textTried) return;
+  QCF.textTried = true;
+  try {
+    Promise.resolve(getOfflineQuranText()).then(function (surahs) {
+      if (!surahs) return;
+      const map = {};
+      surahs.forEach(function (sr) { (sr.ayahs || []).forEach(function (a) { map[a.number] = a.text; }); });
+      QCF.text = map;
+    }).catch(function () {});
+  } catch (e) {}
+}
+function qcfAyahText(a) { return (QCF.text && QCF.text[a.number]) || ''; }
+function qcfPageMark() { try { return qpGetMark(); } catch (e) { return null; } }
+
+/* ---------- نمایش صفحه ---------- */
+function qcfRootEl() { return document.getElementById('qcf-root'); }
+function qcfEnsureRoot() {
+  let root = qcfRootEl();
+  if (root) return root;
+  const host = document.getElementById('qp-view');
+  if (!host) return null;
+  root = document.createElement('div');
+  root.id = 'qcf-root';
+  root.className = 'qcf-root';
+  root.innerHTML =
+    '<div id="qcf-stage" class="qf-stage"></div>' +
+    '<div id="qcf-dim" class="qf-dim"></div>' +
+    '<div id="qcf-top" class="qf-top"><span id="qcf-t-juz"></span><b id="qcf-t-page"></b><span id="qcf-t-surah"></span></div>' +
+    '<div id="qcf-menu" class="qf-menu"></div>' +
+    '<div id="qcf-toast" class="qf-toast"></div>';
+  host.appendChild(root);
+  qcfBuildMenu();
+  qcfBindGestures(root);
+  return root;
+}
+function qcfApplyTheme() {
+  const root = qcfRootEl(); if (!root) return;
+  root.classList.toggle('qf-night', !!QCF.night);
+  const dim = document.getElementById('qcf-dim');
+  if (dim) dim.style.opacity = String(Math.max(0, Math.min(0.75, 1 - QCF.bright)));
+}
+function qcfSizeRoot() {
+  const root = qcfRootEl(), content = document.getElementById('content');
+  if (!root || !content) return false;
+  const h = content.clientHeight;
+  if (h < 200) return false;
+  root.style.height = h + 'px';
+  return true;
+}
+function qcfToast(msg, ms) {
+  const t = document.getElementById('qcf-toast'); if (!t) return;
+  t.textContent = msg; t.classList.add('on');
+  clearTimeout(qcfToast._t);
+  qcfToast._t = setTimeout(function () { t.classList.remove('on'); }, ms || 2200);
+}
+
+async function qcfShow(page, o) {
+  o = o || {};
+  page = Math.max(1, Math.min(604, Number(page) || 1));
+  const root = qcfEnsureRoot(); if (!root) return;
+  const tok = ++QCF.tok;
+  qcfSizeRoot();
+  qcfApplyTheme();
+  qcfLoadText();
+  await qcfLoadFace(page);
+  if (tok !== QCF.tok) return;
+  qcfLoadFace(page + 1); qcfLoadFace(page - 1);
+
+  resetPlaybackForNewContent();
+  qpPage = page; QCF.page = page;
+  try { localStorage.setItem(QPAGE_LAST_KEY, String(page)); } catch (e) {}
+  const ayahs = qcfMakeAyahs(page);
+  qpAyahs = ayahs; QCF.ayahs = ayahs; QCF.sel = -1;
+  const first = ayahs[0];
+  const prevSurah = currentSurahNumber;
+  currentSurahNumber = first.surahNumber;
+  try { if (prevSurah !== currentSurahNumber) primeQuranExitPopupBaseline(currentSurahNumber); } catch (e) {}
+  try { localStorage.setItem('arefanejam_last_read', JSON.stringify({ number: first.surahNumber, name: first.surahName, ts: Date.now() })); } catch (e) {}
+
+  // نوار بالا
+  document.getElementById('qcf-t-juz').textContent = 'جزء ' + toPersianDigits(first.juz);
+  document.getElementById('qcf-t-page').textContent = toPersianDigits(page);
+  document.getElementById('qcf-t-surah').textContent = 'سورة ' + qcfPlainName(first.surahNumber);
+
+  // صفحه
+  const stage = document.getElementById('qcf-stage');
+  const W = stage.clientWidth || root.clientWidth, H = stage.clientHeight || root.clientHeight;
+  let pt = 8, pb = 8;
+  try { const cs = getComputedStyle(document.documentElement); pt += parseFloat(cs.getPropertyValue('--sat')) || 0; } catch (e) {}
+  const res = qcfBuildPage(QCF.L.p[page - 1], page, W, H, QCF.M, { pt: pt, pb: pb, mx: Math.max(6, Math.round(W * 0.018)) });
+  const old = stage.querySelectorAll('.qf-pg');
+  res.el.classList.add('qf-new');
+  if (o.dir) res.el.classList.add(o.dir > 0 ? 'qf-in-next' : 'qf-in-prev');
+  stage.querySelectorAll('.qf-proxy').forEach(function (n) { n.remove(); });
+  stage.appendChild(res.el);
+  old.forEach(function (n) { setTimeout(function () { n.remove(); }, o.dir ? 260 : 0); });
+  if (!o.dir) old.forEach(function (n) { n.remove(); });
+
+  // بلوک‌های نامرئیِ هر آیه (برای پخش صوت و ردیابِ خواندن)
+  const sr = stage.getBoundingClientRect();
+  const blocks = res.rowSpans.map(function (spans) {
+    const el = document.createElement('div');
+    el.className = 'ayah-block qf-proxy';
+    let t = 1e9, l = 1e9, b = -1e9, r = -1e9;
+    spans.forEach(function (s) { const q = s.getBoundingClientRect(); t = Math.min(t, q.top); l = Math.min(l, q.left); b = Math.max(b, q.bottom); r = Math.max(r, q.right); });
+    if (t > b) { t = 0; b = 1; l = 0; r = 1; }
+    el.style.cssText = 'position:absolute;pointer-events:none;top:' + (t - sr.top) + 'px;left:' + (l - sr.left) + 'px;width:' + Math.max(1, r - l) + 'px;height:' + Math.max(1, b - t) + 'px';
+    const real = el.classList;
+    const map = function (c) { return c === 'is-playing' ? 'qf-play' : (c === 'qp-selected' ? 'qf-sel' : (c === 'ayah-read-highlight' ? '' : c)); };
+    Object.defineProperty(el, 'classList', { value: {
+      add: function () { for (let i = 0; i < arguments.length; i++) { real.add(arguments[i]); const m = map(arguments[i]); if (m) spans.forEach(function (s) { s.classList.add(m); }); } },
+      remove: function () { for (let i = 0; i < arguments.length; i++) { real.remove(arguments[i]); const m = map(arguments[i]); if (m) spans.forEach(function (s) { s.classList.remove(m); }); } },
+      toggle: function (c, f) { const on = f === undefined ? !real.contains(c) : !!f; if (on) this.add(c); else this.remove(c); return on; },
+      contains: function (c) { return real.contains(c); }
+    } });
+    stage.appendChild(el);
+    return el;
+  });
+  QCF.blocks = blocks;
+  playbackQueue = ayahs; playbackBlocks = blocks;
+  window.__currentSurahName = first.surahName;
+  qcfHideUi();
+  qcfCloseScreen(true);
+  qcfClosePopup();
+  try { qpMenuRefresh(); } catch (e) {}
+
+  const content = document.getElementById('content');
+  try { attachQuranReadingTracker(content, ayahs, blocks); highlightPreviouslyReadAyahs(ayahs, blocks); } catch (e) {}
+
+  let startIdx = 0, hasFocus = false;
+  if (o.focusAyah) {
+    const fi = ayahs.findIndex(function (a) { return a.numberInSurah === o.focusAyah && (!o.focusSurah || a.surahNumber === o.focusSurah); });
+    if (fi >= 0) { startIdx = fi; hasFocus = true; }
+  }
+  if (hasFocus) qcfSelect(startIdx);
+  if (o.autoPlay) {
+    try { silentEnsureSurahAudio(ayahs[startIdx].number); } catch (e) {}
+    startSequentialPlayback(playbackQueue, playbackBlocks, startIdx, ayahs[startIdx].surahName);
+  }
+}
+
+function qcfSelect(i) {
+  QCF.sel = i;
+  document.querySelectorAll('#qcf-stage .qf-a.qf-sel').forEach(function (s) { s.classList.remove('qf-sel'); });
+  if (i < 0 || !QCF.blocks[i]) return;
+  QCF.blocks[i].classList.add('qp-selected');
+  // روی بقیه‌ٔ آیه‌ها برداشته شود
+  QCF.blocks.forEach(function (b, k) { if (k !== i) b.classList.remove('qp-selected'); });
+}
+
+/* ---------- نوار بالا و منوی پایین (با یک لمس باز و بسته می‌شود) ---------- */
+function qcfShowUi() { const r = qcfRootEl(); if (!r) return; r.classList.add('qf-ui'); QCF.uiOn = true; qcfRefreshMenu(); }
+function qcfHideUi() { const r = qcfRootEl(); if (!r) return; r.classList.remove('qf-ui'); QCF.uiOn = false; }
+function qcfToggleUi() { if (QCF.uiOn) qcfHideUi(); else qcfShowUi(); }
+
+var QCF_ICONS = {
+  search: '<svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6.2"/><path d="M15 15l6 6"/></svg>',
+  mark: '<svg viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4.5L6 21z" fill="currentColor"/></svg>',
+  markgo: '<svg viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4.5L6 21z"/><path d="M9 9l3 3 3-3" /></svg>',
+  sun: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>',
+  list: '<svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>',
+  pie: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 12V3M12 12l7.5 4.5" /></svg>',
+  pages: '<svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.5 8h7M8.5 12h7M8.5 16h5"/></svg>',
+  star: '<svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 16.8 6.6 19.8l1.1-6.1L3.2 9.4l6.1-.8z"/></svg>',
+  share: '<svg viewBox="0 0 24 24"><circle cx="18" cy="5.5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="18.5" r="2.6"/><path d="M8.3 10.7l7.4-3.9M8.3 13.3l7.4 3.9"/></svg>',
+  play: '<svg viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z" fill="currentColor"/></svg>',
+  pause: '<svg viewBox="0 0 24 24"><path d="M7 4.5h3.5v15H7zM13.5 4.5H17v15h-3.5z" fill="currentColor"/></svg>',
+  moon: '<svg viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z"/></svg>',
+  more: '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="19" cy="12" r="1.8" fill="currentColor"/></svg>',
+  book: '<svg viewBox="0 0 24 24"><path d="M3 5.5C6 4 9 4 12 5.5 15 4 18 4 21 5.5V19C18 17.6 15 17.6 12 19 9 17.6 6 17.6 3 19z"/><path d="M12 5.5V19"/></svg>'
+};
+var QCF_MENU = [
+  ['search', 'search', 'جست‌وجو'], ['mark', 'mark-save', 'ذخیرهٔ نشانه'], ['markgo', 'mark-go', 'رفتن به نشانه'], ['sun', 'bright', 'روشنایی'],
+  ['list', 'index', 'فهرست'], ['pie', 'juz', 'جزءها'], ['pages', 'pages', 'صفحه‌ها'], ['star', 'bookmarks', 'آیات نشان‌شده'],
+  ['share', 'share', 'اشتراک‌گذاری'], ['play', 'play', 'پخش صفحه'], ['moon', 'night', 'حالت شب'], ['more', 'more', 'بیشتر']
+];
+function qcfBuildMenu() {
+  const m = document.getElementById('qcf-menu'); if (!m) return;
+  m.innerHTML = QCF_MENU.map(function (it) {
+    return '<button type="button" class="qf-mi" data-act="' + it[1] + '"><i>' + QCF_ICONS[it[0]] + '</i><span>' + it[2] + '</span></button>';
+  }).join('');
+  m.addEventListener('click', function (e) {
+    const b = e.target.closest('.qf-mi'); if (!b) return;
+    e.stopPropagation();
+    qcfMenuAct(b.dataset.act);
+  });
+  ['pointerdown', 'pointerup', 'touchstart', 'touchend'].forEach(function (ev) { m.addEventListener(ev, function (e) { e.stopPropagation(); }, { passive: true }); });
+}
+function qcfRefreshMenu() {
+  const m = document.getElementById('qcf-menu'); if (!m) return;
+  const night = m.querySelector('[data-act="night"] span'); if (night) night.textContent = QCF.night ? 'حالت روز' : 'حالت شب';
+  const play = m.querySelector('[data-act="play"]');
+  if (play) {
+    const on = (typeof isSequentialPlaying !== 'undefined') && isSequentialPlaying;
+    play.querySelector('i').innerHTML = on ? QCF_ICONS.pause : QCF_ICONS.play;
+    play.querySelector('span').textContent = on ? 'توقف پخش' : 'پخش صفحه';
+  }
+  const mk = qcfPageMark(), sv = m.querySelector('[data-act="mark-save"]');
+  if (sv) sv.classList.toggle('on', !!(mk && mk.page === QCF.page));
+}
+function qcfMenuAct(act) {
+  switch (act) {
+    case 'search': qcfHideUi(); switchToTab('quran-search', { push: true }); break;
+    case 'bookmarks': qcfHideUi(); switchToTab('quran-bookmarks', { push: true }); break;
+    case 'more': qcfHideUi(); switchToTab('more', { push: true }); break;
+    case 'mark-save':
+      qcfDialog({ text: 'آیا می‌خواهید روی این صفحه نشانه بگذارید؟', buttons: [
+        { label: 'بله', cb: function () {
+          const first = QCF.ayahs[0];
+          try { localStorage.setItem(QPAGE_MARK_KEY, JSON.stringify({ page: QCF.page, surah: first ? first.surahName : '', ts: Date.now() })); } catch (e) {}
+          qcfRefreshMenu(); qcfToast('نشانه روی صفحهٔ ' + toPersianDigits(QCF.page) + ' ذخیره شد');
+        } },
+        { label: 'خیر' } ] });
+      break;
+    case 'mark-go': {
+      const mk = qcfPageMark();
+      if (!mk) { qcfToast('هنوز نشانه‌ای ذخیره نکرده‌اید'); break; }
+      qcfShow(mk.page, { dir: mk.page > QCF.page ? 1 : -1 });
+      break;
+    }
+    case 'bright': qcfBrightDialog(); break;
+    case 'night': qcfSetNight(!QCF.night); qcfRefreshMenu(); break;
+    case 'index': qcfOpenScreen('surah'); break;
+    case 'juz': qcfOpenScreen('juz'); break;
+    case 'pages': qcfOpenScreen('pages'); break;
+    case 'share': {
+      if (!QCF.ayahs.length) break;
+      const txt = QCF.ayahs.map(function (a) { const t = qcfAyahText(a); return t ? t + ' ﴿' + toPersianDigits(a.numberInSurah) + '﴾' : ''; }).filter(Boolean).join(' ');
+      shareAyah(txt, 'قرآن کریم — ' + QCF.ayahs[0].surahName + ' — صفحهٔ ' + toPersianDigits(QCF.page));
+      break;
+    }
+    case 'play':
+      if (typeof isSequentialPlaying !== 'undefined' && isSequentialPlaying) { qpStopPlayback(); qcfRefreshMenu(); }
+      else if (QCF.ayahs.length) { qcfHideUi(); startSequentialPlayback(playbackQueue, playbackBlocks, 0, QCF.ayahs[0].surahName); }
+      break;
+  }
+}
+function qcfSetNight(on) {
+  QCF.night = !!on;
+  try { localStorage.setItem('arefanejam_qcf_night', on ? '1' : '0'); } catch (e) {}
+  qcfApplyTheme();
+}
+
+/* ---------- پنجره‌های کوچک (مثل اپ مرجع): تأیید نشانه، روشنایی ---------- */
+function qcfDialog(d) {
+  const root = qcfRootEl(); if (!root) return;
+  qcfCloseDialog();
+  const ov = document.createElement('div');
+  ov.id = 'qcf-dlg'; ov.className = 'qf-dlg';
+  const box = document.createElement('div'); box.className = 'qf-dlg-box';
+  if (d.html) { box.innerHTML = d.html; }
+  else { const p = document.createElement('div'); p.className = 'qf-dlg-text'; p.textContent = d.text || ''; box.appendChild(p); }
+  if (d.buttons && d.buttons.length) {
+    const row = document.createElement('div'); row.className = 'qf-dlg-btns';
+    d.buttons.forEach(function (b) {
+      const btn = document.createElement('button'); btn.type = 'button'; btn.textContent = b.label;
+      btn.addEventListener('click', function (e) { e.stopPropagation(); qcfCloseDialog(); if (b.cb) b.cb(); });
+      row.appendChild(btn);
+    });
+    box.appendChild(row);
+  }
+  ov.appendChild(box);
+  ov.addEventListener('click', function (e) { if (e.target === ov) qcfCloseDialog(); });
+  ['pointerdown', 'pointerup', 'touchstart', 'touchend'].forEach(function (ev) { ov.addEventListener(ev, function (e) { e.stopPropagation(); }, { passive: true }); });
+  root.appendChild(ov);
+  return box;
+}
+function qcfCloseDialog() { const d = document.getElementById('qcf-dlg'); if (d) d.remove(); }
+function qcfBrightDialog() {
+  const box = qcfDialog({ html:
+    '<div class="qf-dlg-text">درجهٔ روشنایی صفحه</div>' +
+    '<div class="qf-br"><i class="s">' + QCF_ICONS.sun + '</i><input id="qcf-br-rng" type="range" min="25" max="100" step="1"><i class="b">' + QCF_ICONS.sun + '</i></div>' +
+    '<div class="qf-dlg-btns"><button type="button" id="qcf-br-night"></button></div>' });
+  if (!box) return;
+  const rng = box.querySelector('#qcf-br-rng'), nb = box.querySelector('#qcf-br-night');
+  rng.value = String(Math.round(QCF.bright * 100));
+  rng.addEventListener('input', function () {
+    QCF.bright = Math.max(0.25, Math.min(1, Number(rng.value) / 100));
+    try { localStorage.setItem('arefanejam_qcf_bright', String(QCF.bright)); } catch (e) {}
+    qcfApplyTheme();
+  });
+  const lab = function () { nb.textContent = QCF.night ? 'غیرفعال‌سازی حالت شب' : 'فعال‌سازی حالت شب'; };
+  lab();
+  nb.addEventListener('click', function (e) { e.stopPropagation(); qcfSetNight(!QCF.night); lab(); qcfRefreshMenu(); });
+}
+
+/* ---------- منوی لمس طولانی روی آیه (مثل اپ مرجع: فهرست تیره) ---------- */
+function qcfClosePopup() { const p = document.getElementById('qcf-pop'); if (p) p.remove(); QCF.popup = null; }
+function qcfOpenPopup(i, x, y) {
+  const root = qcfRootEl(), a = QCF.ayahs[i]; if (!root || !a) return;
+  qcfClosePopup(); qcfHideUi();
+  qcfSelect(i);
+  const playing = (typeof isSequentialPlaying !== 'undefined') && isSequentialPlaying && playbackQueue[playQueueIndex] === a;
+  const bm = (function () { try { return isBookmarked(a.number); } catch (e) { return false; } })();
+  const items = [
+    [playing ? 'pause' : 'play', playing ? 'توقف پخش' : 'پخش از این آیه', 'play'],
+    ['mark', bm ? 'برداشتن نشان آیه' : 'نشان‌کردن آیه', 'bm'],
+    ['book', 'ترجمه و معنی آیه', 'tr'],
+    ['share', 'اشتراک‌گذاری آیه', 'share']
+  ];
+  const pop = document.createElement('div');
+  pop.id = 'qcf-pop'; pop.className = 'qf-pop';
+  pop.innerHTML = '<div class="qf-pop-h">' + qcfPlainName(a.surahNumber) + ' — آیهٔ ' + toPersianDigits(a.numberInSurah) + '</div>' +
+    items.map(function (it) { return '<button type="button" data-k="' + it[2] + '"><span>' + it[1] + '</span><i>' + QCF_ICONS[it[0]] + '</i></button>'; }).join('');
+  root.appendChild(pop);
+  const rr = root.getBoundingClientRect();
+  const pw = Math.min(rr.width - 24, 290);
+  pop.style.width = pw + 'px';
+  let left = Math.max(12, Math.min(rr.width - pw - 12, (x - rr.left) - pw / 2));
+  pop.style.left = left + 'px';
+  const ph = pop.offsetHeight || 200;
+  let top = (y - rr.top) + 18;
+  if (top + ph > rr.height - 12) top = Math.max(12, (y - rr.top) - ph - 18);
+  pop.style.top = top + 'px';
+  QCF.popup = i;
+  ['pointerdown', 'pointerup', 'touchstart', 'touchend'].forEach(function (ev) { pop.addEventListener(ev, function (e) { e.stopPropagation(); }, { passive: true }); });
+  pop.addEventListener('click', function (e) {
+    const b = e.target.closest('button'); if (!b) return;
+    e.stopPropagation();
+    qcfPopupAct(b.dataset.k, i);
+  });
+}
+function qcfPopupAct(k, i) {
+  const a = QCF.ayahs[i]; if (!a) return;
+  qcfClosePopup();
+  if (k === 'play') {
+    const playing = (typeof isSequentialPlaying !== 'undefined') && isSequentialPlaying && playbackQueue[playQueueIndex] === a;
+    if (playing) { qpStopPlayback(); qcfSelect(-1); return; }
+    playbackSession++;
+    try { silentEnsureSurahAudio(a.number); } catch (e) {}
+    startSequentialPlayback(playbackQueue, playbackBlocks, i, a.surahName);
+  } else if (k === 'bm') {
+    const prev = currentSurahNumber;
+    currentSurahNumber = a.surahNumber; // toggleBookmark شمارهٔ سوره را از همین متغیر برمی‌دارد
+    const dummy = document.createElement('i');
+    toggleBookmark(Object.assign({}, a, { text: qcfAyahText(a) }), a.surahName, dummy);
+    currentSurahNumber = prev;
+    qcfToast(dummy.classList.contains('is-bookmarked') ? 'آیه نشان شد' : 'نشان آیه برداشته شد');
+    qcfSelect(-1);
+  } else if (k === 'share') {
+    const t = qcfAyahText(a);
+    shareAyah(t || ('آیهٔ ' + a.numberInSurah), a.surahName + ' — آیه ' + toPersianDigits(a.numberInSurah));
+    qcfSelect(-1);
+  } else if (k === 'tr') {
+    Promise.resolve(getOfflineTranslation()).then(function (tr) {
+      let txt = '';
+      try { const s = tr && tr.find(function (x) { return x.number === a.surahNumber; }); txt = s && s.ayahs[a.numberInSurah - 1] ? s.ayahs[a.numberInSurah - 1].text : ''; } catch (e) {}
+      const ar = qcfAyahText(a);
+      qcfDialog({ html: '<div class="qf-tr-h">' + qcfPlainName(a.surahNumber) + ' — آیهٔ ' + toPersianDigits(a.numberInSurah) + '</div>' +
+        (ar ? '<div class="qf-tr-ar"></div>' : '') + '<div class="qf-tr-fa"></div>', buttons: [{ label: 'بستن' }] });
+      const box = document.querySelector('#qcf-dlg .qf-dlg-box');
+      if (box) {
+        const arEl = box.querySelector('.qf-tr-ar'); if (arEl) arEl.textContent = ar;
+        box.querySelector('.qf-tr-fa').textContent = txt || 'ترجمه روی این گوشی ذخیره نشده است.';
+      }
+      qcfSelect(-1);
+    });
+  }
+}
+
+/* ---------- لمس: ورق‌زدن، باز و بسته‌شدن منو، لمس طولانی ---------- */
+function qcfGo(delta) {
+  const p = QCF.page + delta;
+  if (p < 1 || p > 604) return;
+  qcfShow(p, { dir: delta });
+}
+function qcfBindGestures(root) {
+  let sx = 0, sy = 0, st = 0, on = false, moved = false, target = null, lpFired = false;
+  root.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  root.addEventListener('pointerdown', function (e) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    sx = e.clientX; sy = e.clientY; st = Date.now(); on = true; moved = false; lpFired = false;
+    target = e.target.closest ? e.target.closest('.qf-a') : null;
+    clearTimeout(QCF.longTimer);
+    if (target) {
+      const t = target;
+      QCF.longTimer = setTimeout(function () {
+        if (!on || moved) return;
+        lpFired = true;
+        try { if (navigator.vibrate) navigator.vibrate(12); } catch (er) {}
+        qcfOpenPopup(Number(t.dataset.r), sx, sy);
+      }, 480);
+    }
+  }, { passive: true });
+  root.addEventListener('pointermove', function (e) {
+    if (!on) return;
+    if (Math.abs(e.clientX - sx) > 12 || Math.abs(e.clientY - sy) > 12) { moved = true; clearTimeout(QCF.longTimer); }
+  }, { passive: true });
+  root.addEventListener('pointercancel', function () { on = false; clearTimeout(QCF.longTimer); }, { passive: true });
+  root.addEventListener('pointerup', function (e) {
+    if (!on) return;
+    on = false; clearTimeout(QCF.longTimer);
+    if (lpFired) return;
+    const dx = e.clientX - sx, dy = e.clientY - sy, dt = Date.now() - st;
+    if (QCF.popup !== null) { qcfClosePopup(); qcfSelect(-1); return; }
+    if (QCF.sel >= 0) qcfSelect(-1);
+    if (Math.abs(dx) >= 60 && Math.abs(dx) >= Math.abs(dy) * 1.5 && dt < 800) {
+      // مصحف راست‌به‌چپ است: کشیدن به راست = صفحهٔ بعد، به چپ = صفحهٔ قبل
+      qcfHideUi();
+      qcfGo(dx > 0 ? 1 : -1);
+      return;
+    }
+    if (Math.abs(dx) < 14 && Math.abs(dy) < 14 && dt < 600) qcfToggleUi();
+  }, { passive: true });
+  document.addEventListener('keydown', function (e) {
+    if (!QCF.ready || !document.body.classList.contains('qcf-fs')) return;
+    const tag = (e.target && e.target.tagName) || '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (e.key === 'ArrowLeft') qcfGo(1); else if (e.key === 'ArrowRight') qcfGo(-1);
+  });
+}
+
+/* ---------- صفحه‌های فهرست: سوره‌ها، جزء/حزب، صفحه‌ها (سیاه با ستون‌های کناری، مثل اپ مرجع) ---------- */
+var QCF_KAABA = '<svg viewBox="0 0 48 48"><path d="M8 14l16-7 16 7v22l-16 7-16-7z" fill="#1b1b1b"/><path d="M8 14l16 7 16-7" fill="none" stroke="#555" stroke-width="1.2"/><path d="M24 21v22" stroke="#444"/><path d="M8 20.5l16 7 16-7v4l-16 7-16-7z" fill="#C9A24A"/></svg>';
+var QCF_MADINA = '<svg viewBox="0 0 48 48"><rect x="9" y="30" width="30" height="12" rx="1.5" fill="#eceae4" stroke="#bdb9ac"/><path d="M12 30c0-9 5-15 12-15s12 6 12 15z" fill="#2E9B3E"/><path d="M12 30c0-9 5-15 12-15" fill="none" stroke="#7fd48a" stroke-width="1.5"/><path d="M24 15V8" stroke="#C9A24A" stroke-width="2"/><circle cx="24" cy="7" r="1.6" fill="#C9A24A"/></svg>';
+var QCF_RIBBON = '<svg viewBox="0 0 14 30"><path d="M0 0h14v30l-7-6-7 6z" fill="#D32F2F"/></svg>';
+
+function qcfScreenEl() { return document.getElementById('qcf-screen'); }
+function qcfCloseScreen(silent) {
+  const s = qcfScreenEl();
+  if (s) s.remove();
+  QCF.screen = null;
+  const r = qcfRootEl(); if (r) r.classList.remove('qf-scr');
+}
+function qcfOpenScreen(kind) {
+  const root = qcfRootEl(); if (!root) return;
+  qcfCloseScreen(true); qcfHideUi();
+  const s = document.createElement('div');
+  s.id = 'qcf-screen'; s.className = 'qf-screen';
+  const titles = { surah: 'فهرست سوره‌ها', juz: 'جزءها و حزب‌ها', pages: 'صفحه‌ها' };
+  s.innerHTML = '<div class="qf-sc-bar"><button type="button" class="qf-sc-x" aria-label="بستن">✕</button><span>' + titles[kind] + '</span></div><div class="qf-sc-list" id="qcf-sc-list"></div>';
+  root.appendChild(s);
+  root.classList.add('qf-scr');
+  QCF.screen = kind;
+  s.querySelector('.qf-sc-x').addEventListener('click', function () { qcfCloseScreen(); });
+  const list = s.querySelector('#qcf-sc-list');
+  ['pointerdown', 'pointerup', 'touchstart', 'touchend'].forEach(function (ev) { s.addEventListener(ev, function (e) { e.stopPropagation(); }, { passive: true }); });
+  if (kind === 'surah') qcfFillSurahs(list);
+  else if (kind === 'juz') qcfFillJuz(list);
+  else qcfFillPages(list);
+}
+function qcfGoPage(p) { qcfCloseScreen(); qcfShow(p, { dir: 0 }); }
+function qcfSnGlyph(n) { return String.fromCodePoint(QCF.M.sn[n - 1]); }
+function qcfFillSurahs(list) {
+  const mk = qcfPageMark(), curS = QCF.ayahs[0] ? QCF.ayahs[0].surahNumber : 0;
+  const S = QCF.M.surahs;
+  let html = '';
+  S.forEach(function (s, i) {
+    const nextStart = i + 1 < S.length ? S[i + 1][1] : 605;
+    const hasMark = !!(mk && mk.page >= s[1] && mk.page < nextStart);
+    html += '<div class="qf-row' + (s[0] === curS ? ' cur' : '') + '" data-p="' + s[1] + '">' +
+      '<b class="qf-c qf-cn">' + toPersianDigits(s[1]) + '</b>' +
+      '<div class="qf-cell"><span class="qf-ic">' + (s[3] ? QCF_MADINA : QCF_KAABA) + '</span>' +
+      '<span class="qf-cnt"><small>آیات</small>' + toPersianDigits(s[2]) + '</span>' +
+      (hasMark ? '<span class="qf-rib">' + QCF_RIBBON + '</span>' : '') +
+      '<span class="qf-nm">' + qcfSnGlyph(s[0]) + '</span></div>' +
+      '<b class="qf-c qf-cn">' + toPersianDigits(s[0]) + '</b></div>';
+  });
+  list.innerHTML = html;
+  list.addEventListener('click', function (e) { const r = e.target.closest('.qf-row'); if (r) qcfGoPage(Number(r.dataset.p)); });
+  const cur = list.querySelector('.qf-row.cur'); if (cur) setTimeout(function () { list.scrollTop = cur.offsetTop - list.clientHeight / 2 + cur.offsetHeight / 2; }, 30);
+}
+function qcfFillJuz(list) {
+  const M = QCF.M, curJuz = qcfJuzOfPage(QCF.page);
+  const hizbWord = 'الحزب', q1 = 'ربع الحزب', q2 = 'نصف الحزب', q3 = 'ثلاثة أرباع الحزب';
+  const arNum = function (n) { return String(n).replace(/\d/g, function (d) { return '٠١٢٣٤٥٦٧٨٩'.charAt(d); }); };
+  let html = '';
+  for (let j = 1; j <= 30; j++) {
+    html += '<div class="qf-jrow' + (j === curJuz ? ' cur' : '') + '">' +
+      '<b class="qf-c qf-cn" data-p="' + M.juz[j - 1] + '">' + toPersianDigits(M.juz[j - 1]) + '</b>' +
+      '<div class="qf-jbody">' +
+      '<div class="qf-jh" data-p="' + M.juz[j - 1] + '"><span class="qf-hafs">' + 'ﰸ ' + String.fromCodePoint(M.jn[j - 1]) + '</span></div>';
+    for (let h = 0; h < 2; h++) {
+      const k = (j - 1) * 8 + h * 4;
+      html += '<div class="qf-hz">' +
+        '<div class="qf-hzc" data-p="' + M.rub[k] + '"><span class="qf-hafs">' + hizbWord + ' ' + arNum((j - 1) * 2 + h + 1) + '</span></div>' +
+        [q1, q2, q3].map(function (t, n) { return '<div class="qf-hzc q" data-p="' + M.rub[k + n + 1] + '"><span class="qf-hafs">' + t + '</span></div>'; }).join('') +
+        '</div>';
+    }
+    html += '</div><b class="qf-c qf-cn">' + toPersianDigits(j) + '</b></div>';
+  }
+  list.innerHTML = html;
+  // ترتیب ستون‌ها در راست‌به‌چپ: نام حزب (راست)، ربع، نصف، سه‌ربع (چپ)
+  list.addEventListener('click', function (e) { const t = e.target.closest('[data-p]'); if (t) qcfGoPage(Number(t.dataset.p)); });
+  const cur = list.querySelector('.qf-jrow.cur'); if (cur) setTimeout(function () { list.scrollTop = cur.offsetTop; }, 30);
+}
+function qcfFillPages(list) {
+  const S = QCF.M.surahs;
+  let html = '';
+  for (let p = 1; p <= 604; p++) {
+    const sn = QCF.L.p[p - 1].r[0][0];
+    html += '<div class="qf-row' + (p === QCF.page ? ' cur' : '') + '" data-p="' + p + '">' +
+      '<b class="qf-c qf-cn">' + toPersianDigits(p) + '</b>' +
+      '<div class="qf-cell"><span class="qf-ic">' + (S[sn - 1][3] ? QCF_MADINA : QCF_KAABA) + '</span><span class="qf-nm">' + qcfSnGlyph(sn) + '</span></div>' +
+      '<b class="qf-c qf-cn">' + toPersianDigits(sn) + '</b></div>';
+  }
+  list.innerHTML = html;
+  list.addEventListener('click', function (e) { const r = e.target.closest('.qf-row'); if (r) qcfGoPage(Number(r.dataset.p)); });
+  const cur = list.querySelector('.qf-row.cur'); if (cur) setTimeout(function () { list.scrollTop = cur.offsetTop - list.clientHeight / 2 + cur.offsetHeight / 2; }, 30);
+}
+
+/* ---------- اتصال به برنامه: جایگزینی نمایشگر قدیمی فقط وقتی فایل‌های qcf/ داخل اپ هست ---------- */
+function qcfSyncFs() {
+  const on = !!(QCF.ready && qpActive && currentTab === 'quran-reader');
+  const was = document.body.classList.contains('qcf-fs');
+  document.body.classList.toggle('qcf-fs', on);
+  const sec = document.getElementById('tab-quran-reader');
+  if (sec) sec.classList.toggle('qcf-on', !!QCF.ready && qpActive);
+  if (!on) { try { qcfHideUi(); qcfCloseScreen(true); qcfClosePopup(); qcfCloseDialog(); } catch (e) {} }
+  if (on && !was) { setTimeout(function () { if (QCF.page && currentTab === 'quran-reader') qcfShow(QCF.page, {}); }, 30); }
+}
+(function qcfInstall() {
+  const _switch = switchToTab;
+  switchToTab = function () {
+    const r = _switch.apply(this, arguments);
+    try { qcfSyncFs(); } catch (e) {}
+    return r;
+  };
+  const _show = qpShowPage;
+  qpShowPage = function (page, o) { if (QCF.ready && document.body.classList.contains('qcf-fs')) return qcfShow(page, o); return _show.apply(this, arguments); };
+  const _go = qpGo;
+  qpGo = function (d) { if (QCF.ready && document.body.classList.contains('qcf-fs')) return qcfGo(d); return _go.apply(this, arguments); };
+  const _stop = qpStopPlayback;
+  qpStopPlayback = function () { const r = _stop.apply(this, arguments); try { qcfRefreshMenu(); } catch (e) {} return r; };
+  const _fin = qpPlaybackFinishedPage;
+  qpPlaybackFinishedPage = function () {
+    if (QCF.ready && document.body.classList.contains('qcf-fs')) { if (QCF.page < 604) qcfShow(QCF.page + 1, { dir: 1, autoPlay: true }); return; }
+    return _fin.apply(this, arguments);
+  };
+  const _isOpen = qpMenuIsOpen, _close = qpMenuClose;
+  qpMenuIsOpen = function () {
+    if (QCF.ready && document.body.classList.contains('qcf-fs') && (QCF.uiOn || QCF.screen || QCF.popup !== null || document.getElementById('qcf-dlg'))) return true;
+    return _isOpen.apply(this, arguments);
+  };
+  qpMenuClose = function () {
+    if (QCF.ready && document.body.classList.contains('qcf-fs')) {
+      if (document.getElementById('qcf-dlg')) { qcfCloseDialog(); return; }
+      if (QCF.popup !== null) { qcfClosePopup(); qcfSelect(-1); return; }
+      if (QCF.screen) { qcfCloseScreen(); return; }
+      if (QCF.uiOn) { qcfHideUi(); return; }
+    }
+    return _close.apply(this, arguments);
+  };
+  const _open = openQuranPageReader;
+  openQuranPageReader = async function (opts) {
+    opts = opts || {};
+    const ok = await qcfInit();
+    if (!ok) return _open.call(this, opts);
+    resetPlaybackForNewContent();
+    qpSetMode(true);
+    qcfEnsureRoot();
+    switchToTab('quran-reader', { push: true });
+    let page = Number(opts.page) || 0;
+    if (!page && opts.juz) page = QCF.M.juz[Math.max(1, Math.min(30, opts.juz)) - 1];
+    if (!page && opts.surahNumber) {
+      if (opts.resumePage && !opts.scrollToAyah) {
+        const saved = Number(localStorage.getItem(QPAGE_LAST_KEY));
+        if (saved >= 1 && saved <= 604 && QCF.L.p[saved - 1].r.some(function (r) { return r[0] === opts.surahNumber; })) page = saved;
+      }
+      if (!page) page = qcfFindPage(opts.surahNumber, opts.scrollToAyah || 1);
+    }
+    if (!page) { const saved = Number(localStorage.getItem(QPAGE_LAST_KEY)); page = (saved >= 1 && saved <= 604) ? saved : 1; }
+    qcfSyncFs();
+    qcfShow(page, { focusSurah: opts.surahNumber, focusAyah: opts.scrollToAyah, autoPlay: opts.autoPlay });
+  };
+  window.addEventListener('resize', function () {
+    if (!(QCF.ready && document.body.classList.contains('qcf-fs') && QCF.page)) return;
+    clearTimeout(qcfInstall._t);
+    qcfInstall._t = setTimeout(function () { qcfSizeRoot(); qcfShow(QCF.page, {}); }, 250);
+  });
+  // بررسی زودهنگامِ وجود فایل‌های مصحف (بی‌صدا؛ اگر نبود هیچ اتفاقی نمی‌افتد)
+  setTimeout(function () { qcfInit(); }, 1500);
+})();
+
 window.__arefBooted = true;
