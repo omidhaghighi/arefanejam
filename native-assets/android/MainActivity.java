@@ -2,11 +2,19 @@ package com.arefanejam.quran;
 
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.AssetFileDescriptor;
+import android.graphics.Matrix;
+import android.graphics.SurfaceTexture;
+import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.Surface;
+import android.view.TextureView;
+import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 
 import com.getcapacitor.BridgeActivity;
@@ -29,41 +37,162 @@ public class MainActivity extends BridgeActivity {
         } catch (Throwable ignore) { }
     }
 
-    /** لایهٔ «اولین فریم کلیپ شروع»: از همان اولین لحظه جای صفحهٔ آبیِ ساده را می‌گیرد تا کلیپ (وب) آماده شود. */
-    private static volatile ImageView splashOverlay = null;
+    /**
+     * کلیپ شروع به‌صورت بومی: ویدیوی داخل APK (assets/public/intro/intro.mp4) از همان اولین فریم اکتیویتی با MediaPlayer
+     * پخش می‌شود و منتظر بالا آمدن وب‌ویو نمی‌ماند. تا شروع پخش، اولین فریم کلیپ (drawable/splash) دیده می‌شود.
+     * لایه وقتی برداشته می‌شود که کلیپ تمام شده و صفحه خبر داده اپ آماده است (introAppReady).
+     */
+    private static volatile FrameLayout splashRoot = null;
+    private static volatile boolean nativeIntroOn = false;     // صفحه می‌تواند از پخش بومی استفاده کند
+    private static volatile boolean introClipDone = false;
+    private static volatile boolean introWebReady = false;
+    private ImageView introFrame = null;
+    private TextureView introTv = null;
+    private MediaPlayer introPlayer = null;
+    private boolean introPlaying = false;
+    private int vidW = 0, vidH = 0;
     private final Handler splashHandler = new Handler(Looper.getMainLooper());
     private final Runnable splashTimeout = new Runnable() {
-        @Override public void run() { hideSplashOverlay(); }
+        @Override public void run() { removeSplashNow(); }
     };
+
+    /** آیا صفحه باید پخش کلیپ را به بخش بومی بسپارد؟ (برای APKهای قدیمی این متد اصلاً نیست و صفحه خودش کلیپ را پخش می‌کند) */
+    static boolean isNativeIntroOn() { return nativeIntroOn && splashRoot != null; }
 
     private void showSplashOverlay() {
         try {
+            FrameLayout root = new FrameLayout(this);
+            root.setBackgroundColor(0xFF3E83B3);
+            // ویدیو زیر، اولین فریم ثابت روی آن؛ وقتی اولین فریم ویدیو رسم شد ثابت برداشته می‌شود (بدون پرش)
+            TextureView tv = new TextureView(this);
+            root.addView(tv, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
             int id = getResources().getIdentifier("splash", "drawable", getPackageName());
-            if (id == 0) return;
-            ImageView iv = new ImageView(this);
-            iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            iv.setBackgroundColor(0xFF3E83B3);
-            iv.setImageResource(id);
-            addContentView(iv, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-            splashOverlay = iv;
-            splashHandler.postDelayed(splashTimeout, 8000); // اگر صفحه خبر نداد، لایه خودش برداشته می‌شود
+            if (id != 0) {
+                ImageView iv = new ImageView(this);
+                iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                iv.setImageResource(id);
+                root.addView(iv, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+                introFrame = iv;
+            }
+            introTv = tv;
+            introClipDone = false;
+            introWebReady = false;
+            nativeIntroOn = true;
+            tv.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
+                @Override public void onSurfaceTextureAvailable(SurfaceTexture st, int w, int h) { startIntroPlayer(new Surface(st)); }
+                @Override public void onSurfaceTextureSizeChanged(SurfaceTexture st, int w, int h) { fitIntro(); }
+                @Override public boolean onSurfaceTextureDestroyed(SurfaceTexture st) { return true; }
+                @Override public void onSurfaceTextureUpdated(SurfaceTexture st) { if (introPlaying) dropFirstFrame(); }
+            });
+            addContentView(root, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            splashRoot = root;
+            splashHandler.postDelayed(splashTimeout, 15000); // اگر صفحه خبر نداد، لایه خودش برداشته می‌شود
+        } catch (Throwable ignore) { nativeIntroOn = false; }
+    }
+
+    private void startIntroPlayer(Surface surface) {
+        try {
+            if (introPlayer != null) return;
+            MediaPlayer mp = new MediaPlayer();
+            introPlayer = mp;
+            AssetFileDescriptor afd = getAssets().openFd("public/intro/intro.mp4");
+            try { mp.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength()); } finally { try { afd.close(); } catch (Throwable ignore) { } }
+            mp.setSurface(surface);
+            mp.setVolume(0f, 0f);
+            mp.setLooping(false);
+            mp.setOnVideoSizeChangedListener(new MediaPlayer.OnVideoSizeChangedListener() {
+                @Override public void onVideoSizeChanged(MediaPlayer p, int w, int h) { vidW = w; vidH = h; fitIntro(); }
+            });
+            mp.setOnInfoListener(new MediaPlayer.OnInfoListener() {
+                @Override public boolean onInfo(MediaPlayer p, int what, int extra) {
+                    if (what == MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) dropFirstFrame();
+                    return false;
+                }
+            });
+            mp.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
+                @Override public void onCompletion(MediaPlayer p) { introClipDone = true; tryFinishIntro(); }
+            });
+            mp.setOnErrorListener(new MediaPlayer.OnErrorListener() {
+                @Override public boolean onError(MediaPlayer p, int what, int extra) {
+                    // پخش بومی خراب شد: اولین فریم می‌ماند و با آماده شدن اپ برداشته می‌شود
+                    nativeIntroOn = false; introClipDone = true; tryFinishIntro(); return true;
+                }
+            });
+            mp.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
+                @Override public void onPrepared(MediaPlayer p) {
+                    try { vidW = p.getVideoWidth(); vidH = p.getVideoHeight(); fitIntro(); p.start(); introPlaying = true; } catch (Throwable ignore) { }
+                }
+            });
+            mp.prepareAsync();
+        } catch (Throwable t) {
+            nativeIntroOn = false; introClipDone = true;   // نشد: صفحه خودش کلیپ را پخش می‌کند (اگر هنوز نپرسیده) و لایه با آن برداشته می‌شود
+        }
+    }
+
+    /** کلیپ را تمام‌صفحه و بدون کشیدگی (مثل object-fit: cover) نشان بده. */
+    private void fitIntro() {
+        try {
+            TextureView tv = introTv;
+            if (tv == null || vidW <= 0 || vidH <= 0) return;
+            float vw = tv.getWidth(), vh = tv.getHeight();
+            if (vw <= 0 || vh <= 0) return;
+            float viewAspect = vw / vh, vidAspect = (float) vidW / (float) vidH;
+            float sx = 1f, sy = 1f;
+            if (viewAspect > vidAspect) sy = (vw / vidAspect) / vh; else sx = (vh * vidAspect) / vw;
+            Matrix m = new Matrix();
+            m.setScale(sx, sy, vw / 2f, vh / 2f);
+            tv.setTransform(m);
         } catch (Throwable ignore) { }
     }
 
-    /** صفحه (کلیپ شروع) می‌گوید ویدیو دیده می‌شود: لایهٔ بومی برداشته می‌شود. از هر نخی صدا زده شود امن است. */
-    static void hideSplashOverlay() {
-        final ImageView iv = splashOverlay;
-        if (iv == null) return;
-        splashOverlay = null;
+    private void dropFirstFrame() {
+        final ImageView f = introFrame;
+        if (f == null) return;
+        introFrame = null;
+        f.post(new Runnable() { @Override public void run() { try { f.setVisibility(View.GONE); } catch (Throwable ignore) { } } });
+    }
+
+    /** کلیپ تمام شده و اپ هم آماده است؟ پس لایه با محو نرم برداشته شود. */
+    private void tryFinishIntro() {
+        if (!(introClipDone && introWebReady)) return;
+        runOnUiThread(new Runnable() {
+            @Override public void run() {
+                final FrameLayout root = splashRoot;
+                if (root == null) return;
+                try {
+                    root.animate().alpha(0f).setDuration(300).withEndAction(new Runnable() {
+                        @Override public void run() { removeSplashNow(); }
+                    }).start();
+                } catch (Throwable t) { removeSplashNow(); }
+            }
+        });
+    }
+
+    private void removeSplashNow() {
+        final FrameLayout root = splashRoot;
+        splashRoot = null;
+        nativeIntroOn = false;
+        try { splashHandler.removeCallbacks(splashTimeout); } catch (Throwable ignore) { }
+        try { if (introPlayer != null) { introPlayer.release(); introPlayer = null; } } catch (Throwable ignore) { }
+        introTv = null; introFrame = null; introPlaying = false;
+        if (root == null) return;
         try {
-            iv.post(new Runnable() {
-                @Override public void run() {
-                    try {
-                        if (iv.getParent() instanceof ViewGroup) ((ViewGroup) iv.getParent()).removeView(iv);
-                    } catch (Throwable ignore) { }
-                }
-            });
+            if (root.getParent() instanceof ViewGroup) ((ViewGroup) root.getParent()).removeView(root);
         } catch (Throwable ignore) { }
+    }
+
+    /** (حالت قدیمی/جایگزین) صفحه می‌گوید کلیپ خودش دیده می‌شود: لایهٔ بومی همین حالا برداشته شود. از هر نخی امن است. */
+    static void hideSplashOverlay() {
+        final MainActivity a = current;
+        if (a == null || splashRoot == null) return;
+        try { a.runOnUiThread(new Runnable() { @Override public void run() { a.removeSplashNow(); } }); } catch (Throwable ignore) { }
+    }
+
+    /** صفحه می‌گوید اپ پشت لایه آماده است؛ به‌محض پایان کلیپ لایه محو می‌شود. از هر نخی امن است. */
+    static void introAppReady() {
+        introWebReady = true;
+        final MainActivity a = current;
+        if (a != null) a.tryFinishIntro();
     }
 
     @Override
@@ -160,7 +289,8 @@ public class MainActivity extends BridgeActivity {
     public void onDestroy() {
         if (current == this) current = null;
         try { splashHandler.removeCallbacks(splashTimeout); } catch (Throwable ignore) { }
-        splashOverlay = null;
+        try { if (introPlayer != null) { introPlayer.release(); introPlayer = null; } } catch (Throwable ignore) { }
+        splashRoot = null; nativeIntroOn = false;
         super.onDestroy();
     }
 }

@@ -86,7 +86,31 @@ html.intro-on body>*:not(#intro-splash){visibility:hidden!important}
     var pr = vid.play(); if (pr && pr.catch) pr.catch(done);
   }
   ['contextmenu', 'dragstart', 'selectstart'].forEach(function (ev) { splash.addEventListener(ev, function (e) { e.preventDefault(); }); });
-  start(false);
+  // شروع سرد: اگر APK کلیپ را بومی پخش می‌کند (بدون انتظار برای وب‌ویو)، صفحه کلیپ خودش را نشان نمی‌دهد و فقط
+  // پشت آن اپ را بالا می‌آورد و وقتی آماده شد به بخش بومی خبر می‌دهد. در APKهای قدیمی/مرورگر همان مسیر قبلی (پخش وب) است.
+  function startNative() {
+    started = true; finished = false; ending = false; prep = false;
+    splash.classList.add('hidden');            // لایهٔ بومی روی صفحه است؛ ویدیوی وب لازم نیست
+    appHidden(true); fireStart();              // اپ همین الان پشت لایهٔ بومی لود می‌شود
+    var waited = 0;
+    (function w() {
+      if (appReady() || waited >= 12000) {
+        finished = true; appHidden(false); release();
+        try { var H = window.Capacitor.Plugins.ArefHub; var r = H.introAppReady(); if (r && r.catch) r.catch(function () {}); } catch (e) { nativeReady(); }
+      } else { waited += 50; setTimeout(w, 50); }
+    })();
+  }
+  function askNative(cb) {
+    var settled = false; function fin(v) { if (settled) return; settled = true; cb(v); }
+    try {
+      var H = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.ArefHub;
+      if (H && H.introMode && H.introAppReady) { var r = H.introMode(); if (r && r.then) r.then(function (x) { fin(!!(x && x.native)); }, function () { fin(false); }); else fin(false); }
+      else fin(false);
+    } catch (e) { fin(false); }
+    setTimeout(function () { fin(false); }, 400);
+  }
+  appHidden(true);
+  askNative(function (isNative) { if (isNative) startNative(); else start(false); });
   // هر بار که کاربر از اپ بیرون می‌رود و دوباره برمی‌گردد (بیش از چند ثانیه)، دوباره پخش می‌شود
   var hiddenAt = 0;
   document.addEventListener('visibilitychange', function () {

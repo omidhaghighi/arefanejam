@@ -27,6 +27,23 @@ public class ArefHubPlugin extends Plugin {
         call.resolve();
     }
 
+    /** صفحه می‌پرسد: کلیپ شروع را بخش بومی پخش می‌کند؟ (اگر بله صفحه کلیپ خودش را نشان نمی‌دهد) */
+    @PluginMethod
+    public void introMode(PluginCall call) {
+        JSObject r = new JSObject();
+        boolean n = false;
+        try { n = MainActivity.isNativeIntroOn(); } catch (Throwable ignore) { }
+        r.put("native", n);
+        call.resolve(r);
+    }
+
+    /** اپ پشت کلیپ بومی آماده است؛ بعد از پایان کلیپ لایه محو می‌شود. */
+    @PluginMethod
+    public void introAppReady(PluginCall call) {
+        try { MainActivity.introAppReady(); } catch (Throwable ignore) { }
+        call.resolve();
+    }
+
     @PluginMethod
     public void openBazaar(PluginCall call) {
         JSObject r = new JSObject();
