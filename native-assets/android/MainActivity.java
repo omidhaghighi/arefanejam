@@ -29,12 +29,14 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         current = this;
         registerPlugin(AppUpdaterPlugin.class);
+        registerPlugin(ArefHubPlugin.class);
         // بروزرسانی ظاهر اپ از سایت: قبل از بالا آمدن Capacitor نسخهٔ آماده فعال یا نسخهٔ خراب برگردانده می‌شود
         AppUpdaterPlugin.webBoot(this);
         super.onCreate(savedInstanceState);
         // دانلود بروزرسانی در پس‌زمینه (فقط با اینترنت، حتی وقتی اپ بسته است)
         UpdateJobService.schedule(this);
         handleAzanLink(getIntent());
+        handleGo(getIntent());
     }
 
     @Override
@@ -42,6 +44,24 @@ public class MainActivity extends BridgeActivity {
         super.onNewIntent(intent);
         setIntent(intent);
         handleAzanLink(intent);
+        handleGo(intent);
+    }
+
+    /** لمس یک اعلان یا ابزارک: مقصد (extra = aref_go، JSON) را به صفحه می‌دهد تا همان بخش باز شود. */
+    private void handleGo(Intent it) {
+        try {
+            if (it == null) return;
+            String go = it.getStringExtra("aref_go");
+            if (go == null || go.length() == 0) return;
+            it.removeExtra("aref_go");   // فقط یک بار
+            ArefHubPlugin.pendingGo = go;
+            final String js = "window.arefGoPoll&&window.arefGoPoll()";
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    try { getBridge().getWebView().evaluateJavascript(js, null); } catch (Throwable ignore) { }
+                }
+            });
+        } catch (Throwable ignore) { }
     }
 
     /**
@@ -82,6 +102,8 @@ public class MainActivity extends BridgeActivity {
     public void onStart() {
         super.onStart();
         inForeground = true;
+        // اپ جلوی چشم آمد: اعلان‌های معمولی از پرده پاک می‌شوند (همه داخل «اعلان‌ها»ی اپ می‌مانند) و عدد روی آیکون صفر می‌شود
+        try { NotifCenter.clearShade(getApplicationContext()); } catch (Throwable ignore) { }
     }
 
     @Override

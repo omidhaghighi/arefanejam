@@ -10,5 +10,6 @@
       "smallIcon": "ic_stat_azan",
       "iconColor": "#143C36"
     }
-  }
+  },
+  "backgroundColor": "#3E83B3"
 }

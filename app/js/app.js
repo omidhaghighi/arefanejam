@@ -87,12 +87,36 @@ function azPrefs() {
   p.post = (p.post === undefined || p.post === null || !isFinite(Number(p.post))) ? 20 : Math.max(0, Number(p.post));
   p.voice = String(p.voice || '');
   p.silence = p.silence === true; // بی‌صدا شدن گوشی هنگام نماز: پیش‌فرض خاموش
+  // بازهٔ بی‌صدا: auto = «شروع نماز = اذان + فاصله»، بی‌صدا از (شروع نماز − قبل) تا (شروع نماز + بعد)؛ manual = مستقیم «دقیقه بعد از اذان»
+  const clampN = (v, lo, hi, d) => { v = Number(v); return isFinite(v) ? Math.max(lo, Math.min(hi, Math.round(v))) : d; };
+  p.silMode = p.silMode === 'manual' ? 'manual' : 'auto';
+  p.silGap = clampN(p.silGap === undefined || p.silGap === null || p.silGap === '' ? (p.post > 0 ? p.post : 20) : p.silGap, 0, 90, 20);
+  p.silBefore = clampN(p.silBefore, 0, 60, 10);
+  p.silAfter = clampN(p.silAfter, 0, 120, 10);
+  p.silFrom = clampN(p.silFrom, 0, 120, 10);
+  p.silTo = clampN(p.silTo, 1, 180, 30);
   azPrefsCache = p;
   return p;
 }
 function azPrefsSave() { try { localStorage.setItem(AZ_PREFS_KEY, JSON.stringify(azPrefs())); } catch (e) {} }
 function azOff(key) { return !!azPrefs().off[key]; }
 function azAdj(key) { const v = Number(azPrefs().adj[key]); return isFinite(v) ? Math.max(-30, Math.min(30, Math.round(v))) : 0; }
+/** بازهٔ بی‌صدای گوشی برای یک اذان (میلی‌ثانیهٔ اذان، که اصلاح دقیقهٔ کاربر از قبل رویش اعمال شده). هرگز قبل از خودِ اذان شروع نمی‌شود. */
+function azSilenceWindow(azanMs) {
+  const p = azPrefs();
+  let a, b;
+  if (p.silMode === 'manual') { a = azanMs + p.silFrom * 60000; b = azanMs + Math.max(p.silTo, p.silFrom + 1) * 60000; }
+  else { const start = azanMs + p.silGap * 60000; a = start - p.silBefore * 60000; b = start + p.silAfter * 60000; }
+  a = Math.max(a, azanMs);
+  if (b <= a) b = a + 60000;
+  return [a, b];
+}
+function azSilenceSummary() {
+  const p = azPrefs();
+  if (p.silMode === 'manual') return 'گوشی ' + toPersianDigits(String(p.silFrom)) + ' دقیقه بعد از اذان بی‌صدا می‌شود و ' + toPersianDigits(String(Math.max(p.silTo, p.silFrom + 1))) + ' دقیقه بعد از اذان صدا برمی‌گردد.';
+  const a = Math.max(p.silGap - p.silBefore, 0);
+  return 'نماز ' + toPersianDigits(String(p.silGap)) + ' دقیقه بعد از اذان شروع می‌شود؛ گوشی ' + toPersianDigits(String(a)) + ' دقیقه بعد از اذان بی‌صدا می‌شود و ' + toPersianDigits(String(p.silGap + p.silAfter)) + ' دقیقه بعد از اذان صدا برمی‌گردد (مدت: ' + toPersianDigits(String(p.silGap + p.silAfter - a)) + ' دقیقه).';
+}
 function userCalcMethodName() {
   const k = getUserCalcMethod();
   const o = AZAN_METHOD_OPTIONS.find((x) => x.key === k);
@@ -414,6 +438,13 @@ function apiFetch(path, options = {}) {
   }
   const cacheKey = isGet ? apiCacheKey(basePath, origPath) : '';
   const cacheable = !!(cacheKey || (isGet && basePath === '/settings'));
+  // اطلاعات کم‌تغییر (کتاب‌ها، ذکرها، دعاها، آیکون‌ها، ...): اگر کمتر از ۱۲ ساعت پیش گرفته شده، اصلاً از سایت نپرس (فقط یک‌بار دریافت، بقیه از گوشی)
+  if (cacheKey && isGet && !options.force && API_STATIC_RE.test(basePath)) {
+    try {
+      const o0 = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+      if (o0 && o0.t && Date.now() - o0.t < API_STATIC_TTL && Object.prototype.hasOwnProperty.call(o0, 'data') && o0.data !== null) return Promise.resolve(o0.data);
+    } catch (e0) {}
+  }
   // سایت قطع است: بدون پرسیدن از سایت، همان آخرین نسخهٔ ذخیره‌شده (مگر کاربر عمداً بخواهد: options.force)
   if (cacheable && !options.force && siteDownNow()) {
     return (async () => {
@@ -487,7 +518,9 @@ function apiFetch(path, options = {}) {
  * (یا سرور خطا داد) همان آخرین نسخه نمایش داده می‌شود. فقط مسیرهای عمومیِ زیر؛ مسیرهای شخصی/ورود نه. */
 var moreIconsData = { shape: 'round', icons: {} }; // بیشتر: تصویر دلخواه آیکون‌ها (بالای فایل تعریف شده تا هر کدی بتواند هر زمان صدایش کند)
 var moreIconsLastLoad = 0;
-const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|hamburger-menu|more-icons|social-links|theme|shariq\/settings|khatm\/settings|feedback\/settings|zakat|activities|ads-page|ad-banners|bottom-nav|students\/settings)$/;
+const API_STATIC_RE = /^\/(books|daily-deeds|dhikrs|duas|gallery|mokatib\/icon|more-icons|social-links|theme|zakat|activities|ads-page|ad-banners|bottom-nav|hamburger-menu|shariq\/settings|azan-exceptions)$/;
+const API_STATIC_TTL = 12 * 3600 * 1000;
+const API_OFFLINE_CACHE_RE = /^\/(azan-exceptions|books|daily-deeds|dhikrs|duas|events|gallery|mokatib\/icon|mokatib\/public-tree|mokatib\/slider|news|ramadan|hamburger-menu|more-icons|social-links|theme|shariq\/settings|khatm\/settings|feedback\/settings|zakat|activities|ads-page|ad-banners|bottom-nav|students\/settings)$/;
 // مسیرهایی که پارامتر آدرس (مثل league یا device_id) جزو هویتشان است؛ کلید ذخیره با کل آدرس ساخته می‌شود
 const API_OFFLINE_QUERY_RE = /^\/(contest\/(settings|board|season)|khatm\/list|shariq\/categories|app-share)$/;
 // نسخهٔ پشتیبان همهٔ این اطلاعات در «کش» گوشی (نه localStorage): ظرفیتش بزرگ است و با پر شدن localStorage از بین نمی‌رود.
@@ -673,6 +706,7 @@ function switchToTab(tabName, opts) {
   if (tabName === 'date-converter') populateConverterSelects();
   if (tabName === 'zakat-calc') { loadZakatExtra(); renderZakatCharityCards(); if (navigator.onLine) loadCharitySettings(); }
   if (tabName === 'sajdah-list') renderSajdahList();
+  if (tabName === 'duas') duasOpen();
   if (tabName === 'news-list') loadNewsList();
   if (tabName === 'social') loadSocialLinks();
   if (tabName === 'gallery') loadGallery();
@@ -688,6 +722,7 @@ function switchToTab(tabName, opts) {
   if (tabName === 'activities') actOnTabOpen(); else actLeaveTab();
   if (tabName === 'ads') adsOnTabOpen();
   if (tabName === 'settings') { try { settingsOnTabOpen(); } catch (e) {} }
+  if (tabName === 'settings') { try { window.arefWidgetsRender && window.arefWidgetsRender(); } catch (e) {} }
   if (tabName === 'students') { try { window.stuOnTabOpen(); } catch (e) {} }
   // مکاتب: بارگذاری داده همین‌جا انجام می‌شود (نه فقط با کلیک کاشی «بیشتر»)، تا از منوی پایین هم کامل باز شود
   if (tabName === 'mokatib-public') { try { loadMokatibPublicTree(); } catch (e) {} }
@@ -1401,14 +1436,60 @@ function myevLoad() {
 }
 function myevSave() { try { localStorage.setItem(MYEV_KEY, JSON.stringify(myEvents)); } catch (e) {} }
 myevLoad();
-function myevMatches(ev, jy, jm, jd) {
+function myevMatches(ev, jy, jm, jd) { return myevMatches2(ev, jy, jm, jd); }
+function myevMatches2(ev, jy, jm, jd) {
   const eJy = Number(ev.jy), eJm = Number(ev.jm), eJd = Number(ev.jd);
+  const rpt = ev.repeat || (ev.yearly ? 'yearly' : 'none');
+  if (rpt === 'weekly') {
+    const a = jalaliToGregorian(eJy, eJm, eJd), b = jalaliToGregorian(jy, jm, jd);
+    const da = Date.UTC(a[0], a[1] - 1, a[2]), db = Date.UTC(b[0], b[1] - 1, b[2]);
+    return db >= da && Math.round((db - da) / 86400000) % 7 === 0;
+  }
+  if (rpt === 'monthly') {
+    if (jy * 12 + jm < eJy * 12 + eJm) return false;
+    return eJd === jd || (eJd > jalaliMonthLength(jy, jm) && jd === jalaliMonthLength(jy, jm));
+  }
   if (eJm !== jm) return false;
-  if (ev.yearly) { if (jy < eJy) return false; } else if (jy !== eJy) return false;
+  if (rpt === 'yearly') { if (jy < eJy) return false; } else if (jy !== eJy) return false;
   if (eJd === jd) return true;
   // ۳۰ اسفند در سالی که ۳۰ اسفند ندارد، روی ۲۹ اسفند نشان داده می‌شود
   return eJm === 12 && eJd === 30 && jd === 29 && jalaliMonthLength(jy, 12) === 29;
 }
+function myevStartTs(e) {
+  const [gy, gm, gd] = jalaliToGregorian(Number(e.jy), Number(e.jm), Math.min(Number(e.jd), jalaliMonthLength(Number(e.jy), Number(e.jm))));
+  const hm = String(e.time || '').split(':');
+  return new Date(gy, gm - 1, gd, parseInt(hm[0], 10) || 0, parseInt(hm[1], 10) || 0).getTime();
+}
+function myevAlarmList() {
+  const now = Date.now();
+  return myEvents.filter((e) => e.alarm && e.time).map((e) => {
+    const rpt = e.repeat || (e.yearly ? 'yearly' : 'none');
+    const occ = remOccurrences(myevStartTs(e), rpt, now);
+    return { id: 'myev_' + e.id, title: e.title, content: e.note || 'زمانبندی تقویم', reminderAt: occ[0] || 0, reminderFired: !occ.length, snd: e.snd || 1, repeat: rpt, occ: occ };
+  }).filter((x) => x.occ.length);
+}
+function checkMyevAlarms() {
+  if (!myEvents.length) return;
+  const now = Date.now();
+  let fired = {};
+  try { fired = JSON.parse(localStorage.getItem('arefanejam_myev_fired') || '{}'); } catch (e) {}
+  let dirty = false;
+  myEvents.forEach((e) => {
+    if (!e.alarm || !e.time) return;
+    const rpt = e.repeat || (e.yearly ? 'yearly' : 'none');
+    const t = remOccurrences(myevStartTs(e), rpt, now - 120000, 1)[0];
+    if (!t || t > now) return;
+    const key = e.id + '@' + t;
+    if (fired[key]) return;
+    fired[key] = 1; dirty = true;
+    showAlarmModal('زمانبندی تقویم', e.title + (e.note ? ' — ' + e.note : ''), '', '', e.snd || 1);
+  });
+  if (dirty) {
+    const ks = Object.keys(fired); if (ks.length > 200) ks.slice(0, ks.length - 200).forEach((k) => delete fired[k]);
+    try { localStorage.setItem('arefanejam_myev_fired', JSON.stringify(fired)); } catch (e) {}
+  }
+}
+setInterval(checkMyevAlarms, 30000);
 function findMyEvents(jy, jm, jd) {
   if (!myEvents.length) return [];
   return myEvents.filter((e) => myevMatches(e, jy, jm, jd))
@@ -1427,7 +1508,8 @@ function renderMyEvents(jy, jm, jd) {
         '<span class="myev-time">' + (e.time ? calEsc(toPersianDigits(e.time)) : '•') + '</span>' +
         '<span class="myev-body"><b>' + calEsc(e.title) + '</b>' +
           (e.note ? '<small>' + calEsc(e.note).replace(/\r?\n/g, '<br>') + '</small>' : '') + '</span>' +
-        (e.yearly ? '<span class="myev-rep" title="هر سال تکرار می‌شود">🔁</span>' : '') +
+        ((e.repeat || (e.yearly ? 'yearly' : 'none')) !== 'none' ? '<span class="myev-rep" title="' + REPEAT_LABELS[e.repeat || 'yearly'] + '">🔁</span>' : '') +
+        (e.alarm && e.time ? '<span class="myev-rep" title="آلارم فعال">⏰</span>' : '') +
         '<span class="myev-edit" aria-hidden="true">✎</span>' +
       '</div>').join('') + '</div>';
   }
@@ -1458,7 +1540,10 @@ function openMyEventModal(id) {
   document.getElementById('myev-title').value = ev ? ev.title : '';
   document.getElementById('myev-time').value = ev ? (ev.time || '') : '';
   document.getElementById('myev-note').value = ev ? (ev.note || '') : '';
-  document.getElementById('myev-yearly').checked = ev ? !!ev.yearly : true;
+  document.getElementById('myev-repeat').value = ev ? (ev.repeat || (ev.yearly ? 'yearly' : 'none')) : 'yearly';
+  document.getElementById('myev-alarm').checked = !!(ev && ev.alarm);
+  document.getElementById('myev-snd').value = String((ev && ev.snd) || 1);
+  document.getElementById('myev-snd-row').classList.toggle('hidden', !(ev && ev.alarm));
   document.getElementById('myev-err').textContent = '';
   const delBtn = document.getElementById('myev-delete-btn');
   delBtn.classList.toggle('hidden', !ev);
@@ -1486,11 +1571,15 @@ function myevSaveFromForm() {
     jy, jm, jd, title,
     time: document.getElementById('myev-time').value || '',
     note: document.getElementById('myev-note').value.trim(),
-    yearly: document.getElementById('myev-yearly').checked,
+    repeat: document.getElementById('myev-repeat').value,
+    yearly: document.getElementById('myev-repeat').value === 'yearly',
+    alarm: document.getElementById('myev-alarm').checked,
+    snd: parseInt(document.getElementById('myev-snd').value, 10) || 1,
   };
+  if (rec.alarm && !rec.time) { errEl.textContent = 'برای آلارم، ساعت را مشخص کنید.'; document.getElementById('myev-time').focus(); return; }
   const idx = myEvents.findIndex((e) => e.id === rec.id);
   if (idx >= 0) myEvents[idx] = rec; else myEvents.push(rec);
-  myevSave();
+  myevSave(); try { syncNotesToServiceWorker(getLocalNotes()); } catch (e1) {}
   const len = jalaliMonthLength(jy, jm);
   const [gy, gm, gd] = jalaliToGregorian(jy, jm, Math.min(jd, len));
   selectedDate = new Date(gy, gm - 1, gd);
@@ -1526,17 +1615,44 @@ function myevDeleteCurrent() {
   if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) overlayGo('myev', 0, closeMyEventModal); });
 })();
 
+/* ---- تقویم برای هر سه نوع (شمسی / میلادی / قمری): شبکهٔ ماه همیشه از شنبه شروع می‌شود و نام روزها فارسی است ---- */
+function calDig(n) { return activeCalendar === 'gregorian' ? String(n) : toPersianDigits(n); }
+function calToLatin(str) { return String(str).replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))); }
+function calViewOf(date) {
+  if (activeCalendar === 'gregorian') return [date.getFullYear(), date.getMonth() + 1];
+  if (activeCalendar === 'hijri') { const h = islamicFromJulianDay(julianDayFromGregorian(date.getFullYear(), date.getMonth() + 1, date.getDate())); return [h[0], h[1]]; }
+  const j = gregorianToJalali(date.getFullYear(), date.getMonth() + 1, date.getDate()); return [j[0], j[1]];
+}
+function calFirstDateOf(y, m) {
+  if (activeCalendar === 'gregorian') return new Date(y, m - 1, 1);
+  if (activeCalendar === 'hijri') { const g = hijriToApproxGregorian(y, m, 1); return new Date(g[0], g[1] - 1, g[2]); }
+  const g = jalaliToGregorian(y, m, 1); return new Date(g[0], g[1] - 1, g[2]);
+}
+function calMonthLen(y, m) {
+  if (activeCalendar === 'gregorian') return new Date(y, m, 0).getDate();
+  if (activeCalendar === 'hijri') {
+    const a = calFirstDateOf(y, m); const nm = m === 12 ? [y + 1, 1] : [y, m + 1];
+    const g = hijriToApproxGregorian(nm[0], nm[1], 1);
+    return Math.round((Date.UTC(g[0], g[1] - 1, g[2]) - Date.UTC(a.getFullYear(), a.getMonth(), a.getDate())) / 86400000);
+  }
+  return jalaliMonthLength(y, m);
+}
+function calMonthLabel(y, m) {
+  if (activeCalendar === 'gregorian') return GREGORIAN_MONTHS[m - 1] + ' ' + y;
+  if (activeCalendar === 'hijri') return HIJRI_MONTHS[m - 1] + ' ' + toPersianDigits(y);
+  return JALALI_MONTHS[m - 1] + ' ' + toPersianDigits(y);
+}
+
 function renderMonthGrid() {
   const grid = document.getElementById('month-grid');
   grid.innerHTML = '';
-  document.getElementById('month-label').textContent = JALALI_MONTHS[calendarViewMonth - 1] + ' ' + toPersianDigits(calendarViewYear);
+  document.getElementById('month-label').textContent = calMonthLabel(calendarViewYear, calendarViewMonth);
 
-  const [gy1, gm1, gd1] = jalaliToGregorian(calendarViewYear, calendarViewMonth, 1);
-  const firstDate = new Date(gy1, gm1 - 1, gd1);
+  const firstDate = calFirstDateOf(calendarViewYear, calendarViewMonth);
   const leadIndex = (firstDate.getDay() + 1) % 7; // هفته فارسی از شنبه شروع می‌شود
-  const monthLen = jalaliMonthLength(calendarViewYear, calendarViewMonth);
+  const monthLen = calMonthLen(calendarViewYear, calendarViewMonth);
   const __iw = iranWallNow();
-  const todayJalali = gregorianToJalali(__iw.getFullYear(), __iw.getMonth() + 1, __iw.getDate());
+  const todayStr = new Date(__iw.getFullYear(), __iw.getMonth(), __iw.getDate()).toDateString();
 
   for (let i = 0; i < leadIndex; i++) {
     const empty = document.createElement('div');
@@ -1544,19 +1660,19 @@ function renderMonthGrid() {
     grid.appendChild(empty);
   }
   for (let day = 1; day <= monthLen; day++) {
-    const [cgy, cgm, cgd] = jalaliToGregorian(calendarViewYear, calendarViewMonth, day);
-    const cellDate = new Date(cgy, cgm - 1, cgd);
-    const isToday = todayJalali[0] === calendarViewYear && todayJalali[1] === calendarViewMonth && todayJalali[2] === day;
+    const cellDate = new Date(firstDate.getFullYear(), firstDate.getMonth(), firstDate.getDate() + day - 1);
+    const [jy2, jm2, jd2] = gregorianToJalali(cellDate.getFullYear(), cellDate.getMonth() + 1, cellDate.getDate());
+    const isToday = cellDate.toDateString() === todayStr;
     const isSelected = cellDate.toDateString() === selectedDate.toDateString();
     const isFriday = cellDate.getDay() === 5;
-    const evCount = findEventsForJalaliDate(calendarViewYear, calendarViewMonth, day).length;
-    const myCount = findMyEvents(calendarViewYear, calendarViewMonth, day).length;
+    const evCount = findEventsForJalaliDate(jy2, jm2, jd2).length;
+    const myCount = findMyEvents(jy2, jm2, jd2).length;
     const hasEvent = evCount > 0;
     const cell = document.createElement('div');
     cell.className = 'month-cell' + (isToday ? ' is-today' : '') + (isSelected ? ' is-selected' : '') + (isFriday && !isSelected ? ' is-friday' : '') + (hasEvent ? ' has-event' : '') + (myCount ? ' has-my' : '');
     const num = document.createElement('span');
     num.className = 'month-cell-num';
-    num.textContent = toPersianDigits(day);
+    num.textContent = calDig(day);
     cell.appendChild(num);
     if (hasEvent || myCount) {
       // نقطه‌های مناسبت‌های رسمی (رنگی) + نقطهٔ بنفش برای زمانبندی شخصی کاربر؛ حداکثر ۳ نقطه
@@ -1573,7 +1689,8 @@ function renderMonthGrid() {
 
 function renderCalendarWidget() {
   const [jy, jm, jd] = gregorianToJalali(selectedDate.getFullYear(), selectedDate.getMonth() + 1, selectedDate.getDate());
-  calendarViewYear = jy; calendarViewMonth = jm;
+  const __cv = calViewOf(selectedDate);
+  calendarViewYear = __cv[0]; calendarViewMonth = __cv[1];
 
   const isToday = selectedDate.toDateString() === new Date().toDateString();
   const todayBtnEl = document.getElementById('calendar-today-btn');
@@ -1583,7 +1700,7 @@ function renderCalendarWidget() {
     todayBtnEl.classList.remove('is-pop'); void todayBtnEl.offsetWidth; todayBtnEl.classList.add('is-pop');
   }
   const strs = getCalendarStrings(selectedDate);
-  document.getElementById('calendar-main-date').textContent = strs[activeCalendar];
+  document.getElementById('calendar-main-date').textContent = activeCalendar === 'gregorian' ? calToLatin(strs[activeCalendar]) : strs[activeCalendar];
   const others = ['jalali', 'gregorian', 'hijri'].filter((c) => c !== activeCalendar);
   document.getElementById('calendar-sub-date').textContent = others.map((c) => strs[c]).join(' | ');
   document.querySelectorAll('.cal-tab').forEach((t) => t.classList.toggle('active', t.dataset.cal === activeCalendar));
@@ -1598,7 +1715,7 @@ function renderCalendarWidget() {
       const hj = islamicFromJulianDay(julianDayFromGregorian(selectedDate.getFullYear(), selectedDate.getMonth() + 1, selectedDate.getDate()));
       bigDay = hj[2]; bigMon = HIJRI_MONTHS[hj[1] - 1];
     } else { bigDay = jd; bigMon = JALALI_MONTHS[jm - 1]; }
-    bigEl.innerHTML = '<b>' + toPersianDigits(bigDay) + '</b><small>' + bigMon + '</small>';
+    bigEl.innerHTML = '<b>' + calDig(bigDay) + '</b><small>' + bigMon + '</small>';
     const wdEl = document.getElementById('calendar-weekday');
     if (wdEl) wdEl.textContent = strs.parts.weekday + (isToday ? ' · امروز' : '');
     const hero = document.getElementById('cal-hero');
@@ -1649,7 +1766,7 @@ function renderCalAzan() {
   const strs = getCalendarStrings(selectedDate);
   let city = '';
   try { city = effectiveCityName() || ''; } catch (e) {}
-  let h = '<div class="cal-azan-card"><div class="cal-azan-head"><b>🕌 ساعت اذان ' + calEsc(strs[activeCalendar]) + '</b>' + (city ? '<small>' + calEsc(city) + '</small>' : '') + '</div><div class="cal-azan-grid">';
+  let h = '<div class="cal-azan-card"><div class="cal-azan-head"><b>🕌 ساعت اذان ' + calEsc(activeCalendar === 'gregorian' ? calToLatin(strs[activeCalendar]) : strs[activeCalendar]) + '</b>' + (city ? '<small>' + calEsc(city) + '</small>' : '') + '</div><div class="cal-azan-grid">';
   list.forEach((p) => {
     h += '<div class="cal-azan-item cal-azan-' + p.key + '"><span class="cal-azan-name">' + (PRAYER_ICONS[p.key] || '') + ' ' + calEsc(p.label) + '</span><span class="cal-azan-time">' + formatTime(p.time) + '</span></div>';
   });
@@ -1680,11 +1797,10 @@ document.getElementById('calendar-today-btn').addEventListener('click', () => {
 function calShiftMonth(delta) {
   let m = calendarViewMonth + delta, y = calendarViewYear;
   if (m < 1) { m = 12; y--; } else if (m > 12) { m = 1; y++; }
-  calendarViewMonth = m; calendarViewYear = y;
   const t = new Date();
-  const tj = gregorianToJalali(t.getFullYear(), t.getMonth() + 1, t.getDate());
-  if (tj[0] === y && tj[1] === m) selectedDate = t; // برگشت به ماه جاری = انتخاب خودِ امروز
-  else { const [gy, gm, gd] = jalaliToGregorian(y, m, 1); selectedDate = new Date(gy, gm - 1, gd); }
+  const tv = calViewOf(t);
+  if (tv[0] === y && tv[1] === m) selectedDate = t; // برگشت به ماه جاری = انتخاب خودِ امروز
+  else selectedDate = calFirstDateOf(y, m);
   renderCalendarWidget();
   const grid = document.getElementById('month-grid');
   if (grid) { // حرکت کوتاه ماه تازه از سمت درست وارد می‌شود
@@ -1979,6 +2095,7 @@ function applyQuranReportTexts() {
 
 function applyCachedSettingsUi(cached) {
   state.settings = cached;
+  try { if (window.arefStoreChip) window.arefStoreChip(state.settings && state.settings.store_chip); } catch (e) {}
   applyReciterNames();
   document.getElementById('topbar-title').textContent = cached.brand_name || 'عارفان جام';
   if (cached.logo_url) document.getElementById('topbar-logo').src = secureUrl(cached.logo_url);
@@ -2042,6 +2159,7 @@ function loadSettings() {
     // پاسخ خالی/نامعتبر (مثلاً صفحهٔ محدودیت هاست) هرگز جای تنظیمات سالمِ گوشی را نگیرد
     if (!data || typeof data !== 'object' || Object.keys(data).length < 3) throw new Error('bad_settings');
     state.settings = data;
+    try { if (window.arefStoreChip) window.arefStoreChip(state.settings && state.settings.store_chip); } catch (e) {}
     trafficApply(data.traffic);
     applyReciterNames();
     applyMoreTiles(data);
@@ -2125,7 +2243,31 @@ if (topbarReloadBtn) topbarReloadBtn.addEventListener('click', hardReloadApp);
 function maybeShowIntroSplash() {
   // صفحهٔ شروع (ویدیو/عکس/گیف) داخل index.html مدیریت می‌شود (ArefIntro)؛ اینجا فقط تنظیمات تازه را می‌دهیم.
   // فقط هنگام لود اپ نشان داده می‌شود و هیچ دکمهٔ دانلودی ندارد.
-  try { if (window.ArefIntro) window.ArefIntro.update(state.settings || {}); } catch (e) {}
+  try { if (window.ArefIntro) { const c = window.ArefIntro.update(state.settings || {}); if (c && c.m === 'custom' && c.v) introPrefetchOnce(c.v); } } catch (e) {}
+}
+/* ویدیوی آپلودیِ پیشخوان فقط یک‌بار (در پس‌زمینه) دانلود و روی گوشی ذخیره می‌شود؛ از دفعهٔ بعد بدون ترافیک پخش می‌شود.
+   تا آن موقع ویدیوی داخل اپ پخش می‌شود. */
+async function introPrefetchOnce(url) {
+  try {
+    if (!window.caches || !navigator.onLine) return;
+    const key = String(url).replace(/#.*$/, '').replace(/^http:\/\//i, 'https://');
+    const cache = await caches.open(VIDEO_CACHE_NAME);
+    if (await cache.match(key)) return;
+    if (sessionStorage.getItem('arefanejam_intro_pf') === key) return;
+    sessionStorage.setItem('arefanejam_intro_pf', key);
+    const tries = [key];
+    try { const api = (typeof DEFAULT_API_URL === 'string' && DEFAULT_API_URL) ? DEFAULT_API_URL.replace(/\/+$/, '') : ''; if (api && new URL(key).hostname === new URL(api).hostname) tries.push(api + '/media-file?u=' + encodeURIComponent(key)); } catch (e) {}
+    for (const u of tries) {
+      try {
+        const res = await fetch(u, { mode: 'cors', credentials: 'omit' });
+        if (!res || res.status !== 200) continue;
+        const blob = await res.blob();
+        if (blob.size < 1000) continue;
+        await cache.put(key, new Response(blob, { status: 200, headers: { 'Content-Type': 'video/mp4' } }));
+        return;
+      } catch (e) { /* راه بعدی */ }
+    }
+  } catch (e) {}
 }
 
 function renderAnnouncement() {
@@ -2149,7 +2291,23 @@ document.getElementById('announcement-dismiss-btn').addEventListener('click', ()
   document.getElementById('announcement-banner').classList.add('hidden');
 });
 
-function playAlarmSound() {
+const ALARM_SOUND_COUNT = 10;
+let alarmAudioEl = null;
+function playAlarmSound(sndId) {
+  const id = parseInt(sndId, 10);
+  if (id >= 1 && id <= ALARM_SOUND_COUNT) {
+    try {
+      if (alarmAudioEl) { try { alarmAudioEl.pause(); } catch (e) {} }
+      alarmAudioEl = new Audio('sounds/alarm_' + id + '.mp3');
+      alarmAudioEl.volume = 1;
+      const pr = alarmAudioEl.play();
+      if (pr && pr.catch) pr.catch(() => playAlarmSoundSynth());
+      return;
+    } catch (e) { /* به صدای ساده برمی‌گردیم */ }
+  }
+  playAlarmSoundSynth();
+}
+function playAlarmSoundSynth() {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     [880, 1108].forEach((freq, i) => {
@@ -2164,12 +2322,12 @@ function playAlarmSound() {
   } catch (e) { /* ignore */ }
 }
 
-function showAlarmModal(title, message, link, linkTrackName) {
+function showAlarmModal(title, message, link, linkTrackName, sndId) {
   document.getElementById('alarm-title-text').textContent = title;
   document.getElementById('alarm-message-text').textContent = message;
   document.getElementById('alarm-modal').classList.remove('hidden');
   // اگر صدای اذان یا پیام صوتیِ اعلان در حال پخش است، صدای هشدار عمومی روی آن سوار نشود
-  if (!currentAzanAudio && !currentAnnouncementAudio) playAlarmSound();
+  if (!currentAzanAudio && !currentAnnouncementAudio) playAlarmSound(sndId);
   if (navigator.vibrate) navigator.vibrate([120, 60, 120]);
   const okBtn = document.getElementById('alarm-ok-btn');
   const linkBtn = document.getElementById('alarm-link-btn');
@@ -2177,6 +2335,7 @@ function showAlarmModal(title, message, link, linkTrackName) {
   okBtn.textContent = currentAzanAudio ? 'توقف اذان' : 'متوجه شدم';
   okBtn.onclick = () => {
     document.getElementById('alarm-modal').classList.add('hidden');
+    try { if (alarmAudioEl) alarmAudioEl.pause(); } catch (e) {}
     stopAzanSound();
   };
   if (link) {
@@ -2265,8 +2424,89 @@ function showQuranInvitePopup(p, opts) {
   applyMokatibPopupText(textEl, { text: p.text, textColor: p.text_color, font: p.font, effect: p.effect });
   document.getElementById('quran-invite-btn1').textContent = p.btn1_text || 'بزن بریم';
   document.getElementById('quran-invite-btn2').textContent = p.btn2_text || 'ان‌شاءالله بعدا';
+  const ch = document.getElementById('quran-invite-chart');
+  if (ch) {
+    if (quranInviteResumeMode) { try { ch.innerHTML = quranReadChartHtml(); } catch (e) { ch.innerHTML = ''; } ch.classList.remove('hidden'); }
+    else { ch.innerHTML = ''; ch.classList.add('hidden'); }
+  }
   document.getElementById('quran-invite-modal').classList.remove('hidden');
 }
+/* نمودار میزان قرائت: درصد کل قرآن (حلقه) + تعداد آیه‌های ۷ روز اخیر (ستونی) + سؤال «ادامه بدهیم؟» */
+function quranReadChartHtml() {
+  const total = QURAN_TOTAL_AYAHS, read = getQuranOverallProgressSet().size;
+  const pct = Math.min(100, read / total * 100);
+  const C = 2 * Math.PI * 34, off = C - pct / 100 * C;
+  const log = getQuranReadLog();
+  const days = [], names = ['یک', 'دو', 'سه', 'چهار', 'پنج', 'جمعه', 'شنبه'];
+  const WD = ['ی', 'د', 'س', 'چ', 'پ', 'ج', 'ش'];
+  let mx = 1;
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const e = log[dailyDeedsDateKey(d)];
+    const n = e && e.ayahs ? e.ayahs.length : 0;
+    mx = Math.max(mx, n); days.push({ n: n, w: WD[d.getDay()] });
+  }
+  let bars = '';
+  days.forEach((x, i) => {
+    const h = Math.max(3, Math.round(x.n / mx * 46));
+    bars += '<div class="qc-col"><span class="qc-n">' + (x.n ? toPersianDigits(x.n) : '') + '</span><i style="height:' + h + 'px' + (x.n ? '' : ';opacity:.25') + '"></i><span class="qc-d">' + x.w + '</span></div>';
+  });
+  return '<div class="qc-wrap"><svg viewBox="0 0 80 80" class="qc-ring"><circle cx="40" cy="40" r="34" fill="none" stroke="rgba(127,127,127,.25)" stroke-width="8"/><circle cx="40" cy="40" r="34" fill="none" stroke="#d6a93b" stroke-width="8" stroke-linecap="round" stroke-dasharray="' + C.toFixed(1) + '" stroke-dashoffset="' + off.toFixed(1) + '" transform="rotate(-90 40 40)"/><text x="40" y="45" text-anchor="middle" font-size="15" font-weight="700" fill="currentColor">' + toPersianDigits(pct.toFixed(pct >= 10 ? 0 : 1)) + '٪</text></svg><div class="qc-bars">' + bars + '</div></div>'
+    + '<p class="qc-line">شما تا این لحظه <b>' + toPersianDigits(read) + '</b> آیه از <b>' + toPersianDigits(total) + '</b> آیهٔ قرآن را قرائت کرده‌اید.</p>'
+    + '<p class="qc-line">اگر موافق هستید، از همان‌جا که آخرین بار مانده‌اید ادامه بدهیم؟</p>';
+}
+
+/* ---------- آیه‌های خوانده‌نشده (جاافتاده) ----------
+   وقتی کاربر از جایی به بعد می‌خواند (مثلاً با «ادامه»)، آیه‌های پیش از آن که هیچ‌وقت دیده نشده‌اند در حافظه (arefanejam_quran_missed)
+   نگه داشته می‌شوند. بعد از رسیدن به پایان قرآن، همین‌ها به کاربر یادآوری می‌شود تا ختم بی‌نقص شود. */
+const QURAN_MISSED_KEY = 'arefanejam_quran_missed';
+const QURAN_MISSED_NOTIFIED_KEY = 'arefanejam_quran_missed_notified';
+function computeQuranMissed() {
+  const set = getQuranOverallProgressSet();
+  let mx = 0; set.forEach((n) => { if (n > mx) mx = n; });
+  const miss = [];
+  for (let i = 1; i < mx; i++) if (!set.has(i)) miss.push(i);
+  try { localStorage.setItem(QURAN_MISSED_KEY, JSON.stringify(miss)); } catch (e) {}
+  return { miss: miss, max: mx, done: set.has(QURAN_TOTAL_AYAHS) };
+}
+async function quranMissedRanges(miss) {
+  const data = await getSurahOffsets(); if (!data) return [];
+  const out = []; let cur = null;
+  miss.forEach((g) => {
+    let sn = 1; for (let n = 114; n >= 1; n--) { if (g > data.offsets[n]) { sn = n; break; } }
+    const ay = g - data.offsets[sn];
+    if (cur && cur.s === sn && cur.b === ay - 1) cur.b = ay; else { cur = { s: sn, a: ay, b: ay }; out.push(cur); }
+  });
+  return out;
+}
+async function checkQuranMissedPrompt() {
+  try {
+    const c = computeQuranMissed();
+    if (!c.done || !c.miss.length) return;
+    let last = ''; try { last = localStorage.getItem(QURAN_MISSED_NOTIFIED_KEY) || ''; } catch (e) {}
+    if (last === String(c.miss.length)) return;
+    const modal = document.getElementById('quran-missed-modal'); if (!modal) return;
+    const ranges = await quranMissedRanges(c.miss); if (!ranges.length) return;
+    const names = {};
+    for (const r of ranges.slice(0, 12)) { if (!names[r.s]) { try { names[r.s] = await getSurahNameByNumber(r.s); } catch (e) { names[r.s] = 'سورهٔ ' + r.s; } } }
+    const list = ranges.slice(0, 12).map((r) => '<li>' + calEsc(names[r.s] || '') + ' — آیهٔ ' + toPersianDigits(r.a) + (r.b > r.a ? ' تا ' + toPersianDigits(r.b) : '') + '</li>').join('') + (ranges.length > 12 ? '<li>و ' + toPersianDigits(ranges.length - 12) + ' بخش دیگر…</li>' : '');
+    document.getElementById('quran-missed-text').innerHTML = '🌟 به پایان قرآن رسیدید! ولی <b>' + toPersianDigits(c.miss.length) + '</b> آیه را هنوز نخوانده‌اید؛ برای اینکه ختم‌تان کامل شود، این بخش‌ها مانده است:<ul class="qm-list">' + list + '</ul>';
+    const r0 = ranges[0]; modal.dataset.s = r0.s; modal.dataset.a = r0.a; modal.dataset.n = names[r0.s] || '';
+    try { localStorage.setItem(QURAN_MISSED_NOTIFIED_KEY, String(c.miss.length)); } catch (e) {}
+    modal.classList.remove('hidden');
+  } catch (e) {}
+}
+(function () {
+  const m = document.getElementById('quran-missed-modal'); if (!m) return;
+  document.getElementById('quran-missed-later').addEventListener('click', () => m.classList.add('hidden'));
+  document.getElementById('quran-missed-go').addEventListener('click', () => {
+    m.classList.add('hidden');
+    navHistory = [];
+    openSurahReader(parseInt(m.dataset.s, 10), m.dataset.n || '', { skipResumeCheck: true, scrollToAyah: parseInt(m.dataset.a, 10) || 1, autoPlay: false });
+  });
+  setInterval(checkQuranMissedPrompt, 45000);
+  setTimeout(checkQuranMissedPrompt, 6000);
+})();
 /* با تأیید یادآورِ «چند روز است قرآن نخوانده‌ای»: آخرین سوره‌ای که کاربر در آن بوده پیدا می‌شود و خواندن + پخش صوت
    از آیهٔ بعدِ آخرین آیهٔ خوانده‌شده شروع می‌شود (مثلاً تا آیهٔ ۱۲۵ بقره خوانده → شروع از آیهٔ ۱۲۶). کاملاً محلی و آفلاین. */
 async function resumeQuranFromLastPosition() {
@@ -2395,6 +2635,7 @@ async function pollSettingsNow() {
     const fresh = await apiFetch('/settings');
     if (!fresh || typeof fresh !== 'object' || Object.keys(fresh).length < 3) return;
     state.settings = fresh;
+    try { if (window.arefStoreChip) window.arefStoreChip(state.settings && state.settings.store_chip); } catch (e) {}
     trafficApply(fresh.traffic);
     try { localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(state.settings)); } catch (e) {}
     applyReciterNames();
@@ -3752,9 +3993,11 @@ function syncScheduleToServiceWorker(list) {
   if (silenceOn) {
     allLists.forEach((dayList) => dayList
       .filter((p) => !NON_PRAYER_KEYS.includes(p.key))
-      .forEach((p) => sitems.push({ t: p.time.getTime(), k: p.key })));
+      .forEach((p) => { const w = azSilenceWindow(p.time.getTime()); sitems.push({ t: Math.round((w[0] + w[1]) / 2), a: w[0], b: w[1], k: p.key }); }));
   }
-  const key = JSON.stringify(nativePrayers) + '|' + (s.azan_audio_url || '') + '|' + voiceId + '|' + enabled + '|' + preM + '|sil' + (silenceOn ? sitems.length + ':' + (sitems[0] ? sitems[0].t : 0) : 0);
+  // t = وسطِ بازه (APKهای قدیمی ±۱۰ دقیقه دور آن را بی‌صدا می‌کنند)؛ a و b = شروع و پایان دقیق (APK جدید)
+  const key = JSON.stringify(nativePrayers) + '|' + (s.azan_audio_url || '') + '|' + voiceId + '|' + enabled + '|' + preM + '|sil' + (silenceOn ? sitems.length + ':' + (sitems[0] ? sitems[0].a + '-' + sitems[0].b : 0) + ':' + (sitems.length ? sitems[sitems.length - 1].a + '-' + sitems[sitems.length - 1].b : 0) : 0);
+  try { if (window.arefWidgetSync) window.arefWidgetSync(allLists); } catch (e) {}
   if (key === lastScheduleSyncKey) return; // چیزی تغییر نکرده
   lastScheduleSyncKey = key;
   // نسخهٔ اندروید (Capacitor): آلارم‌ها به سیستم آلارم خود اندروید سپرده می‌شوند
@@ -6334,8 +6577,11 @@ function syncNotesToServiceWorker(notes) {
     if (!swReady && !window.NativeAlarms) return;
     const list = (notes || getLocalNotes())
       .filter((n) => n && n.reminderAt)
-      .map((n) => ({ id: n.id, title: n.title || '', content: n.content || '', reminderAt: n.reminderAt, reminderFired: !!n.reminderFired }));
+      .map((n) => ({ id: n.id, title: n.title || '', content: n.content || '', reminderAt: n.reminderAt, reminderFired: !!n.reminderFired, snd: n.snd || 1, repeat: n.repeat || 'none',
+        occ: n.reminderFired ? [] : remOccurrences(n.reminderAt, n.repeat, Date.now()) }));
+    try { myevAlarmList().forEach((x) => list.push(x)); } catch (e0) {}
     if (window.NativeAlarms) window.NativeAlarms.syncNotes(list);
+    try { if (window.arefWidgetSync) setTimeout(window.arefWidgetSync, 300); if (window.arefNcRefresh) setTimeout(window.arefNcRefresh, 300); } catch (e2) {}
     if (!swReady) return;
     navigator.serviceWorker.controller.postMessage({ type: 'AREFANEJAM_NOTES_SYNC', notes: list });
   } catch (e) { /* بی‌اهمیت */ }
@@ -6353,7 +6599,7 @@ function renderNotes(notes) {
   notes.slice().sort((a, b) => b.updatedAt - a.updatedAt).forEach((n) => {
     const card = document.createElement('div');
     card.className = 'note-card';
-    const reminderLine = n.reminderAt ? `<p class="note-reminder">⏰ ${formatReminderDate(n.reminderAt)}</p>` : '';
+    const reminderLine = n.reminderAt ? `<p class="note-reminder">⏰ ${formatReminderDate(n.reminderAt)}${n.repeat && n.repeat !== 'none' ? ' · 🔁 ' + REPEAT_LABELS[n.repeat] : ''}</p>` : '';
     card.innerHTML = `<h4>${n.title || 'بدون عنوان'}</h4><p>${(n.content || '').replace(/</g, '&lt;')}</p>${reminderLine}`;
     card.addEventListener('click', () => openNoteModal(n));
     el.appendChild(card);
@@ -6374,6 +6620,40 @@ function populateReminderSelects() {
 }
 populateReminderSelects();
 
+/* ---------- تکرار یادآوری (یادداشت‌ها و زمانبندی‌های تقویم) ----------
+   repeat: none | daily | weekly | monthly (همان روزِ ماهِ شمسی) | yearly. زمان بعدی همیشه با «روز ماه شمسی» حساب می‌شود. */
+const REPEAT_LABELS = { none: '', daily: 'هر روز', weekly: 'هر هفته', monthly: 'هر ماه', yearly: 'هر سال' };
+function remNext(ts, repeat, keepDay) {
+  const d = new Date(ts);
+  if (repeat === 'daily') { d.setDate(d.getDate() + 1); return d.getTime(); }
+  if (repeat === 'weekly') { d.setDate(d.getDate() + 7); return d.getTime(); }
+  if (repeat !== 'monthly' && repeat !== 'yearly') return ts;
+  let [jy, jm, jd] = gregorianToJalali(d.getFullYear(), d.getMonth() + 1, d.getDate());
+  const wantD = keepDay || jd;
+  if (repeat === 'yearly') jy += 1; else { jm += 1; if (jm > 12) { jm = 1; jy += 1; } }
+  const dd = Math.min(wantD, jalaliMonthLength(jy, jm));
+  const [gy, gm, gd] = jalaliToGregorian(jy, jm, dd);
+  return new Date(gy, gm - 1, gd, d.getHours(), d.getMinutes()).getTime();
+}
+// زمان‌های آینده یک یادآوریِ تکرارشونده (برای زمان‌بندی اعلان‌های بومی تا چند دورِ بعد)
+function remOccurrences(ts, repeat, now, limit) {
+  const out = []; let t = ts, guard = 0;
+  const day = (() => { const j = gregorianToJalali(new Date(ts).getFullYear(), new Date(ts).getMonth() + 1, new Date(ts).getDate()); return j[2]; })();
+  const max = repeat === 'daily' ? 30 : repeat === 'weekly' ? 16 : repeat === 'monthly' ? 12 : repeat === 'yearly' ? 3 : 1;
+  while (guard++ < 800 && out.length < Math.min(limit || max, max)) {
+    if (t > now + 2000) out.push(t);
+    if (repeat === 'none' || !repeat) break;
+    t = remNext(t, repeat, day);
+  }
+  return out;
+}
+(function () {
+  const bind = (btn, sel) => { const b = document.getElementById(btn); if (b) b.addEventListener('click', () => playAlarmSound(document.getElementById(sel).value)); };
+  bind('note-snd-play', 'note-snd'); bind('myev-snd-play', 'myev-snd');
+  const al = document.getElementById('myev-alarm');
+  if (al) al.addEventListener('change', () => { const r = document.getElementById('myev-snd-row'); if (r) r.classList.toggle('hidden', !al.checked); });
+})();
+
 function openNoteModal(note) {
   state.editingNoteId = note ? note.id : null;
   document.getElementById('note-modal-title').textContent = note ? 'ویرایش یادداشت' : 'یادداشت جدید';
@@ -6392,6 +6672,8 @@ function openNoteModal(note) {
   document.getElementById('reminder-jalali-day').value = jd;
   document.getElementById('reminder-time-input').value =
     String(baseDate.getHours()).padStart(2, '0') + ':' + String(baseDate.getMinutes()).padStart(2, '0');
+  document.getElementById('note-repeat').value = (note && note.repeat) || 'none';
+  document.getElementById('note-snd').value = String((note && note.snd) || 1);
   document.getElementById('note-modal').classList.remove('hidden');
 }
 
@@ -6415,6 +6697,8 @@ document.getElementById('note-save-btn').addEventListener('click', () => {
     const [hh, mm] = timeVal.split(':').map(Number);
     reminderAt = new Date(gy, gm - 1, gd, hh, mm).getTime();
   }
+  const rpt = hasReminder ? document.getElementById('note-repeat').value : 'none';
+  const snd = parseInt(document.getElementById('note-snd').value, 10) || 1;
   const notes = getLocalNotes();
   let savedNote = null;
 
@@ -6423,11 +6707,12 @@ document.getElementById('note-save-btn').addEventListener('click', () => {
     if (idx > -1) {
       notes[idx].title = title; notes[idx].content = content;
       notes[idx].reminderAt = reminderAt; notes[idx].reminderFired = false;
+      notes[idx].repeat = rpt; notes[idx].snd = snd;
       notes[idx].updatedAt = Date.now();
       savedNote = notes[idx];
     }
   } else {
-    savedNote = { id: 'n' + Date.now(), title, content, reminderAt, reminderFired: false, updatedAt: Date.now() };
+    savedNote = { id: 'n' + Date.now(), title, content, reminderAt, reminderFired: false, repeat: rpt, snd: snd, updatedAt: Date.now() };
     notes.push(savedNote);
   }
   saveLocalNotes(notes);
@@ -6452,15 +6737,20 @@ document.getElementById('note-delete-btn').addEventListener('click', async () =>
 function checkNoteReminders() {
   const notes = getLocalNotes();
   const now = Date.now();
-  let changed = false;
+  let changed = false, advanced = null;
   notes.forEach((n) => {
     if (n.reminderAt && !n.reminderFired && n.reminderAt <= now) {
-      n.reminderFired = true;
+      showAlarmModal('یادآوری یادداشت', n.title || n.content || 'یادداشت شما', '', '', n.snd || 1);
       changed = true;
-      showAlarmModal('یادآوری یادداشت', n.title || n.content || 'یادداشت شما');
+      if (n.repeat && n.repeat !== 'none') {
+        const day = gregorianToJalali(new Date(n.reminderAt).getFullYear(), new Date(n.reminderAt).getMonth() + 1, new Date(n.reminderAt).getDate())[2];
+        let t = n.reminderAt, g = 0;
+        while (t <= now && g++ < 4000) t = remNext(t, n.repeat, day);
+        n.reminderAt = t; n.reminderFired = false; advanced = n;
+      } else n.reminderFired = true;
     }
   });
-  if (changed) saveLocalNotes(notes);
+  if (changed) { saveLocalNotes(notes); if (advanced) { try { syncNoteReminder(advanced); } catch (e) {} } try { syncNotesToServiceWorker(notes); } catch (e) {} }
 }
 setInterval(checkNoteReminders, 30000);
 
@@ -8228,10 +8518,16 @@ document.getElementById('quran-fulltext-search').addEventListener('input', (e) =
         resultsEl.innerHTML = '<p class="note-empty">نتیجه‌ای پیدا نشد.</p>';
         return;
       }
+      let arSurahs = null;
+      try { arSurahs = await getOfflineQuranText(); } catch (e0) {}
       json.data.matches.slice(0, 40).forEach((m) => {
         const row = document.createElement('div');
-        row.className = 'city-row';
-        row.innerHTML = `<strong>${m.surah.name}</strong> — آیه ${toPersianDigits(m.numberInSurah)}<br><span class="muted-text small">${m.text}</span>`;
+        row.className = 'city-row qs-row';
+        let arTxt = '';
+        try { const sr = arSurahs && arSurahs.find((s) => s.number === m.surah.number); const ay = sr && (sr.ayahs.find((a) => a.numberInSurah === m.numberInSurah) || sr.ayahs[m.numberInSurah - 1]); arTxt = ay ? ay.text : ''; } catch (e1) {}
+        if (arTxt && m.numberInSurah === 1 && m.surah.number !== 1 && m.surah.number !== 9) arTxt = arTxt.replace(/^بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ\s*/, '');
+        row.innerHTML = `<strong class="qs-h">${m.surah.name} — آیه ${toPersianDigits(m.numberInSurah)}</strong>` +
+          (arTxt ? `<div class="qs-ar">${quranArHtml(arTxt)}</div>` : '') + `<div class="qs-tr">${m.text}</div>`;
         row.addEventListener('click', () => openSurahReader(m.surah.number, m.surah.name, { skipResumeCheck: true, scrollToAyah: m.numberInSurah }));
         resultsEl.appendChild(row);
       });
@@ -8240,6 +8536,46 @@ document.getElementById('quran-fulltext-search').addEventListener('input', (e) =
     }
   }, 500);
 });
+
+/* ---------- دعاها: یک‌بار از سایت، بعد از حافظهٔ گوشی ---------- */
+const duasState = { cats: [], items: [], cat: 0, q: '' };
+function duasOpen() {
+  const list = document.getElementById('dua-list');
+  if (!duasState.items.length) list.innerHTML = '<p class="muted-text small" style="padding:0 4px">در حال بارگذاری...</p>';
+  apiSWR('/duas', (d) => { duasState.cats = (d && d.cats) || []; duasState.items = (d && d.items) || []; duasRender(); })
+    .catch(() => { if (!duasState.items.length) list.innerHTML = '<div class="dua-empty">برای اولین بار باید اینترنت وصل باشد تا دعاها روی گوشی ذخیره شوند.</div>'; });
+}
+function duasRender() {
+  const catsEl = document.getElementById('dua-cats'), list = document.getElementById('dua-list');
+  const mk = (id, name) => '<button type="button" class="dua-chip' + (duasState.cat === id ? ' active' : '') + '" data-c="' + id + '">' + shariqEsc(name) + '</button>';
+  catsEl.innerHTML = duasState.cats.length ? mk(0, 'همه') + duasState.cats.map((c) => mk(c.id, c.name)).join('') : '';
+  catsEl.querySelectorAll('.dua-chip').forEach((b) => b.addEventListener('click', () => { duasState.cat = parseInt(b.dataset.c, 10) || 0; duasRender(); }));
+  const q = shariqNorm(duasState.q), words = q ? q.split(' ') : [];
+  const rows = duasState.items.filter((i) => (!duasState.cat || i.cat === duasState.cat) && (!words.length || words.every((w) => shariqNorm(i.title + ' ' + i.arabic + ' ' + i.translation).indexOf(w) >= 0)));
+  if (!rows.length) { list.innerHTML = '<div class="dua-empty">' + (duasState.items.length ? 'موردی پیدا نشد.' : 'هنوز دعایی ثبت نشده است.') + '</div>'; return; }
+  list.innerHTML = rows.map((i) => '<div class="dua-card" data-id="' + i.id + '"><button type="button" class="dua-q"><span>' + shariqEsc(i.title) + '</span><span>▾</span></button><div class="dua-body">' +
+    (i.arabic ? '<div class="dua-ar">' + shariqEsc(i.arabic) + '</div>' : '') + (i.translation ? '<div class="dua-tr">' + shariqEsc(i.translation) + '</div>' : '') +
+    (i.source ? '<div class="dua-src">منبع: ' + shariqEsc(i.source) + '</div>' : '') +
+    '<div class="dua-acts"><button type="button" class="ghost-btn small-btn dua-copy">کپی</button></div></div></div>').join('');
+  list.querySelectorAll('.dua-card').forEach((c) => {
+    c.querySelector('.dua-q').addEventListener('click', () => c.classList.toggle('open'));
+    c.querySelector('.dua-copy').addEventListener('click', () => {
+      const it = duasState.items.find((x) => String(x.id) === c.dataset.id); if (!it) return;
+      const t = it.title + '\n\n' + it.arabic + (it.translation ? '\n\n' + it.translation : '');
+      try { navigator.clipboard.writeText(t); } catch (e) {}
+    });
+  });
+}
+document.getElementById('dua-search-input').addEventListener('input', (e) => { duasState.q = e.target.value; duasRender(); });
+
+/* متن عربی آیه با رنگ قرمزِ الله/رب/الرحمن (مثل مصحف) برای بخش‌های دیگرِ قرآن */
+function quranArHtml(text) {
+  return String(text || '').split(/\s+/).filter(Boolean).map((w) => {
+    const e = w.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    return (typeof qcfIsRed === 'function' && qcfIsRed(w)) ? '<span class="qf-r">' + e + '</span>' : e;
+  }).join(' ');
+}
+try { qcfLoadStaticFaces(); } catch (e) {}  // فونت حفص مصحف برای همهٔ بخش‌های قرآنی (اگر داخل APK نباشد فونت قبلی می‌ماند)
 
 /* ---------- جزءهای قرآن ---------- */
 /* صفحهٔ «فهرست جزءها» از اپ حذف شد (به درخواست مدیر). خواندن/پخش جزء از مسیرهای دیگر (openJuzReader) سر جایش است. */
@@ -8990,6 +9326,7 @@ const MENU_GROUPS = {
     { icon: '🤲', label: 'محاسبه اعمال روزانه', goto: 'daily-deeds' },
     { icon: '📿', label: 'تسبیح دیجیتال', goto: 'tasbih' },
     { icon: '📖', label: 'گزارش قرآن', goto: 'quran-report' },
+    { icon: '🤲', label: 'دعاها', goto: 'duas' },
   ]},
   ibadah: { title: 'عبادت', items: [
     { icon: '💰', label: 'محاسبه‌گر زکات', goto: 'zakat-calc' },
@@ -10753,7 +11090,7 @@ async function loadBooks() {
 }
 
 /* ---------- سوالات شرعی ---------- */
-const shariqState = { categories: [], activeCategory: null, list: [] };
+const shariqState = { categories: [], activeCategory: null, list: [], q: '' };
 
 function shariqIconMarkup(s) {
   if (s.nav_icon_image) return `<img src="${secureUrl(s.nav_icon_image)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
@@ -10900,24 +11237,67 @@ async function loadShariqCategories() {
     shariqCacheSet('cats', shariqState.categories);
   } catch (e) { shariqState.categories = shariqAsArray(shariqCacheGet('cats')); }
 
+  const SQ_ICONS = ['🕌', '📿', '🧼', '🌙', '💰', '🤝', '📖', '🕋', '⚖️', '🍽️', '👨‍👩‍👧', '🛍️'];
+  const total = shariqState.categories.reduce((a, c) => a + (Number(c.count) || 0), 0);
   const allChip = document.createElement('button');
-  allChip.className = 'shariq-chip active';
-  allChip.textContent = 'همه';
+  allChip.className = 'shariq-chip shariq-tile active';
+  allChip.innerHTML = '<span class="sq-ic">🗂️</span><span class="sq-nm">همه</span><span class="sq-ct">' + toPersianDigits(total) + '</span>';
   allChip.style.animationDelay = '0s';
   allChip.addEventListener('click', () => selectShariqCategory(null, allChip));
   row.appendChild(allChip);
 
   shariqState.categories.forEach((c, i) => {
     const chip = document.createElement('button');
-    chip.className = 'shariq-chip';
+    chip.className = 'shariq-chip shariq-tile sq-c' + (i % 6);
     chip.style.animationDelay = `${(i + 1) * 0.05}s`;
-    chip.textContent = `${c.name} (${toPersianDigits(c.count)})`;
+    chip.innerHTML = '<span class="sq-ic">' + SQ_ICONS[i % SQ_ICONS.length] + '</span><span class="sq-nm">' + shariqEsc(c.name) + '</span><span class="sq-ct">' + toPersianDigits(c.count) + '</span>';
     chip.addEventListener('click', () => selectShariqCategory(c.id, chip));
     row.appendChild(chip);
   });
 
   shariqState.activeCategory = null;
+  shariqEnsureSearch();
   loadShariqList(null);
+}
+
+/* ---------- جستجو در سوالات (همهٔ سوالات یا فقط همین دسته) ---------- */
+function shariqNorm(t) {
+  return String(t || '').replace(/[يى]/g, 'ی').replace(/ك/g, 'ک').replace(/[\u064B-\u065F\u0640]/g, '')
+    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/\s+/g, ' ').trim().toLowerCase();
+}
+function shariqEnsureSearch() {
+  if (document.getElementById('shariq-search-box')) return;
+  const row = document.getElementById('shariq-cats-row');
+  const box = document.createElement('div');
+  box.id = 'shariq-search-box'; box.className = 'shariq-search';
+  box.innerHTML = '<div class="sq-sbar"><span>🔍</span><input type="search" id="shariq-search-input" placeholder="جستجو در سوال‌ها و پاسخ‌ها..." autocomplete="off"><button type="button" id="shariq-search-clear" class="hidden" aria-label="پاک کردن">✕</button></div>' +
+    '<label class="sq-scope hidden" id="shariq-scope-row"><input type="checkbox" id="shariq-scope-all"> جستجو در همهٔ دسته‌ها</label>';
+  row.parentNode.insertBefore(box, row);
+  const inp = document.getElementById('shariq-search-input');
+  let tm = null;
+  inp.addEventListener('input', () => {
+    shariqState.q = inp.value;
+    document.getElementById('shariq-search-clear').classList.toggle('hidden', !inp.value);
+    clearTimeout(tm); tm = setTimeout(shariqApplySearch, 180);
+  });
+  document.getElementById('shariq-search-clear').addEventListener('click', () => { inp.value = ''; shariqState.q = ''; document.getElementById('shariq-search-clear').classList.add('hidden'); shariqApplySearch(); });
+  document.getElementById('shariq-scope-all').addEventListener('change', shariqApplySearch);
+}
+async function shariqApplySearch() {
+  const q = shariqNorm(shariqState.q);
+  const scopeRow = document.getElementById('shariq-scope-row');
+  if (scopeRow) scopeRow.classList.toggle('hidden', !(q && shariqState.activeCategory));
+  if (!q) { shariqRenderList(shariqState.list, false, null); return; }
+  let src = shariqState.list;
+  const allScope = shariqState.activeCategory && document.getElementById('shariq-scope-all') && document.getElementById('shariq-scope-all').checked;
+  if (allScope) {
+    try { src = shariqAsArray(await shariqGet('/shariq/questions')); shariqCacheSet('list_all', src); }
+    catch (e) { src = shariqAsArray(shariqCacheGet('list_all')); }
+  }
+  const words = q.split(' ');
+  const hit = src.filter((it) => { const h = shariqNorm(it.question_text + ' ' + it.answer_text + ' ' + (it.answered_by || '')); return words.every((w) => h.indexOf(w) >= 0); });
+  shariqRenderList(hit, false, q);
 }
 
 function selectShariqCategory(categoryId, chipEl) {
@@ -10948,10 +11328,22 @@ async function loadShariqList(categoryId) {
     shariqState.list = cached;
     fromCache = true;
   }
+  shariqEnsureSearch();
+  if (shariqNorm(shariqState.q)) { shariqApplySearch(); return; }
+  shariqRenderList(shariqState.list, fromCache, null);
+}
+
+function shariqRenderList(list, fromCache, query) {
+  const el = document.getElementById('shariq-list-content');
   el.innerHTML = '';
-  if (!shariqState.list.length) {
-    el.innerHTML = '<div class="shariq-empty"><span class="shariq-empty-icon">🕊️</span>هنوز پاسخی در این بخش ثبت نشده است.</div>';
+  if (!list.length) {
+    el.innerHTML = query ? '<div class="shariq-empty"><span class="shariq-empty-icon">🔎</span>موردی برای «' + shariqEsc(shariqState.q) + '» پیدا نشد.</div>'
+      : '<div class="shariq-empty"><span class="shariq-empty-icon">🕊️</span>هنوز پاسخی در این بخش ثبت نشده است.</div>';
     return;
+  }
+  if (query) {
+    const n = document.createElement('p'); n.className = 'muted-text small'; n.style.padding = '0 18px';
+    n.textContent = toPersianDigits(list.length) + ' مورد پیدا شد.'; el.appendChild(n);
   }
   if (fromCache) {
     const note = document.createElement('p');
@@ -10960,7 +11352,7 @@ async function loadShariqList(categoryId) {
     note.textContent = 'اتصال به سایت برقرار نشد؛ آخرین نسخهٔ ذخیره‌شده نمایش داده می‌شود.';
     el.appendChild(note);
   }
-  shariqState.list.forEach((item, i) => {
+  list.forEach((item, i) => {
     const card = document.createElement('div');
     card.className = 'shariq-item';
     card.style.animationDelay = `${Math.min(i, 8) * 0.06}s`;
@@ -14860,8 +15252,33 @@ function settingsOnTabOpen() {
   };
   if (silTg) {
     silTg.checked = azPrefs().silence === true;
+    const silBox = $('set-silence-box'), silMode = $('set-sil-mode'), silSum = $('set-sil-sum');
+    const silIn = { gap: $('set-sil-gap'), before: $('set-sil-before'), after: $('set-sil-after'), from: $('set-sil-from'), to: $('set-sil-to') };
+    const silKeys = { gap: 'silGap', before: 'silBefore', after: 'silAfter', from: 'silFrom', to: 'silTo' };
+    const silFill = () => {
+      const p = azPrefs();
+      if (silMode) silMode.value = p.silMode;
+      Object.keys(silIn).forEach((k) => { if (silIn[k]) silIn[k].value = String(p[silKeys[k]]); });
+      const au = $('set-sil-auto'), ma = $('set-sil-manual');
+      if (au) au.classList.toggle('hidden', p.silMode === 'manual');
+      if (ma) ma.classList.toggle('hidden', p.silMode !== 'manual');
+      if (silBox) silBox.classList.toggle('hidden', !silTg.checked);
+      if (silSum) silSum.textContent = azSilenceSummary();
+    };
+    silFill();
+    if (silMode) silMode.addEventListener('change', () => { azPrefs().silMode = silMode.value === 'manual' ? 'manual' : 'auto'; azPrefsSave(); silFill(); applyAz(); });
+    Object.keys(silIn).forEach((k) => {
+      const el = silIn[k]; if (!el) return;
+      el.addEventListener('change', () => {
+        const raw = String(el.value || '').replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+        const v = Number(raw);
+        if (isFinite(v)) { azPrefs()[silKeys[k]] = v; azPrefsSave(); }
+        azPrefsCache = null; // دوباره خوانده و در بازهٔ مجاز نگه داشته می‌شود
+        azPrefsCache = null; silFill(); applyAz();
+      });
+    });
     silTg.addEventListener('change', () => {
-      azPrefs().silence = silTg.checked; azPrefsSave(); applyAz();
+      azPrefs().silence = silTg.checked; azPrefsSave(); silFill(); applyAz();
       if (silTg.checked) setTimeout(silRefresh, 600); else { if (silPerm) silPerm.classList.add('hidden'); sm(''); }
     });
     silRefresh();
@@ -16143,8 +16560,19 @@ bnrLoad();
       try { if (t) localStorage.setItem(TOKEN_KEY, t); else localStorage.removeItem(TOKEN_KEY); } catch (e) {}
     }
 
+    /* شناسهٔ ثابت این دستگاه (برای ثبت دستگاه و هشدار امنیتی مدیر مجموعه) */
+    function stuDev() {
+      let id = '', label = '';
+      try { id = localStorage.getItem('arefanejam_dev_id') || ''; label = localStorage.getItem('arefanejam_dev_label') || ''; } catch (e) {}
+      if (id.length < 8) {
+        id = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+        try { localStorage.setItem('arefanejam_dev_id', id); } catch (e) {}
+      }
+      let pid = ''; try { pid = localStorage.getItem('arefanejam_device_id') || ''; } catch (e) {}
+      return { id: id, label: label, pid: pid };
+    }
     function stuFetch(path, body) {
-      const payload = Object.assign({}, body || {}, S.token ? { token: S.token } : {});
+      const payload = Object.assign({}, body || {}, S.token ? { token: S.token } : {}, { dev: stuDev() });
       return fetch(state.apiUrl.replace(/\/$/, '') + path, {
         method: 'POST', cache: 'no-store',
         headers: { 'Content-Type': 'application/json' },
@@ -16282,6 +16710,7 @@ bnrLoad();
         const par = findUser(u.parent_id);
         h += '<div class="stu-topbar"><button type="button" class="ghost-btn small-btn" data-stu="up">‹ ' + esc(par ? par.full_name : 'بازگشت') + '</button></div>';
       }
+      if (meView && WATCHED.indexOf(S.me.role) !== -1) h += '<div class="section-block' + (S.me.alerts_unread > 0 ? '' : ' hidden') + '" id="stu-alert-box"></div>';
       // کارت اطلاعات
       h += '<div class="stu-card">';
       h += '<div class="stu-avatar stu-av-' + esc(u.role) + '">' + esc((u.full_name || '؟').trim().charAt(0)) + '</div>';
@@ -16318,6 +16747,7 @@ bnrLoad();
         else h += '<button type="button" class="danger-btn small-btn" data-stu="delete">🗑️ حذف</button>';
       }
       h += '</div></div>';
+      if (!meView && WATCHED.indexOf(u.role) !== -1) h += '<div id="stu-tgt-alert" data-uid="' + u.id + '"></div>';
 
       if (meView && S.me.features && S.me.features.length) h += '<div class="section-block"><h3>امکانات شما</h3><ul class="stu-feat">' + S.me.features.map((f) => '<li>' + esc(f) + '</li>').join('') + '</ul></div>';
       if (meView) h += '<div class="section-block"><button type="button" class="secondary-btn sv-hub-btn" data-stu="sv-home">🏫 خدمات مدرسه</button><p class="muted-text small">تیکت، نمرات و وضعیت درسی، آزمون آنلاین، انضباطی، شهریه و سرویس مدرسه (بر اساس نقش شما).</p></div>';
@@ -16358,6 +16788,7 @@ bnrLoad();
       box.innerHTML = h;
       try { window.scrollTo(0, 0); } catch (e) {}
       loadAttBox(); if (meView && u.role === 'parent') loadNotifs();
+      if ((meView && WATCHED.indexOf(S.me.role) !== -1) || (!meView && WATCHED.indexOf(u.role) !== -1)) loadAlerts();
     }
 
     /* ----- حضور و غیابِ یک دانش‌آموز (خلاصه + فهرست) ----- */
@@ -16407,12 +16838,12 @@ bnrLoad();
     }
 
     /* ----- برگهٔ ثبت حضور و غیاب ----- */
-    async function openSheet(scopeId, date) {
+    async function openSheet(scopeId, date, classId) {
       const box = $('stu-main');
       box.innerHTML = '<p class="muted-text small center-block">در حال بارگذاری…</p>';
       try {
-        const d = await stuFetch('/students/att/sheet', { scope_id: scopeId, date: date || '' });
-        S.sheet = { scope: scopeId, date: d.date, today: d.today, name: d.scope_name, students: d.students, draft: {} };
+        const d = await stuFetch('/students/att/sheet', { scope_id: scopeId, date: date || '', class_id: classId || 0 });
+        S.sheet = { scope: scopeId, cls: classId || 0, date: d.date, today: d.today, name: d.scope_name, students: d.students, draft: {} };
         d.students.forEach((x) => { S.sheet.draft[x.id] = { status: x.status || '', note: x.note || '' }; });
         renderSheet();
       } catch (e) { box.innerHTML = '<div class="stu-topbar"><button type="button" class="ghost-btn small-btn" data-stu="cancel">‹ بازگشت</button></div><p class="error-text center-block">' + esc(e.message) + '</p>'; }
@@ -16613,6 +17044,98 @@ bnrLoad();
     }
     const ro = $('stu-reg-open'); if (ro) ro.addEventListener('click', showReg);
 
+    /* ----- بازیابی رمز مدیر مجموعه (تیکت) ----- */
+    function recSaved() { try { return JSON.parse(localStorage.getItem('arefanejam_rec') || 'null'); } catch (e) { return null; } }
+    function showRecover() {
+      const inp = (id, ph, ex) => '<input type="text" id="' + id + '" placeholder="' + esc(ph) + '" style="margin-bottom:8px"' + (ex || '') + '>';
+      let h = '<h3>🔑 بازیابی رمز مدیر مجموعه</h3><p class="muted-text small">فقط برای مدیر مجموعه. کد ملی و شمارهٔ تماسِ ثبت‌شده را بنویسید و رمز جدید دلخواهتان را وارد کنید. درخواست شما به مدیر سایت می‌رسد؛ بعد از بررسی هویت و تأیید، با همان رمز جدید وارد می‌شوید. یک «کد پیگیری» به شما داده می‌شود.</p>';
+      h += inp('stu-c-nid', 'کد ملی (۱۰ رقم)', ' dir="ltr" inputmode="numeric" maxlength="10"') + inp('stu-c-phone', 'شمارهٔ تماس (۰۹۱۲۱۲۳۴۵۶۷)', ' dir="ltr" inputmode="numeric" maxlength="14"');
+      h += '<input type="text" id="stu-c-pass" dir="ltr" autocomplete="new-password" placeholder="رمز جدید (حداقل ۶ نویسه)" style="margin-bottom:8px" maxlength="100">';
+      h += '<textarea id="stu-c-note" rows="2" maxlength="400" placeholder="توضیح (اختیاری): نام مجموعه، شهر و ..." style="width:100%;margin-bottom:8px"></textarea>';
+      h += '<p class="error-text" id="stu-c-err"></p><button type="button" class="secondary-btn" id="stu-c-send" style="width:100%">📤 ثبت درخواست</button><button type="button" class="ghost-btn" id="stu-c-back" style="width:100%;margin-top:8px">بازگشت</button>';
+      $('stu-reg').innerHTML = h; showOnly('reg');
+      $('stu-c-back').onclick = () => showOnly('login');
+      $('stu-c-send').onclick = async () => {
+        const err = $('stu-c-err'); err.textContent = '';
+        const b = { national_id: $('stu-c-nid').value.trim(), phone: $('stu-c-phone').value.trim(), new_password: $('stu-c-pass').value, note: $('stu-c-note').value.trim() };
+        if (!b.national_id || !b.phone || !b.new_password) { err.textContent = 'کد ملی، شماره تماس و رمز جدید را پر کنید.'; return; }
+        $('stu-c-send').disabled = true;
+        try {
+          const d = await stuFetch('/students/recover', b);
+          try { localStorage.setItem('arefanejam_rec', JSON.stringify({ nid: b.national_id, code: d.code })); } catch (e) {}
+          $('stu-reg').innerHTML = '<h3>✅ ثبت شد</h3><p class="muted-text">' + esc(d.message || '') + '</p><p style="text-align:center;font-size:22px;letter-spacing:3px;direction:ltr"><b>' + esc(d.code) + '</b></p><button type="button" class="secondary-btn" id="stu-c-st" style="width:100%">📨 پیگیری درخواست</button><button type="button" class="ghost-btn" id="stu-c-ok" style="width:100%;margin-top:8px">بازگشت به ورود</button>';
+          $('stu-c-ok').onclick = () => showOnly('login');
+          $('stu-c-st').onclick = () => showRecoverStatus();
+        } catch (e) { err.textContent = e.message || 'ثبت نشد.'; $('stu-c-send').disabled = false; }
+      };
+    }
+    function showRecoverStatus(dataIn) {
+      const sv = recSaved() || {};
+      let h = '<h3>📨 پیگیری درخواست بازیابی رمز</h3>';
+      h += '<input type="text" id="stu-s-nid" dir="ltr" inputmode="numeric" maxlength="10" placeholder="کد ملی" value="' + esc(sv.nid || '') + '" style="margin-bottom:8px">';
+      h += '<input type="text" id="stu-s-code" dir="ltr" maxlength="12" placeholder="کد پیگیری" value="' + esc(sv.code || '') + '" style="margin-bottom:8px">';
+      h += '<p class="error-text" id="stu-s-err"></p><button type="button" class="secondary-btn" id="stu-s-go" style="width:100%">🔍 مشاهدهٔ وضعیت</button><div id="stu-s-res"></div><button type="button" class="ghost-btn" id="stu-s-back" style="width:100%;margin-top:8px">بازگشت به ورود</button>';
+      $('stu-reg').innerHTML = h; showOnly('reg');
+      $('stu-s-back').onclick = () => showOnly('login');
+      const ST = { open: '⏳ در انتظار بررسی', approved: '✅ تأیید شد؛ با رمز جدیدی که نوشتید وارد شوید', rejected: '❌ رد شد' };
+      const q = () => ({ national_id: $('stu-s-nid').value.trim(), code: $('stu-s-code').value.trim() });
+      const paint = (d) => {
+        let r = '<p style="margin:12px 0 6px"><b>' + esc(ST[d.status] || d.status) + '</b></p>';
+        (d.messages || []).forEach((m) => { r += '<div style="margin:4px 0;padding:6px 10px;border-radius:10px;background:' + (m.admin ? 'rgba(60,120,220,.14)' : 'rgba(127,127,127,.14)') + '">' + (m.admin ? '🛠 مدیر سایت: ' : '👤 شما: ') + esc(m.body) + '</div>'; });
+        if (d.status === 'open') r += '<textarea id="stu-s-msg" rows="2" maxlength="600" placeholder="پیام برای مدیر سایت" style="width:100%;margin-top:8px"></textarea><button type="button" class="ghost-btn" id="stu-s-send" style="width:100%;margin-top:6px">💬 ارسال پیام</button>';
+        $('stu-s-res').innerHTML = r;
+        const sb = $('stu-s-send');
+        if (sb) sb.onclick = async () => {
+          const body = $('stu-s-msg').value.trim(); if (!body) return;
+          sb.disabled = true;
+          try { paint(await stuFetch('/students/recover/reply', Object.assign(q(), { body: body }))); } catch (e) { $('stu-s-err').textContent = e.message || 'ارسال نشد.'; sb.disabled = false; }
+        };
+      };
+      $('stu-s-go').onclick = async () => {
+        $('stu-s-err').textContent = '';
+        try { const d = await stuFetch('/students/recover/status', q()); try { localStorage.setItem('arefanejam_rec', JSON.stringify(q() && { nid: q().national_id, code: q().code })); } catch (e) {} paint(d); }
+        catch (e) { $('stu-s-err').textContent = e.message || 'پیدا نشد.'; $('stu-s-res').innerHTML = ''; }
+      };
+      if (sv.nid && sv.code) $('stu-s-go').click();
+    }
+    const rb1 = $('stu-rec-open'); if (rb1) rb1.addEventListener('click', showRecover);
+    const rb2 = $('stu-rec-status'); if (rb2) rb2.addEventListener('click', () => showRecoverStatus());
+
+    /* ----- هشدارهای امنیتی (دستگاه ناشناس، ورود مشکوک، ویرایش از دستگاه ناشناس) ----- */
+    const WATCHED = ['head', 'manager', 'deputy', 'dean', 'teacher', 'mkt_teacher', 'hifz_teacher'];
+    function alertHtml(a, compact) {
+      let h = '<div class="stu-alert' + (a.answer ? ' is-done' : '') + '" data-aid="' + a.id + '" style="margin:8px 0;padding:10px 12px;border-radius:12px;border:1px solid rgba(220,60,60,.45);background:rgba(220,60,60,.08)">';
+      h += '<div style="white-space:pre-wrap;line-height:1.9;font-size:13px">' + esc(a.text) + '</div>';
+      h += '<small class="muted-text">' + esc(a.created_at) + '</small>';
+      if (a.answer === 'ok') h += '<div style="margin-top:6px;color:#0a7a2f">✔ تأیید شد: خودم بودم</div>';
+      else if (a.answer === 'no') h += '<div style="margin-top:6px;color:#b32d2e">✖ من نبودم؛ دستگاه مسدود شد</div>';
+      else if (a.can_answer) h += '<div style="margin-top:8px;font-weight:bold">این تغییر/ورود کار شما نبوده؟ آیا تأیید می‌کنید؟</div><div style="display:flex;gap:8px;margin-top:6px"><button type="button" class="secondary-btn small-btn" data-stu="al-ok" data-id="' + a.id + '">✔ خودم بودم</button><button type="button" class="danger-btn small-btn" data-stu="al-no" data-id="' + a.id + '">✖ من نبودم</button></div>';
+      else if (a.kind !== 'brute' && !compact) h += '<div class="muted-text small" style="margin-top:6px">برای پاسخ باید از یکی از دستگاه‌های مورد اعتمادتان (دستگاهی که اول بار با آن وارد شدید) وارد شوید.</div>';
+      return h + '</div>';
+    }
+    async function loadAlerts() {
+      const box = $('stu-alert-box'); const tgt = $('stu-tgt-alert');
+      if (!box && !tgt) return;
+      try {
+        const d = await stuFetch('/students/alerts', box ? { mark_read: 0 } : {});
+        S.alerts = d.alerts || [];
+        const b2 = $('stu-alert-box');
+        if (b2) {
+          const open = S.alerts.filter((a) => !a.answer || !a.read);
+          if (!S.alerts.length) b2.innerHTML = '';
+          else b2.innerHTML = '<h3>🛡️ هشدارهای امنیتی' + (open.length ? ' (' + fa(open.length) + ')' : '') + '</h3>' + S.alerts.slice(0, 8).map((a) => alertHtml(a)).join('') + '<button type="button" class="ghost-btn small-btn" data-stu="al-read">علامت‌گذاری همه به‌عنوان خوانده‌شده</button>';
+          b2.classList.toggle('hidden', !S.alerts.length);
+        }
+        const t2 = $('stu-tgt-alert');
+        if (t2) { const uid = parseInt(t2.getAttribute('data-uid'), 10); t2.innerHTML = S.alerts.filter((a) => a.kind === 'edit' && a.target_id === uid && !a.answer).map((a) => alertHtml(a, true)).join(''); }
+      } catch (e) { /* بی‌صدا */ }
+    }
+    async function answerAlert(id, ans) {
+      try { const d = await stuFetch('/students/alerts/answer', { id: id, answer: ans }); try { await appAlert('stu_ok', null, { text: d.message || 'ثبت شد.', title: 'ثبت شد', icon: ans === 'ok' ? '✅' : '🛡️', tone: ans === 'ok' ? 'ok' : 'warn' }); } catch (e) {} }
+      catch (e) { try { await appAlert('stu_err', null, { text: e.message || 'انجام نشد.', title: 'خطا', icon: '⚠️', tone: 'warn' }); } catch (e2) {} }
+      loadAlerts();
+    }
+
     async function doDelete(u) {
       let ok = false;
       try { ok = await appConfirm('stu_delete_confirm', { name: u.full_name }, { text: 'کاربر {name} برای همیشه حذف شود؟', title: 'حذف کاربر', icon: '🗑️', tone: 'danger' }); } catch (e) { ok = false; }
@@ -16630,7 +17153,7 @@ bnrLoad();
        اعلان به اولیا و آزمون آنلاین. همهٔ صفحه‌ها داخل #stu-main رسم می‌شوند و
        دکمه‌ها با data-stu="sv-..." به SVA وصل‌اند. (سرور دسترسی هر نقش را دوباره کنترل می‌کند.)
        ===================================================================== */
-    const SV = { fields: [], teachers: [], students: null, qs: {}, take: null, timer: null, saveT: null, editField: 0, ovId: 0, ovBack: 'sv-home', feeBack: 'sv-home', bus: null };
+    const SV = { cls: null, fields: [], teachers: [], students: null, qs: {}, take: null, timer: null, saveT: null, editField: 0, ovId: 0, ovBack: 'sv-home', feeBack: 'sv-home', bus: null };
     const SVA = {};
     const EXM_LET = ['الف', 'ب', 'ج', 'د', 'ه', 'و'];
     const inRoles = (arr) => !!S.me && arr.indexOf(S.me.role) !== -1;
@@ -16697,6 +17220,8 @@ bnrLoad();
         add('sv-fee-st', '💰', 'شهریه و پرداخت‌ها', 'هزینه‌ها، پرداخت‌شده و مانده', kid);
         add('sv-bus', '🚌', 'سرویس مدرسه', 'راننده و شمارهٔ تماس');
       }
+      if (S.me.can_classes) add('sv-cls', '🏷️', 'کلاس‌بندی', 'ساخت کلاس، تعیین معلم و دانش‌آموزان هر کلاس');
+      else if (inRoles(['teacher', 'mkt_teacher', 'hifz_teacher', 'student'])) add('sv-cls', '🏷️', r === 'student' ? 'کلاس من' : 'کلاس‌های من', r === 'student' ? 'کلاس و معلم‌های من' : 'کلاس‌هایی که معلمشان هستم و حضور و غیاب آن‌ها');
       if (inRoles(['head', 'manager', 'deputy', 'dean', 'teacher', 'mkt_teacher', 'hifz_teacher'])) add('sv-stl', '🎓', 'وضعیت درسی دانش‌آموزان', 'حضور و غیاب، نمرات، آزمون‌ها، انضباطی');
       if (inRoles(['student', 'head', 'manager']) || canExam() || canRev()) add('sv-ex', '📝', 'آزمون آنلاین', r === 'student' ? 'آزمون‌های من' : (isMgr() ? 'بانک سوال، تأیید پیشنهادها، رشته‌ها' : (canExam() ? 'ساخت آزمون، بانک سوال، پیشنهاد سوال' + (canRev() ? '، تأیید سوال‌ها' : '') : 'تأیید یا رد سوال‌های بانک')));
       if (inRoles(['head', 'manager', 'deputy', 'teacher', 'mkt_teacher', 'hifz_teacher'])) add('sv-gr', '🧮', 'ثبت نمره', 'ثبت نمرهٔ کل کلاس و اعلام به اولیا');
@@ -16995,7 +17520,7 @@ bnrLoad();
     };
 
     /* ---------- آزمون آنلاین ---------- */
-    const Q_STATUS = { approved: 'تأییدشده', pending: 'در انتظار تأیید', rejected: 'ردشده' };
+    const Q_STATUS = { approved: 'تأییدشده', pending: 'در انتظار تأیید مدیر مجموعه', review: 'در انتظار تأیید مدیر پروژه', rejected: 'ردشده توسط مدیر مجموعه', blocked: 'ردشده توسط مدیر پروژه' };
     const exWindow = (e) => (e.open_from_ts || e.open_until_ts) ? '<small>بازهٔ آزمون: ' + (e.open_from_ts ? 'از ' + esc(tsFa(e.open_from_ts)) + ' ' : '') + (e.open_until_ts ? 'تا ' + esc(tsFa(e.open_until_ts)) : '') + '</small>' : '';
 
     SVA['sv-ex'] = async () => {
@@ -17110,6 +17635,71 @@ bnrLoad();
       await stuFetch('/exams/ex/delete', { exam_id: id }); await SVA['sv-ex']();
     };
 
+
+    /* --- کلاس‌بندی (مدیر، یا ناظم/معاون با اجازهٔ مدیر؛ معلم و دانش‌آموز فقط کلاس خودشان را می‌بینند) --- */
+    const clsFind = (id) => ((SV.cls && SV.cls.classes) || []).filter((c) => c.id === id)[0] || null;
+    SVA['sv-cls'] = async () => {
+      svLoading('🏷️ کلاس‌بندی', 'sv-home');
+      SV.cls = await stuFetch('/classes/list', {});
+      const d = SV.cls, can = !!d.can_manage;
+      let h = '';
+      if (can) h += '<div class="sv-filter"><input type="text" id="sv-cls-name" maxlength="100" placeholder="نام کلاس، مثلاً پایهٔ هفتم – الف">' + svBtn('sv-cls-add', '➕ افزودن کلاس', '', 'secondary-btn small-btn') + '</div>';
+      if (!d.classes.length) h += '<p class="muted-text small">' + (can ? 'هنوز کلاسی نساخته‌اید؛ نام کلاس را بنویسید و «افزودن» را بزنید. بعد معلم‌ها و دانش‌آموزان هر کلاس را انتخاب کنید.' : 'شما هنوز در هیچ کلاسی قرار نگرفته‌اید.') + '</p>';
+      d.classes.forEach((c) => {
+        h += '<div class="sv-item"><b>' + esc(c.name) + '</b>';
+        h += '<div class="muted-text small">👨‍🏫 معلم‌ها: ' + (c.teachers.length ? c.teachers.map((x) => esc(x.name)).join('، ') : '—') + '</div>';
+        h += '<div class="muted-text small">🎓 دانش‌آموزان (' + fa(c.students.length) + '): ' + (c.students.length ? (can || S.me.role !== 'student' ? c.students.map((x) => esc(x.name)).join('، ') : 'هم‌کلاسی‌ها ' + fa(c.students.length) + ' نفر') : '—') + '</div>';
+        h += '<div class="stu-actions">';
+        if (S.me.can_att && c.students.length && (can || c.teachers.some((x) => x.id === S.me.id))) h += svBtn('sv-cls-att', '📋 حضور و غیاب', svId(c.id));
+        if (can) h += svBtn('sv-cls-mem', '👥 معلم و دانش‌آموزان', svId(c.id)) + svBtn('sv-cls-ren', '✏️ نام', svId(c.id)) + svBtn('sv-cls-del', '🗑️ حذف', svId(c.id), 'danger-btn small-btn');
+        h += '</div></div>';
+      });
+      svShell(can ? '🏷️ کلاس‌بندی' : (S.me.role === 'student' ? '🏷️ کلاس من' : '🏷️ کلاس‌های من'), 'sv-home', h);
+    };
+    SVA['sv-cls-add'] = async (t) => {
+      const name = gv('sv-cls-name').trim(); if (!name) { svErr(new Error('نام کلاس را بنویسید.')); return; }
+      t.disabled = true;
+      try { await stuFetch('/classes/save', { name }); await SVA['sv-cls'](); } finally { t.disabled = false; }
+    };
+    SVA['sv-cls-ren'] = async (t, id) => {
+      const c = clsFind(id); if (!c) return;
+      svShell('✏️ نام کلاس', 'sv-cls', field('نام کلاس', '<input type="text" id="sv-cls-rn" maxlength="100" value="' + esc(c.name) + '">') + svBtn('sv-cls-rsave', 'ذخیره', svId(id), 'secondary-btn sv-wide'));
+    };
+    SVA['sv-cls-rsave'] = async (t, id) => {
+      const name = gv('sv-cls-rn').trim(); if (!name) { svErr(new Error('نام کلاس را بنویسید.')); return; }
+      t.disabled = true;
+      try { await stuFetch('/classes/save', { id, name }); await SVA['sv-cls'](); } finally { t.disabled = false; }
+    };
+    SVA['sv-cls-del'] = async (t, id) => {
+      const c = clsFind(id); if (!c) return;
+      if (!(await svAsk('کلاس «' + c.name + '» حذف شود؟ (فقط کلاس حذف می‌شود؛ دانش‌آموزان و معلم‌ها سر جایشان می‌مانند و از کلاس خارج می‌شوند.)', 'حذف کلاس'))) return;
+      await stuFetch('/classes/delete', { id }); await SVA['sv-cls']();
+    };
+    SVA['sv-cls-att'] = async (t, id) => { await openSheet(S.me.id, '', id); };
+    SVA['sv-cls-mem'] = async (t, id) => {
+      const c = clsFind(id), pp = (SV.cls && SV.cls.people) || { teachers: [], students: [] }; if (!c) return;
+      const inT = {}, inS = {}; c.teachers.forEach((x) => { inT[x.id] = 1; }); c.students.forEach((x) => { inS[x.id] = 1; });
+      let h = '<h4>👨‍🏫 معلم‌های کلاس</h4>';
+      h += pp.teachers.length ? '<div class="sv-checks">' + pp.teachers.map((x) => '<label class="sv-chk"><input type="checkbox" class="sv-ct" value="' + x.id + '"' + (inT[x.id] ? ' checked' : '') + '> ' + esc(x.name) + ' <small>(' + esc(x.role) + ')</small></label>').join('') + '</div>' : '<p class="muted-text small">معلمی در مجموعه تعریف نشده است.</p>';
+      h += '<h4>🎓 دانش‌آموزان کلاس</h4><input type="text" id="sv-cls-find" class="sv-rn" placeholder="جست‌وجوی نام دانش‌آموز…" autocomplete="off">';
+      h += pp.students.length ? '<div class="sv-checks" id="sv-cls-sl">' + pp.students.map((x) => '<label class="sv-chk" data-n="' + esc(x.name) + '"><input type="checkbox" class="sv-cs" value="' + x.id + '"' + (inS[x.id] ? ' checked' : '') + '> ' + esc(x.name) + (x.class && !inS[x.id] ? ' <small>(الان در «' + esc(x.class) + '»؛ با انتخاب، منتقل می‌شود)</small>' : '') + '</label>').join('') + '</div>' : '<p class="muted-text small">دانش‌آموزی در مجموعه تعریف نشده است.</p>';
+      h += '<p class="muted-text small">هر دانش‌آموز فقط در یک کلاس است. معلمِ هر کلاس، دانش‌آموزان همان کلاس را در حضور و غیاب و ثبت نمره می‌بیند.</p>' + svBtn('sv-cls-msave', 'ذخیرهٔ کلاس', svId(id), 'secondary-btn sv-wide');
+      svShell('👥 ' + c.name, 'sv-cls', h);
+    };
+    SVA['sv-cls-msave'] = async (t, id) => {
+      t.disabled = true;
+      try {
+        await stuFetch('/classes/assign', { id, teachers: svPicked('sv-ct'), students: svPicked('sv-cs') });
+        await SVA['sv-cls']();
+      } finally { t.disabled = false; }
+    };
+    document.addEventListener('input', (ev) => {
+      const t = ev.target;
+      if (!t || t.id !== 'sv-cls-find') return;
+      const q = (t.value || '').trim();
+      document.querySelectorAll('#sv-cls-sl .sv-chk').forEach((l) => { l.style.display = (!q || (l.getAttribute('data-n') || '').indexOf(q) !== -1) ? '' : 'none'; });
+    });
+
     /* --- بانک سوال --- */
     async function svBankRender(fid, status) {
       const d = await stuFetch('/exams/q/list', { field_id: fid || 0, status: status || '' });
@@ -17123,11 +17713,12 @@ bnrLoad();
     }
     function svQCard(q, pend) {
       const own = q.author_id === S.me.id;
-      const canEdit = isMgr() || (own && q.status !== 'approved');
+      const canEdit = isMgr() || (own && q.status !== 'approved' && q.status !== 'review');
       let h = '<div class="sv-item sv-q st-' + q.status + '"><div class="sv-q-top"><span class="stu-chip">' + esc(Q_STATUS[q.status] || q.status) + '</span><small>' + esc(q.field) + ' · ' + esc(q.author) + '</small></div><p class="exm-qt">' + esc(q.text) + '</p>';
       q.options.forEach((o, j) => { h += '<div class="exm-rv' + (j === q.correct ? ' ok' : '') + '">' + EXM_LET[j] + ') ' + esc(o) + (j === q.correct ? ' ✅' : '') + '</div>'; });
-      if (q.status === 'rejected' && q.note) h += '<small class="error-text">دلیل رد: ' + esc(q.note) + '</small>';
-      if (pend) h += '<input type="text" class="sv-rn" id="sv-rn-' + q.id + '" maxlength="250" placeholder="دلیل رد (اختیاری)"><div class="stu-actions">' + svBtn('sv-ex-qok', '✅ تأیید', svId(q.id), 'secondary-btn small-btn') + svBtn('sv-ex-qno', '❌ رد', svId(q.id), 'danger-btn small-btn') + '</div>';
+      if ((q.status === 'rejected' || q.status === 'blocked') && q.note) h += '<small class="error-text">دلیل رد: ' + esc(q.note) + '</small>';
+      if (q.status === 'review') h += '<small class="muted-text">این سوال برای تأیید نهایی پیش مدیر پروژه است؛ بعد از تأیید او در آزمون‌ها قابل‌استفاده می‌شود.</small>';
+      if (pend) h += '<input type="text" class="sv-rn" id="sv-rn-' + q.id + '" maxlength="250" placeholder="دلیل رد (اختیاری)"><div class="stu-actions">' + svBtn('sv-ex-qok', '✅ تأیید و ارسال برای مدیر پروژه', svId(q.id), 'secondary-btn small-btn') + svBtn('sv-ex-qno', '❌ رد', svId(q.id), 'danger-btn small-btn') + '</div>';
       if (canEdit) h += '<div class="stu-actions">' + svBtn('sv-ex-qedit', '✏️ ویرایش', svId(q.id)) + svBtn('sv-ex-qdel', '🗑️ حذف', svId(q.id), 'danger-btn small-btn') + '</div>';
       return h + '</div>';
     }
@@ -17157,7 +17748,7 @@ bnrLoad();
       h += '<p class="muted-text small">حداقل دو گزینه را پر کنید (تا شش گزینه).</p>';
       for (let i = 0; i < 6; i++) h += field('گزینهٔ ' + EXM_LET[i], '<input type="text" class="sv-o" maxlength="300" value="' + esc(o[i] || '') + '">');
       h += field('گزینهٔ درست', '<select id="sv-q-c">' + EXM_LET.map((l, i) => '<option value="' + i + '"' + (q && q.correct === i ? ' selected' : '') + '>' + l + '</option>').join('') + '</select>');
-      h += svBtn('sv-ex-qsave', isMgr() ? 'ذخیرهٔ سوال' : 'ارسال برای تأیید مدیر', q ? svId(q.id) : '', 'secondary-btn sv-wide');
+      h += (isMgr() ? '<p class="muted-text small">هر سوالی که ذخیره کنید ابتدا برای تأیید مدیر پروژه فرستاده می‌شود؛ بعد از تأیید او می‌توانید در آزمون‌های سازمان خودتان از آن استفاده کنید.</p>' : '') + svBtn('sv-ex-qsave', isMgr() ? 'ذخیره و ارسال برای مدیر پروژه' : 'ارسال برای تأیید مدیر', q ? svId(q.id) : '', 'secondary-btn sv-wide');
       svShell(q ? '✏️ ویرایش سوال' : (isMgr() ? '➕ سوال جدید' : '💡 پیشنهاد سوال'), 'sv-ex-bank', h);
     }
     SVA['sv-ex-qnew'] = async () => { await svQForm(null); };
@@ -17171,7 +17762,7 @@ bnrLoad();
       t.disabled = true;
       try {
         const r = await stuFetch('/exams/q/save', { id: id || 0, field_id: parseInt(gv('sv-q-field'), 10) || 0, text: gv('sv-q-text'), options: opts, correct: nc });
-        svShell('📚 سوال', 'sv-ex-bank', '<p class="sv-okmsg">' + (r.pending ? '✅ سوال برای تأیید مدیر ارسال شد. بعد از تأیید در بانک سوال قرار می‌گیرد.' : '✅ سوال ذخیره شد.') + '</p>' + svBtn('sv-ex-bank', 'رفتن به بانک سوال', '', 'secondary-btn sv-wide'));
+        svShell('📚 سوال', 'sv-ex-bank', '<p class="sv-okmsg">' + (r.pending ? '✅ سوال برای تأیید مدیر ارسال شد. بعد از تأیید او، برای مدیر پروژه فرستاده می‌شود و فقط با تأیید مدیر پروژه در آزمون‌ها قابل‌استفاده است.' : '✅ سوال ذخیره شد و برای تأیید مدیر پروژه فرستاده شد. بعد از تأیید او در آزمون‌ها قابل‌استفاده می‌شود.') + '</p>' + svBtn('sv-ex-bank', 'رفتن به بانک سوال', '', 'secondary-btn sv-wide'));
       } finally { t.disabled = false; }
     };
 
@@ -17277,6 +17868,8 @@ bnrLoad();
       if (act.indexOf('sv-') === 0) { svDispatch(act, t); return; }
       const cur = (S.viewId == null) ? S.me : (findUser(S.viewId) || S.me);
       if (act === 'logout') doLogout();
+      else if (act === 'al-ok' || act === 'al-no') answerAlert(parseInt(t.getAttribute('data-id'), 10), act === 'al-ok' ? 'ok' : 'no');
+      else if (act === 'al-read') { stuFetch('/students/alerts', { mark_read: 1 }).then(() => { S.me.alerts_unread = 0; loadAlerts(); }).catch(() => {}); }
       else if (act === 'profile') renderForm('profile', S.me);
       else if (act === 'password') renderForm('password', S.me);
       else if (act === 'add') renderForm('add', cur);
@@ -17290,7 +17883,7 @@ bnrLoad();
         if (!S.sheet) return;
         const dt = parseD(S.sheet.date); dt.setDate(dt.getDate() + (act === 'sheet-prev' ? -1 : 1));
         const nd = fmtD(dt); if (nd > S.sheet.today) return;
-        openSheet(S.sheet.scope, nd);
+        openSheet(S.sheet.scope, nd, S.sheet.cls);
       }
       else if (act === 'sheet-all') { if (S.sheet) { S.sheet.students.forEach((x) => { S.sheet.draft[x.id] = { status: 'present', note: '' }; }); renderSheet(); } }
       else if (act === 'sheet-set') {
@@ -18111,6 +18704,32 @@ function cnCityOptions(sel) {
   return h;
 }
 
+/* نام شهرِ همین گوشی: شهر انتخابیِ کاربر ← نزدیک‌ترین شهر به موقعیت اپ */
+function cnDetectCity() {
+  try {
+    if (state.manualCity && state.manualCity.name) return state.manualCity.name;
+    if (state.coords) { const c = findNearestCity(state.coords.lat, state.coords.lng); if (c) return c.name; }
+  } catch (e) {}
+  return '';
+}
+/* جست‌وجوی سریع شهر (نام شهر یا استان)؛ با انتخاب از فهرست مقدار گذاشته می‌شود */
+function cnWireCitySearch() {
+  const inp = document.getElementById('cn-pf-city'), box = document.getElementById('cn-pf-citylist');
+  if (!inp || !box || inp.disabled) return;
+  const paint = () => {
+    const q = cityKey(inp.value);
+    const all = window.IRAN_CITIES || [];
+    if (!q) { box.classList.add('hidden'); return; }
+    const res = all.filter((c) => cityKey(c.name).includes(q) || cityKey(c.province).includes(q)).slice(0, 40);
+    if (!res.length) { box.innerHTML = '<div class="cn-cityempty">شهری پیدا نشد</div>'; box.classList.remove('hidden'); return; }
+    box.innerHTML = res.map((c) => `<button type="button" class="cn-cityitem" data-c="${cnEsc(c.name)}">${cnEsc(c.name)} <small>${cnEsc(c.province || '')}</small></button>`).join('');
+    box.classList.remove('hidden');
+  };
+  inp.addEventListener('input', paint);
+  inp.addEventListener('focus', () => { inp.select(); });
+  box.addEventListener('click', (e) => { const b = e.target.closest ? e.target.closest('.cn-cityitem') : null; if (!b) return; inp.value = b.getAttribute('data-c'); box.classList.add('hidden'); const h = document.getElementById('cn-pf-cityhint'); if (h) h.textContent = ''; });
+}
+
 async function cnShowProfile() {
   cnStopTimers(); cnSetPlaying(false);
   cnS.phase = 'prof';
@@ -18130,7 +18749,9 @@ async function cnShowProfile() {
     <input type="text" id="cn-pf-first" class="cn-input" maxlength="40" placeholder="نام" value="${cnEsc(p.first_name || '')}" ${dis}>
     <input type="text" id="cn-pf-last" class="cn-input" maxlength="60" placeholder="نام خانوادگی" value="${cnEsc(p.last_name || '')}" ${dis} style="margin-top:8px">
     <input type="text" inputmode="numeric" id="cn-pf-age" class="cn-input" maxlength="3" placeholder="سن (عدد)" value="${p.age ? cnEsc(String(p.age)) : ''}" ${dis} style="margin-top:8px">
-    <select id="cn-pf-city" class="cn-input" ${dis} style="margin-top:8px">${cnCityOptions(p.city || '')}</select>
+    <input type="text" id="cn-pf-city" class="cn-input" maxlength="60" autocomplete="off" placeholder="شهر (برای جست‌وجو تایپ کنید)" value="${cnEsc(p.city || cnDetectCity())}" ${dis} style="margin-top:8px">
+    <div id="cn-pf-citylist" class="cn-citylist hidden"></div>
+    <p class="cn-note" id="cn-pf-cityhint" style="margin:4px 0 0">${p.city || locked ? '' : (cnDetectCity() ? '📍 شهر بر اساس موقعیت اپ گذاشته شد؛ اگر درست نیست، شهر را تایپ کنید و از فهرست انتخاب کنید.' : '')}</p>
     <input type="tel" inputmode="numeric" id="cn-pf-phone" class="cn-input" dir="ltr" maxlength="14" placeholder="شماره تماس (۰۹۱۲۱۲۳۴۵۶۷)" value="${cnEsc(p.phone || '')}" ${dis} style="margin-top:8px;text-align:center">
     <label class="cn-note" style="display:block;margin-top:10px"><input type="checkbox" id="cn-pf-show" ${p.show_main === 0 ? '' : 'checked'} ${dis}> نام و شهرم بعد از تأیید در جدول مسابقهٔ اصلی هم نمایش داده شود</label>
     <p class="cn-note cn-warn" id="cn-pf-err"></p>
@@ -18138,6 +18759,7 @@ async function cnShowProfile() {
     <button class="ghost-btn" id="cn-pf-back" style="width:100%;margin-top:8px">بازگشت</button>
   </div>`;
   document.getElementById('cn-pf-back').addEventListener('click', cnOpen);
+  cnWireCitySearch();
   const sv = document.getElementById('cn-pf-save');
   if (sv) sv.addEventListener('click', async () => {
     const err = document.getElementById('cn-pf-err');
@@ -18151,6 +18773,7 @@ async function cnShowProfile() {
       show_main: document.getElementById('cn-pf-show').checked ? 1 : 0
     };
     if (!body.first_name || !body.last_name || !body.age || !body.city || !body.phone) { err.textContent = 'همهٔ خانه‌ها را پر کنید.'; return; }
+    { const all = window.IRAN_CITIES || []; const hit = all.filter((c) => cityKey(c.name) === cityKey(body.city))[0]; if (all.length && !hit) { err.textContent = 'شهر را از فهرست انتخاب کنید (چند حرف تایپ کنید تا فهرست بیاید).'; return; } if (hit) body.city = hit.name; }
     if (!navigator.onLine) { err.textContent = 'اینترنت وصل نیست.'; return; }
     err.textContent = ''; sv.disabled = true; sv.textContent = 'در حال ارسال…';
     try {
@@ -19249,6 +19872,7 @@ var GS_KW = {
   'quran-bookmarks': 'علامت نشانه ذخیره',
   'hifz-progress': 'حفظ پیشرفت',
   'sajdah-list': 'سجده',
+  'duas': 'دعا دعاها ادعیه زیارت مناجات',
   'lesson': 'درس آموزش',
   'prayer-checklist': 'نماز چک‌لیست قضا',
   'prayer-stats': 'نماز آمار هفتگی',
@@ -20655,5 +21279,295 @@ function qcfSyncFs() {
   // بررسی زودهنگامِ وجود فایل‌های مصحف (بی‌صدا؛ اگر نبود هیچ اتفاقی نمی‌افتد)
   setTimeout(function () { qcfInit(); }, 200);
 })();
+
+/* =====================================================================
+   مرکز اعلان (🔔) + ابزارک‌های صفحهٔ اصلی گوشی
+   - اعلان‌های بومی (اعلان‌ها و خبرها، وقت نماز، درس بعد از نماز) در حافظهٔ گوشی ثبت می‌شوند؛ با باز شدن اپ از پرده پاک می‌شوند
+     (عدد روی آیکون صفر می‌شود) ولی همه اینجا می‌مانند و با یک لمس به همان بخش می‌روند.
+   - یادآوری‌های یادداشتِ گذشته هم (هر یادآوریِ رسیده) اینجا نشان داده می‌شود.
+   ===================================================================== */
+(function () {
+  'use strict';
+  var NC_READ = 'arefanejam_nc_read', NC_HID = 'arefanejam_nc_hidden', WG_PREFS = 'arefanejam_wg_prefs';
+  function hub() { try { var C = window.Capacitor; return (C && C.Plugins && C.Plugins.ArefHub) || null; } catch (e) { return null; } }
+  function $(id) { return document.getElementById(id); }
+  function jget(k, d) { try { var v = JSON.parse(localStorage.getItem(k) || 'null'); return v == null ? d : v; } catch (e) { return d; } }
+  function jset(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  function esc2(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
+  function fa2(n) { try { return toPersianDigits(String(n)); } catch (e) { return String(n); } }
+
+  /* ---- برچسب دستگاه (برای هشدار امنیتی مدیر مجموعه) ---- */
+  try {
+    var H0 = hub();
+    if (H0 && H0.deviceInfo) H0.deviceInfo().then(function (r) { if (r && r.label) { try { localStorage.setItem('arefanejam_dev_label', r.label); } catch (e) {} } }).catch(function () {});
+  } catch (e) {}
+
+  /* ---- فهرست اعلان‌ها ---- */
+  var items = [];
+  var IC = { news: '📰', announcement: '📢', event: '📅', prayer: '🕌', lesson: '📖', note: '⏰', feedback: '💬', store: '⬆️', inbox: '🔔' };
+
+  function noteItems() {
+    var out = [];
+    try {
+      var now = Date.now(), hid = jget(NC_HID, {});
+      (getLocalNotes() || []).forEach(function (n) {
+        if (!n || !n.reminderAt || n.reminderAt > now || now - n.reminderAt > 7 * 86400000) return;
+        var id = 'note:' + n.id + ':' + n.reminderAt;
+        if (hid[id]) return;
+        out.push({ id: id, kind: 'note', title: 'یادآوری: ' + (n.title || 'یادداشت'), body: n.content || '', ts: n.reminderAt, noteId: n.id });
+      });
+    } catch (e) {}
+    return out;
+  }
+
+  function load() {
+    var H = hub();
+    var p = (H && H.notifList) ? H.notifList().then(function (r) { return (r && r.items) || []; }).catch(function () { return []; }) : Promise.resolve([]);
+    return p.then(function (nat) {
+      var hid = jget(NC_HID, {});
+      var all = nat.filter(function (x) { return !hid[x.id]; }).concat(noteItems());
+      var rd = jget(NC_READ, {});
+      all.forEach(function (x) { if (x.kind === 'note') x.read = !!rd[x.id]; else x.read = !!x.read; });
+      all.sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
+      items = all;
+      paintBell();
+      return items;
+    });
+  }
+
+  function unread() { return items.filter(function (x) { return !x.read; }).length; }
+  function paintBell() {
+    var n = unread(), b = $('topbar-bell-n');
+    if (!b) return;
+    b.textContent = n > 99 ? '99+' : fa2(n);
+    b.classList.toggle('hidden', n === 0);
+  }
+
+  function when(ts) {
+    try {
+      var d = new Date(ts), now = new Date();
+      var hm = fa2(('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2));
+      if (d.toDateString() === now.toDateString()) return 'امروز ' + hm;
+      var y = new Date(now.getTime() - 86400000);
+      if (d.toDateString() === y.toDateString()) return 'دیروز ' + hm;
+      var j = gregorianToJalali(d.getFullYear(), d.getMonth() + 1, d.getDate());
+      return fa2(j[0] + '/' + j[1] + '/' + j[2]) + ' ' + hm;
+    } catch (e) { return ''; }
+  }
+
+  function paintList() {
+    var el = $('nc-list'); if (!el) return;
+    if (!items.length) { el.innerHTML = '<div class="nc-empty">اعلانی نیست 🌿</div>'; return; }
+    el.innerHTML = items.map(function (x, i) {
+      return '<button type="button" class="nc-item' + (x.read ? '' : ' unread') + '" data-i="' + i + '"><span class="nc-ic">' + (IC[x.kind] || '🔔') + '</span><span class="nc-main"><b>' + esc2(x.title) + '</b>' + (x.body ? '<span>' + esc2(x.body) + '</span>' : '') + '<small>' + esc2(when(x.ts)) + '</small></span><span class="nc-go">‹</span></button>';
+    }).join('');
+  }
+
+  var lastOpen = 0;
+  function open() {
+    var ov = $('nc-overlay'); if (!ov) return;
+    lastOpen = Date.now();
+    load().then(function () { paintList(); ov.classList.remove('hidden'); });
+  }
+  function close() {
+    var ov = $('nc-overlay'); if (ov) ov.classList.add('hidden');
+    markAllRead();
+  }
+  function markAllRead() {
+    var rd = jget(NC_READ, {});
+    items.forEach(function (x) { x.read = true; if (x.kind === 'note') rd[x.id] = 1; });
+    jset(NC_READ, rd);
+    var H = hub(); if (H && H.notifRead) H.notifRead({}).catch(function () {});
+    paintBell();
+  }
+  function clearAll() {
+    var hid = jget(NC_HID, {});
+    items.forEach(function (x) { if (x.kind === 'note') hid[x.id] = 1; });
+    jset(NC_HID, hid);
+    var H = hub(); if (H && H.notifRemove) H.notifRemove({}).catch(function () {});
+    items = []; paintBell(); paintList();
+  }
+
+  /* ---- رفتن به مقصد ---- */
+  function goItem(x) {
+    var rd = jget(NC_READ, {}); if (x.kind === 'note') { rd[x.id] = 1; jset(NC_READ, rd); }
+    x.read = true;
+    var H = hub(); if (H && H.notifRead && x.kind !== 'note') H.notifRead({ id: x.id }).catch(function () {});
+    paintBell();
+    var ov = $('nc-overlay'); if (ov) ov.classList.add('hidden');
+    var k = x.kind;
+    if (k === 'note') {
+      switchToTab('notes', { push: true });
+      try { var n = (getLocalNotes() || []).filter(function (q) { return q.id === x.noteId; })[0]; if (n) setTimeout(function () { openNoteModal(n); }, 250); } catch (e) {}
+    } else if (k === 'news') switchToTab('news-list', { push: true });
+    else if (k === 'prayer') switchToTab('azan', { push: true });
+    else if (k === 'lesson') switchToTab('lesson', { push: true });
+    else if (k === 'feedback') switchToTab('feedback', { push: true });
+    else if (k === 'event') switchToTab('home', { push: true });
+    else showAlarmModal(x.title || 'اعلان', x.body || '', x.link && /^https:\/\//i.test(x.link) ? x.link : '');
+  }
+
+  /* مقصدِ آمده از لمس اعلان یا ابزارک: {center:1} | {tab:'azan'} | {q:'resume'} | {go:'weather'} */
+  window.arefGo = function (go) {
+    try {
+      if (typeof go === 'string') go = JSON.parse(go);
+      if (!go) return;
+      if (go.center) { open(); return; }
+      if (go.q === 'resume') {
+        var lr = null; try { lr = JSON.parse(localStorage.getItem('arefanejam_last_read') || 'null'); } catch (e) {}
+        if (lr && lr.number) { switchToTab('quran-reader', { push: true }); try { openSurahReader(lr.number, lr.name); } catch (e) {} } else switchToTab('quran-list', { push: true });
+        return;
+      }
+      if (go.go === 'weather') { switchToTab('home', { push: true }); setTimeout(function () { var w = $('wx-card'); if (w && w.scrollIntoView) w.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 300); return; }
+      if (go.tab && document.getElementById('tab-' + go.tab)) switchToTab(go.tab, { push: true });
+    } catch (e) {}
+  };
+  window.arefGoPoll = function () {
+    var H = hub(); if (!H || !H.takeGo) return;
+    H.takeGo().then(function (r) { if (r && r.go) window.arefGo(r.go); }).catch(function () {});
+  };
+
+  /* ---- رویدادها ---- */
+  function wire() {
+    var b = $('topbar-bell-btn'); if (b) b.addEventListener('click', open);
+    var c = $('nc-close'); if (c) c.addEventListener('click', close);
+    var r = $('nc-readall'); if (r) r.addEventListener('click', function () { markAllRead(); paintList(); });
+    var cl = $('nc-clear'); if (cl) cl.addEventListener('click', clearAll);
+    var ov = $('nc-overlay'); if (ov) ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
+    var l = $('nc-list'); if (l) l.addEventListener('click', function (e) { var t = e.target.closest ? e.target.closest('.nc-item') : null; if (!t) return; var x = items[parseInt(t.getAttribute('data-i'), 10)]; if (x) goItem(x); });
+  }
+  wire();
+
+  /* با باز شدن اپ: همهٔ اعلان‌های خوانده‌نشده (از جمله یادآوری‌هایی که وقتی اپ بسته بود رسیده‌اند) فوراً نشان داده می‌شوند */
+  var autoAt = 0;
+  function onForeground(auto) {
+    var H = hub();
+    if (H && H.clearShade) H.clearShade().catch(function () {});
+    window.arefGoPoll();
+    load().then(function () {
+      if (auto && unread() > 0 && Date.now() - autoAt > 30000 && Date.now() - lastOpen > 8000) {
+        var ov = $('nc-overlay');
+        var busy = ov && !ov.classList.contains('hidden');
+        var am = $('alarm-modal');
+        if (!busy && !(am && !am.classList.contains('hidden'))) { autoAt = Date.now(); open(); }
+      }
+    });
+  }
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) onForeground(true); });
+  setTimeout(function () { onForeground(true); }, 2500);
+  window.arefNcRefresh = function () { load(); };
+  setInterval(function () { if (!document.hidden) load(); }, 60000);
+
+  /* =====================================================================
+     ابزارک‌ها
+     ===================================================================== */
+  var WG = [
+    { t: 'cal', n: 'تقویم، اذان و یادآوری', d: 'بالا: تاریخ و اوقات اذان با شمارش تا اذان بعدی؛ پایین: یادآوری‌های شما در همان روز.', w: 560, h: 440 },
+    { t: 'quran', n: 'دسترسی سریع قرآن', d: 'ادامهٔ قرائت از همان‌جا که مانده‌اید، فهرست سوره‌ها، جست‌وجو و نشانه‌ها.', w: 640, h: 170 },
+    { t: 'wx', n: 'آب‌وهوا', d: 'دما و وضعیت هوای شهر شما، بدون باز کردن اپ بروز می‌شود.', w: 330, h: 330 },
+    { t: 'azan', n: 'اوقات شرعی', d: 'اذان صبح، طلوع، ظهر، عصر، مغرب و عشا با شمارش معکوس.', w: 640, h: 300 },
+    { t: 'month', n: 'تقویم ماهانه', d: 'تقویم شمسی ماه جاری، روز امروز مشخص است.', w: 520, h: 460 },
+    { t: 'date', n: 'ساعت و تاریخ', d: 'ساعت بزرگ، تاریخ شمسی و میلادی و مانده تا اذان.', w: 600, h: 250 },
+    { t: 'rem', n: 'یادآوری‌ها', d: 'فهرست یادآوری‌هایی که برای امروز و روزهای بعد گذاشته‌اید.', w: 520, h: 400 },
+    { t: 'count', n: 'شمارش معکوس مناسبت', d: 'چند روز مانده تا مناسبت بعدی (نوروز، رمضان، عیدها، محرم، …).', w: 600, h: 170 }
+  ];
+  function wgPrefs() { var p = jget(WG_PREFS, {}); return { theme: p.theme || 'green', alpha: p.alpha || 100 }; }
+
+  function weatherData() {
+    try {
+      var c = JSON.parse(localStorage.getItem('arefanejam_weather_cache') || 'null');
+      if (!c || !c.data || !c.data.current) return null;
+      var co = state && state.coords;
+      return { temp: c.data.current.temperature_2m, code: c.data.current.weather_code, ts: c.ts || 0, place: c.place || '', lat: co ? co.lat : null, lng: co ? co.lng : null };
+    } catch (e) { return null; }
+  }
+  function occasions() {
+    var out = [], now = Date.now();
+    try {
+      var g = new Date(), hy = islamicFromJulianDay(julianDayFromGregorian(g.getFullYear(), g.getMonth() + 1, g.getDate()))[0];
+      var defs = [[9, 1, 'ماه رمضان'], [10, 1, 'عید سعید فطر'], [12, 10, 'عید سعید قربان'], [12, 18, 'عید غدیر خم'], [1, 1, 'آغاز محرم'], [1, 10, 'عاشورای حسینی'], [2, 20, 'اربعین حسینی'], [8, 15, 'نیمهٔ شعبان'], [7, 27, 'مبعث پیامبر (ص)']];
+      for (var y = hy; y <= hy + 1; y++) defs.forEach(function (d) {
+        var gg = hijriToApproxGregorian(y, d[0], d[1]);
+        var ts = new Date(gg[0], gg[1] - 1, gg[2], 0, 0, 0).getTime();
+        if (ts > now - 43200000) out.push({ t: d[2], ts: ts });
+      });
+      var j = gregorianToJalali(g.getFullYear(), g.getMonth() + 1, g.getDate());
+      var ng = jalaliToGregorian(j[0] + 1, 1, 1);
+      out.push({ t: 'نوروز ' + toPersianDigits(String(j[0] + 1)), ts: new Date(ng[0], ng[1] - 1, ng[2], 0, 0, 0).getTime() });
+    } catch (e) {}
+    out.sort(function (a, b) { return a.ts - b.ts; });
+    return out.slice(0, 14);
+  }
+  var lastLists = null, lastWgKey = '';
+  window.arefWidgetSync = function (lists) {
+    try {
+      var H = hub(); if (!H || !H.widgetSync) return;
+      if (lists && lists.length) lastLists = lists;
+      if (!lastLists) { try { lastLists = [buildPrayerListForDate(new Date())]; } catch (e) { return; } }
+      var ok = { fajr: 1, sunrise: 1, dhuhr: 1, asr: 1, maghrib: 1, isha: 1 };
+      var az = [];
+      lastLists.slice(0, 10).forEach(function (day) { (day || []).forEach(function (p) { if (ok[p.key] && p.time) az.push({ k: p.key, t: p.time.getTime() }); }); });
+      var now = Date.now(), rem = [];
+      (getLocalNotes() || []).forEach(function (n) { if (n && n.reminderAt && n.reminderAt > now - 86400000) rem.push({ t: n.title || n.content || 'یادداشت', ts: n.reminderAt }); });
+      var lr = null; try { lr = JSON.parse(localStorage.getItem('arefanejam_last_read') || 'null'); } catch (e) {}
+      var pr = wgPrefs();
+      var data = { theme: pr.theme, alpha: pr.alpha, az: az, rem: rem.slice(0, 30), q: lr ? { n: lr.number, name: lr.name } : {}, wx: weatherData() || {}, occ: occasions(), city: (state && state.manualCity && state.manualCity.name) || '' };
+      var json = JSON.stringify(data);
+      if (json === lastWgKey) return;
+      lastWgKey = json;
+      H.widgetSync({ json: json }).catch(function () {});
+    } catch (e) {}
+  };
+
+  function wgRender() {
+    var box = $('set-wg-list'), msg = $('set-wg-msg');
+    var H = hub();
+    var th = $('set-wg-theme'), al = $('set-wg-alpha'), alv = $('set-wg-alpha-v');
+    var pr = wgPrefs();
+    if (th) th.value = pr.theme;
+    if (al) al.value = pr.alpha;
+    if (alv) alv.textContent = fa2(pr.alpha) + '٪';
+    if (!box) return;
+    if (!H || !H.widgetPin) { box.innerHTML = ''; if (msg) msg.textContent = 'ابزارک‌ها فقط در اپ اندروید (نسخهٔ نصب‌شده روی گوشی) فعال است.'; return; }
+    if (msg) msg.textContent = '';
+    if (!box.getAttribute('data-built')) {
+      box.setAttribute('data-built', '1');
+      box.innerHTML = WG.map(function (w) {
+        return '<div class="wg-card"><img alt="" data-wp="' + w.t + '"><h4>' + esc2(w.n) + '</h4><p>' + esc2(w.d) + '</p><button type="button" class="secondary-btn small-btn" data-wpin="' + w.t + '" style="width:100%">➕ افزودن به صفحهٔ اصلی گوشی</button></div>';
+      }).join('');
+      box.addEventListener('click', function (e) {
+        var b = e.target.closest ? e.target.closest('[data-wpin]') : null; if (!b) return;
+        window.arefWidgetSync();
+        H.widgetPin({ type: b.getAttribute('data-wpin') }).then(function (r) {
+          var res = r && r.result;
+          if (msg) msg.textContent = res === 'requested' ? 'گوشی از شما تأیید می‌خواهد؛ جای ابزارک را روی صفحهٔ اصلی انتخاب کنید.' : 'گوشی شما افزودن مستقیم را پشتیبانی نمی‌کند: روی یک جای خالی صفحهٔ اصلی انگشت را نگه دارید ← «ابزارک‌ها» ← «عارفان جام» و ابزارک دلخواه را بکشید.';
+        }).catch(function () { if (msg) msg.textContent = 'افزودن انجام نشد.'; });
+      });
+    }
+    window.arefWidgetSync();
+    setTimeout(function () {
+      WG.forEach(function (w) {
+        var img = box.querySelector('img[data-wp="' + w.t + '"]'); if (!img) return;
+        H.widgetPreview({ type: w.t, w: w.w, h: w.h }).then(function (r) { if (r && r.png) img.src = r.png; }).catch(function () {});
+      });
+    }, 400);
+  }
+  window.arefWidgetsRender = wgRender;
+  (function () {
+    var th = $('set-wg-theme'), al = $('set-wg-alpha');
+    function save() {
+      var p = { theme: th ? th.value : 'green', alpha: al ? parseInt(al.value, 10) || 100 : 100 };
+      jset(WG_PREFS, p); lastWgKey = '';
+      var v = $('set-wg-alpha-v'); if (v) v.textContent = fa2(p.alpha) + '٪';
+      window.arefWidgetSync();
+      var b = $('set-wg-list'); if (b) { b.removeAttribute('data-built'); b.innerHTML = ''; wgRender(); }
+    }
+    if (th) th.addEventListener('change', save);
+    if (al) al.addEventListener('change', save);
+  })();
+  setTimeout(function () { window.arefWidgetSync(); }, 4000);
+  setInterval(function () { if (!document.hidden) window.arefWidgetSync(); }, 10 * 60000);
+})();
+
 
 window.__arefBooted = true;

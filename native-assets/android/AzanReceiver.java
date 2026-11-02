@@ -314,8 +314,11 @@ public class AzanReceiver extends BroadcastReceiver {
         try {
             JSONArray arr = new JSONArray(prefs(ctx).getString("sil_items", "[]"));
             for (int i = 0; i < arr.length(); i++) {
-                long t = arr.getJSONObject(i).optLong("t", 0);
-                if (t > 0 && now >= t - SILENCE_BEFORE_MS && now <= t + SILENCE_AFTER_MS) return true;
+                JSONObject o = arr.getJSONObject(i);
+                long t = o.optLong("t", 0);
+                long wa = o.optLong("a", 0), wb = o.optLong("b", 0); // exact window from the app (new); old data only has t = centre
+                if (wa <= 0 || wb <= wa) { wa = t - SILENCE_BEFORE_MS; wb = t + SILENCE_AFTER_MS; }
+                if (t > 0 && now >= wa && now <= wb) return true;
             }
         } catch (Throwable ignore) { }
         return false;
@@ -327,10 +330,13 @@ public class AzanReceiver extends BroadcastReceiver {
         try {
             JSONArray arr = new JSONArray(prefs(ctx).getString("sil_items", "[]"));
             for (int i = 0; i < arr.length(); i++) {
-                long t = arr.getJSONObject(i).optLong("t", 0);
+                JSONObject o = arr.getJSONObject(i);
+                long t = o.optLong("t", 0);
                 if (t <= 0) continue;
-                long a = t - SILENCE_BEFORE_MS + 500L;
-                long b = t + SILENCE_AFTER_MS + 500L;
+                long wa = o.optLong("a", 0), wb = o.optLong("b", 0);
+                if (wa <= 0 || wb <= wa) { wa = t - SILENCE_BEFORE_MS; wb = t + SILENCE_AFTER_MS; }
+                long a = wa + 500L;
+                long b = wb + 500L;
                 if (a > now && (best == 0 || a < best)) best = a;
                 if (b > now && (best == 0 || b < best)) best = b;
             }
@@ -566,6 +572,7 @@ public class AzanReceiver extends BroadcastReceiver {
                 .setAutoCancel(true);
             if (pi != null) b.setContentIntent(pi);
             nm.notify(PRAYER_NOTIF_ID, b.build());
+            try { NotifCenter.add(ctx, "prayer", "prayer:" + System.currentTimeMillis() / 60000L, title, body, "", System.currentTimeMillis()); } catch (Throwable ignoreC) { }
             logEvent(ctx, "PRAYER-TIME notification shown: " + label);
         } catch (Throwable t) {
             logEvent(ctx, "PRAYER-TIME notification failed: " + t);
@@ -747,6 +754,7 @@ public class AzanReceiver extends BroadcastReceiver {
                 .setAutoCancel(true)
                 .setTimeoutAfter(15L * 60L * 1000L);
             nm.notify(LESSON_NOTIF_ID, b.build());
+            try { NotifCenter.add(ctx, "lesson", "lesson:" + t + ":" + key, title, body, "", System.currentTimeMillis()); } catch (Throwable ignoreC) { }
             logEvent(ctx, "LESSON notification shown: " + key + " #" + idx);
         } catch (Throwable e) {
             logEvent(ctx, "LESSON notification failed: " + e);

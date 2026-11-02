@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
-<link rel="stylesheet" href="css/style.css?v=158">
+<link rel="stylesheet" href="css/style.css?v=162">
 <script>try{var __mc=parseInt(localStorage.getItem('arefanejam_more_cols'),10);if(__mc>=2&&__mc<=5)document.documentElement.setAttribute('data-more-cols',String(__mc));}catch(e){}</script>
 </head>
 <body>
@@ -24,16 +24,18 @@
    اول از آخرین تنظیماتِ ذخیره‌شده روی گوشی، بلافاصله نشان داده می‌شود (بدون انتظار برای اینترنت).
    app.js بعد از دریافت تنظیمات، ArefIntro.update(settings) را صدا می‌زند. */
 (function () {
-  var KEY = 'arefanejam_intro_cache', DONE = 'arefanejam_intro_done', t0 = Date.now();
+  var KEY = 'arefanejam_intro_cache', VCN = 'arefanejam-video-cache-v1', BUILTIN = 'intro/intro.mp4', t0 = Date.now();
   var splash = document.getElementById('intro-splash'), vid = document.getElementById('intro-video'),
       img = document.getElementById('intro-image'), skip = document.getElementById('intro-skip-btn');
-  var started = false, finished = false, timer = null, waiters = [];
+  var started = false, finished = false, timer = null, waiters = [], blobUrl = '';
   function release() { var w = waiters; waiters = []; for (var k = 0; k < w.length; k++) { try { w[k](); } catch (e) {} } }
   function sec(u) { return String(u || '').replace(/^http:\/\//i, 'https://'); }
+  // m: builtin (ویدیوی داخل اپ؛ پیش‌فرض) | custom (ویدیو/عکس آپلودیِ مدیر؛ یک‌بار دانلود و ذخیره روی گوشی) | off
   function cfgFrom(s) {
     s = s || {};
     var secs = parseInt(s.intro_image_secs, 10); if (!(secs >= 1)) secs = 3; if (secs > 600) secs = 600;
-    return { v: sec(s.intro_video_url), i: sec(s.intro_image_url), s: secs };
+    var m = s.intro_mode === 'custom' || s.intro_mode === 'off' ? s.intro_mode : 'builtin';
+    return { m: m, v: sec(s.intro_video_url), i: sec(s.intro_image_url), s: secs };
   }
   function done() {
     if (finished) return; finished = true; clearTimeout(timer);
@@ -44,6 +46,7 @@
       try { vid.pause(); } catch (e) {}
       vid.removeAttribute('src'); vid.removeAttribute('poster'); try { vid.load(); } catch (e) {}
       img.removeAttribute('src');
+      if (blobUrl) { try { URL.revokeObjectURL(blobUrl); } catch (e) {} blobUrl = ''; }
     }, 350);
   }
   function showImage(secs) {
@@ -55,41 +58,66 @@
     img.src = img.getAttribute('data-src');
     if (img.complete && img.naturalWidth) begin();
   }
-  function start(c) {
-    if (started || finished || !c || (!c.v && !c.i)) return;
-    try { if (sessionStorage.getItem(DONE)) return; sessionStorage.setItem(DONE, '1'); } catch (e) {}
+  function playVideo(src, c) {
+    vid.classList.remove('hidden'); img.classList.add('hidden');
+    var bad = function () { if (c.m === 'custom' && c.i) showImage(c.s); else done(); };
+    var playing = false;
+    vid.addEventListener('playing', function () { playing = true; clearTimeout(timer); }, { once: true });
+    vid.addEventListener('ended', done, { once: true });
+    vid.addEventListener('loadedmetadata', function () { // سقف اطمینان: اگر ویدیو وسط کار گیر کرد، اپ برای همیشه معطل نماند
+      if (isFinite(vid.duration)) { clearTimeout(timer); timer = setTimeout(done, vid.duration * 1000 + 8000); }
+    }, { once: true });
+    vid.addEventListener('error', function () { if (!playing) bad(); else done(); }, { once: true });
+    timer = setTimeout(function () { if (!playing) bad(); }, 6000);
+    vid.muted = true; vid.src = src;
+    var pr = vid.play(); if (pr && pr.catch) pr.catch(bad);
+  }
+  function start(c, replay) {
+    if (started && !replay) return;
+    if (replay) { if (!c || c.m === 'off') return; if (started && !finished) return; finished = false; }
+    else if (finished || !c) return;
+    if (c.m === 'off') return;
     started = true;
-    splash.classList.remove('hidden');
-    if (c.i) img.setAttribute('data-src', c.i);
-    if (c.v) {
-      if (c.i) vid.poster = c.i; // تا آماده شدن ویدیو، عکس نشان داده می‌شود
-      vid.classList.remove('hidden'); img.classList.add('hidden');
-      var bad = function () { if (c.i) showImage(c.s); else done(); };
-      var playing = false;
-      vid.addEventListener('playing', function () { playing = true; clearTimeout(timer); }, { once: true });
-      vid.addEventListener('ended', done, { once: true });
-      vid.addEventListener('loadedmetadata', function () { // سقف اطمینان: اگر ویدیو وسط کار گیر کرد، اپ برای همیشه معطل نماند
-        if (isFinite(vid.duration)) { clearTimeout(timer); timer = setTimeout(done, vid.duration * 1000 + 15000); }
-      }, { once: true });
-      vid.addEventListener('error', function () { if (!playing) bad(); else done(); }, { once: true });
-      timer = setTimeout(function () { if (!playing) bad(); }, 10000);
-      vid.src = c.v;
-      var pr = vid.play(); if (pr && pr.catch) pr.catch(bad);
-    } else { showImage(c.s); }
+    splash.classList.remove('hidden', 'intro-out');
+    timer = setTimeout(done, 20000); // سقف مطلق
+    if (c.m === 'custom' && (c.v || c.i)) {
+      if (c.i) img.setAttribute('data-src', c.i);
+      if (!c.v) { showImage(c.s); return; }
+      // ویدیوی آپلودی: فقط اگر قبلاً روی گوشی ذخیره شده باشد (بدون ترافیک)؛ وگرنه ویدیوی داخل اپ/عکس
+      var key = c.v.replace(/#.*$/, '');
+      var fallback = function () { if (c.i) showImage(c.s); else playVideo(BUILTIN, c); };
+      try {
+        caches.open(VCN).then(function (ca) { return ca.match(key); }).then(function (hit) { return hit ? hit.blob() : null; })
+          .then(function (b) {
+            if (b && b.size > 1000) { blobUrl = URL.createObjectURL(/^video\//.test(b.type || '') ? b : new Blob([b], { type: 'video/mp4' })); playVideo(blobUrl, c); }
+            else fallback();
+          }).catch(fallback);
+      } catch (e) { fallback(); }
+      return;
+    }
+    playVideo(BUILTIN, c);
   }
   skip.addEventListener('click', done);
   ['contextmenu', 'dragstart', 'selectstart'].forEach(function (ev) { splash.addEventListener(ev, function (e) { e.preventDefault(); }); });
   var cached = null; try { cached = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
+  if (!cached || !cached.m) cached = { m: (cached && (cached.v || cached.i)) ? 'custom' : 'builtin', v: cached && cached.v || '', i: cached && cached.i || '', s: cached && cached.s || 3 };
   start(cached);
+  // هر بار که کاربر از اپ بیرون می‌رود و دوباره برمی‌گردد (بیش از چند ثانیه)، دوباره پخش می‌شود
+  var hiddenAt = 0;
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
+    if (hiddenAt && Date.now() - hiddenAt >= 4000) { var c2 = null; try { c2 = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {} start(c2 && c2.m ? c2 : cached, true); }
+    hiddenAt = 0;
+  });
   window.ArefIntro = {
     // اپ (native-bridge.js و app.js) تا پایان صفحهٔ شروع بالا نمی‌آید؛ اگر صفحهٔ شروعی نباشد همان لحظه اجرا می‌شود
     whenDone: function (cb) { if (!started || finished) cb(); else waiters.push(cb); },
     active: function () { return started && !finished; },
     update: function (settings) {
       var c = cfgFrom(settings);
-      try { if (c.v || c.i) localStorage.setItem(KEY, JSON.stringify(c)); else localStorage.removeItem(KEY); } catch (e) {}
-      // اولین اجرای اپ (هنوز تنظیمی ذخیره نبود): فقط اگر هنوز در «لود» هستیم نشان بده، نه وسط کار با اپ
+      try { localStorage.setItem(KEY, JSON.stringify(c)); } catch (e) {}
       if (!started && Date.now() - t0 < 6000) start(c);
+      return c;
     }
   };
 })();
@@ -108,6 +136,9 @@
     </button>
     <img id="topbar-logo" src="icons/icon-192.png" alt="لوگو" class="topbar-logo">
     <span id="topbar-title" class="topbar-title">عارفان جام</span>
+    <button id="topbar-bell-btn" class="topbar-search-btn topbar-bell-btn" type="button" title="اعلان‌ها" aria-label="مرکز اعلان‌ها">
+      <span class="bell-ic">🔔</span><span id="topbar-bell-n" class="bell-n hidden">0</span>
+    </button>
     <button id="topbar-search-btn" class="topbar-search-btn" type="button" title="جست‌وجو در اپ" aria-label="جست‌وجو در بخش‌ها و ابزارهای اپ">
       <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg>
     </button>
@@ -1019,11 +1050,48 @@
           <button id="set-test-btn" class="ghost-btn small-btn" type="button">🔔 تست و گزارش وضعیت اذان</button>
           <button id="set-stop-btn" class="ghost-btn small-btn" type="button">⏹ توقف اذانِ در حال پخش</button>
         </div>
-        <label class="switch-row" style="margin-top:12px"><span>🔕 بی‌صدا شدن گوشی هنگام نماز (۱۰ دقیقه قبل تا ۱۰ دقیقه بعد)</span><input type="checkbox" id="set-silence-toggle"></label>
-        <p class="muted-text small" style="line-height:2">پیش‌فرض خاموش است. اگر روشن کنید، گوشی از ۱۰ دقیقه قبل از هر وقت نماز تا ۱۰ دقیقه بعد بی‌صدا می‌شود و بعد به حالت قبلی برمی‌گردد؛ خودِ اذان همچنان پخش می‌شود. اگر خودتان در این مدت حالت صدا را عوض کنید، دخالت نمی‌کنیم.</p>
+        <label class="switch-row" style="margin-top:12px"><span>🔕 بی‌صدا شدن گوشی هنگام نماز</span><input type="checkbox" id="set-silence-toggle"></label>
+        <p class="muted-text small" style="line-height:2">پیش‌فرض خاموش است. اگر روشن کنید، گوشی فقط در بازهٔ نماز بی‌صدا می‌شود (نه در لحظهٔ اذان) و بعد به حالت قبلی برمی‌گردد؛ خودِ اذان همچنان پخش می‌شود. اگر خودتان در این مدت حالت صدا را عوض کنید، دخالت نمی‌کنیم. اگر در «اصلاح دقیقهٔ اوقات» زمان اذان را جابه‌جا کرده باشید، همان زمانِ اصلاح‌شده ملاک است.</p>
+        <div id="set-silence-box" class="hidden">
+          <label class="set-field" for="set-sil-mode">روش تعیین بازهٔ بی‌صدا</label>
+          <select id="set-sil-mode" class="set-select">
+            <option value="auto">خودکار: بر اساس شروع نماز (پیش‌فرض)</option>
+            <option value="manual">دستی: خودم ساعت شروع و پایان را می‌گذارم</option>
+          </select>
+          <div id="set-sil-auto">
+            <label class="set-field" for="set-sil-gap" style="margin-top:10px">شروع نماز چند دقیقه بعد از اذان است؟</label>
+            <input type="number" id="set-sil-gap" class="set-select" inputmode="numeric" min="0" max="90" step="1" style="direction:ltr;text-align:center">
+            <label class="set-field" for="set-sil-before" style="margin-top:10px">چند دقیقه قبل از شروع نماز بی‌صدا شود؟</label>
+            <input type="number" id="set-sil-before" class="set-select" inputmode="numeric" min="0" max="60" step="1" style="direction:ltr;text-align:center">
+            <label class="set-field" for="set-sil-after" style="margin-top:10px">چند دقیقه بعد از شروع نماز بی‌صدا بماند؟</label>
+            <input type="number" id="set-sil-after" class="set-select" inputmode="numeric" min="0" max="120" step="1" style="direction:ltr;text-align:center">
+          </div>
+          <div id="set-sil-manual" class="hidden">
+            <label class="set-field" for="set-sil-from" style="margin-top:10px">بی‌صدا شدن: چند دقیقه بعد از اذان؟</label>
+            <input type="number" id="set-sil-from" class="set-select" inputmode="numeric" min="0" max="120" step="1" style="direction:ltr;text-align:center">
+            <label class="set-field" for="set-sil-to" style="margin-top:10px">برگشتن صدا: چند دقیقه بعد از اذان؟</label>
+            <input type="number" id="set-sil-to" class="set-select" inputmode="numeric" min="1" max="180" step="1" style="direction:ltr;text-align:center">
+          </div>
+          <p class="muted-text small" id="set-sil-sum" style="line-height:2;margin-top:8px"></p>
+        </div>
         <button id="set-silence-perm" class="ghost-btn small-btn hidden" type="button">🔓 اجازهٔ «مزاحم نشوید» برای بی‌صدای کامل</button>
         <p class="muted-text small" id="set-silence-msg" style="line-height:2;margin-top:6px"></p>
         <p class="muted-text small" id="set-native-msg" style="line-height:2;margin-top:6px"></p>
+      </div>
+      <div class="section-block" id="set-widgets-box">
+        <h3>🧩 ابزارک‌ها (صفحهٔ اصلی گوشی)</h3>
+        <p class="muted-text small" style="line-height:2">ابزارک را به صفحهٔ اصلی گوشی اضافه کنید؛ بعد از افزودن می‌توانید رنگ و شفافیت هر کدام را از تنظیمات خودِ ابزارک (نگه داشتن انگشت روی ابزارک ← تنظیم) عوض کنید. با لمس ابزارک، همان بخش اپ باز می‌شود.</p>
+        <label class="set-field" for="set-wg-theme">ظاهر پیش‌فرض ابزارک‌ها</label>
+        <select id="set-wg-theme" class="set-select">
+          <option value="green">سبز و طلایی</option>
+          <option value="dark">تیره</option>
+          <option value="light">روشن</option>
+          <option value="glass">شیشه‌ای (شفاف)</option>
+        </select>
+        <label class="set-field" for="set-wg-alpha" style="margin-top:10px">شفافیت پس‌زمینه: <b id="set-wg-alpha-v"></b></label>
+        <input type="range" id="set-wg-alpha" min="20" max="100" step="5" style="width:100%">
+        <p class="muted-text small" id="set-wg-msg" style="line-height:2"></p>
+        <div id="set-wg-list"></div>
       </div>
     </section>
 
@@ -1268,6 +1336,15 @@
     </section>
 
     <!-- آیات سجده -->
+    <!-- دعاها (زیرمجموعهٔ محاسبه اعمال) -->
+    <section id="tab-duas" class="tab-panel">
+      <div class="section-block"><div class="rc-bar"></div><h3>🤲 دعاها</h3>
+        <p class="muted-text small">دعاها یک‌بار روی گوشی شما ذخیره می‌شوند و بعد بدون اینترنت و بدون ترافیک در دسترس‌اند.</p></div>
+      <div class="dua-search"><input type="search" id="dua-search-input" placeholder="جستجو در دعاها..." autocomplete="off"></div>
+      <div id="dua-cats" class="dua-cats"></div>
+      <div id="dua-list" class="dua-list"></div>
+    </section>
+
     <section id="tab-sajdah-list" class="tab-panel sj-page">
       <div class="sj-hero" id="sj-hero">
         <div class="sj-stars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
@@ -1375,6 +1452,8 @@
         <button id="stu-login-btn" class="secondary-btn" style="width:100%">ورود</button>
         <p class="muted-text small" id="stu-reg-hint" style="margin-top:14px"></p>
         <button id="stu-reg-open" type="button" class="ghost-btn" style="width:100%">🏫 ثبت‌نام مدیر مجموعه (مسجد، حوزه، دارالحفظ، مدرسه)</button>
+        <button id="stu-rec-open" type="button" class="ghost-btn" style="width:100%;margin-top:8px">🔑 رمز را فراموش کرده‌ام (مدیر مجموعه)</button>
+        <button id="stu-rec-status" type="button" class="ghost-btn" style="width:100%;margin-top:8px">📨 پیگیری درخواست بازیابی رمز</button>
       </div>
       <div id="stu-reg" class="section-block hidden"></div>
       <div id="stu-main" class="hidden"></div>
@@ -1741,6 +1820,10 @@
       <select id="reminder-jalali-month"></select>
       <select id="reminder-jalali-year"></select>
       <input type="time" id="reminder-time-input">
+      <label class="rem-f"><span>🔁 تکرار</span>
+        <select id="note-repeat"><option value="none">یک‌بار</option><option value="daily">هر روز</option><option value="weekly">هر هفته</option><option value="monthly">هر ماه (در همین روزِ ماه)</option><option value="yearly">هر سال</option></select></label>
+      <label class="rem-f"><span>🔔 صدای آلارم</span>
+        <span class="rem-snd"><select id="note-snd"><option value="1">۱ — زنگ ساده</option><option value="2">۲ — ناقوس</option><option value="3">۳ — بیدارباش</option><option value="4">۴ — نسیم</option><option value="5">۵ — کریستال</option><option value="6">۶ — دو نت</option><option value="7">۷ — پیانو</option><option value="8">۸ — موج</option><option value="9">۹ — ملودی کوتاه</option><option value="10">۱۰ — هشدار قوی</option></select><button type="button" class="ghost-btn small-btn" id="note-snd-play">▶</button></span></label>
     </div>
     <div class="modal-actions">
       <button id="note-delete-btn" class="danger-btn small-btn hidden">حذف</button>
@@ -1803,10 +1886,14 @@
     <input type="text" id="myev-title" placeholder="عنوان (مثلاً: ملاقات، قرار، مناسبت خانوادگی)" maxlength="120">
     <label class="myev-time-row"><span>ساعت (اختیاری)</span><input type="time" id="myev-time"></label>
     <textarea id="myev-note" rows="3" placeholder="توضیحات (اختیاری)" maxlength="600"></textarea>
+    <label class="rem-f"><span>🔁 تکرار</span>
+      <select id="myev-repeat"><option value="none">فقط همین روز</option><option value="weekly">هر هفته</option><option value="monthly">هر ماه (در همین روزِ ماه)</option><option value="yearly" selected>هر سال</option></select></label>
     <label class="switch-row">
-      <span>🔁 هر سال تکرار شود</span>
-      <input type="checkbox" id="myev-yearly" checked>
+      <span>⏰ آلارم/اعلان در ساعت مشخص‌شده</span>
+      <input type="checkbox" id="myev-alarm">
     </label>
+    <label class="rem-f" id="myev-snd-row"><span>🔔 صدای آلارم</span>
+      <span class="rem-snd"><select id="myev-snd"><option value="1">۱ — زنگ ساده</option><option value="2">۲ — ناقوس</option><option value="3">۳ — بیدارباش</option><option value="4">۴ — نسیم</option><option value="5">۵ — کریستال</option><option value="6">۶ — دو نت</option><option value="7">۷ — پیانو</option><option value="8">۸ — موج</option><option value="9">۹ — ملودی کوتاه</option><option value="10">۱۰ — هشدار قوی</option></select><button type="button" class="ghost-btn small-btn" id="myev-snd-play">▶</button></span></label>
     <p id="myev-err" class="myev-err"></p>
     <div class="modal-actions">
       <button id="myev-delete-btn" class="danger-btn small-btn hidden" type="button">حذف</button>
@@ -1958,6 +2045,12 @@
   </div>
 </div>
 
+<div id="nc-overlay" class="nc-overlay hidden">
+  <div class="nc-box" role="dialog" aria-label="اعلان‌ها">
+    <div class="nc-head"><b>🔔 اعلان‌ها</b><span class="nc-head-btns"><button type="button" id="nc-readall" class="ghost-btn small-btn">همه خوانده شد</button><button type="button" id="nc-clear" class="ghost-btn small-btn">پاک کردن</button><button type="button" id="nc-close" class="ghost-btn small-btn">✕</button></span></div>
+    <div id="nc-list" class="nc-list"></div>
+  </div>
+</div>
 <div id="alarm-modal" class="alarm-overlay hidden">
   <div class="alarm-card">
     <div class="alarm-bell">🔔</div>
@@ -1972,9 +2065,21 @@
   <div class="modal-box" style="text-align:center">
     <div style="font-size:36px;margin-bottom:6px">📖</div>
     <div id="quran-invite-text" class="quran-invite-popup-text"></div>
+    <div id="quran-invite-chart" class="qc hidden"></div>
     <div class="modal-actions" style="justify-content:center;margin-top:14px">
       <button id="quran-invite-btn2" class="ghost-btn small-btn">ان‌شاءالله بعدا</button>
       <button id="quran-invite-btn1" class="secondary-btn">بزن بریم</button>
+    </div>
+  </div>
+</div>
+
+<div id="quran-missed-modal" class="modal hidden">
+  <div class="modal-box" style="text-align:center">
+    <div style="font-size:36px;margin-bottom:6px">📖</div>
+    <div id="quran-missed-text" class="quran-invite-popup-text" style="text-align:right"></div>
+    <div class="modal-actions" style="justify-content:center;margin-top:14px">
+      <button id="quran-missed-later" class="ghost-btn small-btn">بعداً</button>
+      <button id="quran-missed-go" class="secondary-btn">رفتن به اولین آیهٔ خوانده‌نشده</button>
     </div>
   </div>
 </div>
@@ -2088,7 +2193,7 @@
 /* native-bridge.js و app.js (به‌همین ترتیب) فقط بعد از پایان صفحهٔ شروع (ویدیو/عکس/گیف) بارگذاری می‌شوند.
    اگر صفحهٔ شروعی نباشد یا تمام شده باشد، بی‌درنگ بارگذاری می‌شوند. */
 (function () {
-  var list = ['js/native-bridge.js?v=44', 'js/app.js?v=244'], i = 0;
+  var list = ['js/native-bridge.js?v=48', 'js/app.js?v=248'], i = 0;
   function next() {
     if (i >= list.length) return;
     var el = document.createElement('script'); el.src = list[i++];

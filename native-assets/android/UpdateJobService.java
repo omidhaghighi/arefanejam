@@ -739,6 +739,7 @@ public class UpdateJobService extends JobService {
             PendingIntent pi = null;
             if (open != null) {
                 open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                open.putExtra("aref_go", "{\"center\":1}");   // لمس اعلان: مرکز اعلان داخل اپ باز می‌شود
                 int fl = PendingIntent.FLAG_UPDATE_CURRENT;
                 if (Build.VERSION.SDK_INT >= 23) fl |= PendingIntent.FLAG_IMMUTABLE;
                 pi = PendingIntent.getActivity(ctx, 4803, open, fl);
@@ -746,6 +747,13 @@ public class UpdateJobService extends JobService {
             int icon = ctx.getResources().getIdentifier("ic_stat_azan", "drawable", ctx.getPackageName());
             if (icon == 0) icon = android.R.drawable.ic_dialog_info;
 
+            // ثبت در «اعلان‌ها»ی داخل اپ (با لمس به همان بخش می‌رود)
+            for (JSONObject itc : list) {
+                try {
+                    long ageC = Math.max(0L, itc.optLong("age", 0)) * 1000L;
+                    NotifCenter.add(ctx, itc.optString("type", "inbox"), itc.optString("uid", ""), itc.optString("title", ""), itc.optString("body", ""), itc.optString("link", ""), System.currentTimeMillis() - ageC);
+                } catch (Throwable ignoreC) { }
+            }
             int n = list.size();
             if (n <= 3) {
                 // few items: one notification each, with its own title and text

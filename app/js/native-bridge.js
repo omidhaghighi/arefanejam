@@ -225,7 +225,7 @@
       var args = { items: items, enabled: !!enabled, url: azanIsBundled(chosen, url) ? '' : (url || ''), voice: chosen, brand: brand || '' };
       if (extra && typeof extra.silence === 'boolean') { // بی‌صدا هنگام نماز (فقط وقتی اپ فرستاده باشد)
         args.silence = extra.silence;
-        args.sitems = (extra.sitems || []).filter(function (x) { return x && x.t > now - 11 * 60000; });
+        args.sitems = (extra.sitems || []).filter(function (x) { return x && (x.b || (x.t + 10 * 60000)) > now - 60000; }); // a/b = شروع و پایان بازهٔ بی‌صدا
       }
       return AUp.scheduleAzan(args)
         .then(function () {
@@ -241,20 +241,25 @@
     return applyScheduleLegacy(prayers, enabled, brand, voiceId);
   }
 
+  function alarmChannel(n) { var i = parseInt(n, 10); return (i >= 1 && i <= 10) ? 'alarm-' + i : CH_NOTES; }
   function applyNotes(list) {
     return cancelByKind('note').then(function () {
       var now = Date.now();
       var items = [];
       (list || []).forEach(function (n) {
-        if (!n.reminderAt || n.reminderFired || n.reminderAt <= now + 2000) return;
-        items.push({
-          id: noteId(n.id),
-          title: n.title || 'یادآوری یادداشت',
-          body: (n.content || '').slice(0, 140),
-          schedule: { at: new Date(n.reminderAt), allowWhileIdle: true },
-          channelId: CH_NOTES,
-          smallIcon: SMALL_ICON,
-          extra: { kind: 'note', noteId: n.id }
+        // تکرارشونده‌ها: چند دورِ بعد از قبل زمان‌بندی می‌شود (با هر بار باز شدن اپ تازه می‌شود)
+        var times = (n.occ && n.occ.length) ? n.occ : ((n.reminderAt && !n.reminderFired) ? [n.reminderAt] : []);
+        times.forEach(function (t, i) {
+          if (!t || t <= now + 2000) return;
+          items.push({
+            id: noteId(n.id + '#' + i),
+            title: n.title || 'یادآوری یادداشت',
+            body: (n.content || '').slice(0, 140),
+            schedule: { at: new Date(t), allowWhileIdle: true },
+            channelId: alarmChannel(n.snd),
+            smallIcon: SMALL_ICON,
+            extra: { kind: 'note', noteId: n.id }
+          });
         });
       });
       if (IS_IOS) items = items.slice(0, IOS_MAX_NOTES);
@@ -468,6 +473,7 @@
         { id: CH_NOTES, name: 'یادآوری یادداشت‌ها', description: 'یادآورهای یادداشت شخصی', importance: 4, visibility: 1, vibration: true },
         { id: CH_STICKY, name: 'تاریخ و پیام روز', description: 'نوتیفیکیشن ثابت تاریخ و پیام روز (بی‌صدا)', importance: 2, visibility: 1, vibration: false }
       ];
+      for (var ai = 1; ai <= 10; ai++) ch.push({ id: 'alarm-' + ai, name: 'آلارم — صدای ' + ai, description: 'آلارم یادداشت و تقویم', importance: 5, visibility: 1, vibration: true, sound: 'alarm_' + ai + '.mp3' });
       VOICES.forEach(function (v) {
         ch.push({ id: voiceChannel(v.id), name: 'اذان — ' + (v.name || v.id), description: 'اعلان و صدای اذان', importance: 5, visibility: 1, vibration: true, sound: voiceFile(v.id) });
       });
@@ -503,7 +509,7 @@
       try {
         if (ex.kind === 'azan' && typeof playAzanSound === 'function') {
           playAzanSound(ex.label || '');
-        } else if (ex.kind === 'note' && typeof switchToTab === 'function') {
+        } else if (ex.kind === 'note' && String(ex.noteId).indexOf('myev_') !== 0 && typeof switchToTab === 'function') {
           switchToTab('notes', { push: true });
           var note = getLocalNotes().find(function (n) { return n.id === ex.noteId; });
           if (note) openNoteModal(note);
@@ -1204,8 +1210,38 @@
   // نسخهٔ بازار: دکمهٔ بروزرسانی بالا فقط صفحهٔ اپ در کافه‌بازار را باز می‌کند؛ بروزرسانی را خود بازار انجام می‌دهد
   // (هیچ دانلود/نصب/OTA از سایت در این نسخه نیست).
   var BAZAAR_URL = 'https://cafebazaar.ir/app/com.arefanejam.quran';
+  // باز کردن صفحهٔ اپ در «برنامهٔ بازار» داخل گوشی (نه سایت بازار). اگر بازار نصب نبود یا APK قدیمی بود، همان صفحهٔ وب.
+  function openBazaarApp() {
+    try {
+      var H = Cap && Cap.Plugins && Cap.Plugins.ArefHub;
+      if (H && typeof H.openBazaar === 'function') {
+        Promise.resolve(H.openBazaar()).then(function (r) { if (!r || !r.opened) browserFallback(BAZAAR_URL); }).catch(function () { browserFallback(BAZAAR_URL); });
+        return;
+      }
+    } catch (e) { log(e); }
+    browserFallback(BAZAAR_URL);
+  }
+  /* نشانگر «بروزرسانی جدید» نسخهٔ بازار: فقط وقتی مدیر از پیشخوان (اعلان نسخهٔ بازار ← نشانگر) روشنش کرده باشد دیده می‌شود.
+     روشن: دکمهٔ 🔄 آرام و پیوسته می‌چرخد و زیرش با رنگ قرمز «بروزرسانی جدید» نوشته می‌شود. خاموش: کل دکمه پنهان است. */
+  var STORE_CHIP_KEY = 'arefanejam_store_chip';
+  function paintStoreChip(on) {
+    if (!STORE) return;
+    var wrap = document.getElementById('topbar-reload-wrap');
+    var b = document.getElementById('topbar-reload-btn');
+    var h = document.getElementById('topbar-update-hint');
+    if (wrap) wrap.style.display = on ? '' : 'none';
+    if (wrap) wrap.classList.toggle('store-chip', !!on);
+    if (b) b.classList.toggle('store-chip', !!on);
+    if (h) { h.textContent = 'بروزرسانی جدید'; h.style.display = on ? '' : 'none'; h.classList.toggle('store-chip', !!on); }
+  }
+  window.arefStoreChip = function (on) {
+    if (!STORE) return;
+    on = (on === true || on === '1' || on === 1);
+    try { if (on) lsSet(STORE_CHIP_KEY, '1'); else lsDel(STORE_CHIP_KEY); } catch (e) {}
+    paintStoreChip(on);
+  };
   function manualUpdate() {
-    if (STORE) { browserFallback(BAZAAR_URL); return; }
+    if (STORE) { openBazaarApp(); return; }
     if (manualBusy || busyUpdating) return;
     var run = ++manualRun;
     manualBusy = true;
@@ -1442,8 +1478,8 @@
     if (rb) rb.title = 'بروزرسانی';
     if (STORE) {
       // نسخهٔ بازار: دکمهٔ بروزرسانی بالا، یادآور «نرم‌افزار را بروز کنید» و کاشی بروزرسانی نمایش داده نمی‌شوند
-      try { if (rb) rb.title = 'بروزرسانی از کافه‌بازار'; } catch (e) {}   // دکمه می‌ماند و صفحهٔ اپ در بازار را باز می‌کند
-      try { var uh0 = document.getElementById('topbar-update-hint'); if (uh0) uh0.style.display = 'none'; } catch (e) {}
+      try { if (rb) rb.title = 'بروزرسانی از کافه‌بازار'; } catch (e) {}   // با لمس، برنامهٔ بازار گوشی صفحهٔ اپ را باز می‌کند
+      try { paintStoreChip(lsGet(STORE_CHIP_KEY) === '1'); } catch (e) {}   // وضعیت دفعهٔ قبل؛ بعد از دریافت تنظیمات سایت به‌روز می‌شود
       try { var tl0 = document.getElementById('app-update-tile'); if (tl0) tl0.classList.add('hidden'); } catch (e) {}
     }
     // اگر دفعهٔ قبل نسخهٔ جدید اعلام شده بود و هنوز نصب نشده، نشانگر همان لحظه (بدون انتظار اینترنت) دیده شود
