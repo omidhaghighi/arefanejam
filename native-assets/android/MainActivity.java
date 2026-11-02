@@ -4,6 +4,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.ViewGroup;
+import android.widget.ImageView;
 
 import com.getcapacitor.BridgeActivity;
 
@@ -25,6 +29,43 @@ public class MainActivity extends BridgeActivity {
         } catch (Throwable ignore) { }
     }
 
+    /** لایهٔ «اولین فریم کلیپ شروع»: از همان اولین لحظه جای صفحهٔ آبیِ ساده را می‌گیرد تا کلیپ (وب) آماده شود. */
+    private static volatile ImageView splashOverlay = null;
+    private final Handler splashHandler = new Handler(Looper.getMainLooper());
+    private final Runnable splashTimeout = new Runnable() {
+        @Override public void run() { hideSplashOverlay(); }
+    };
+
+    private void showSplashOverlay() {
+        try {
+            int id = getResources().getIdentifier("splash", "drawable", getPackageName());
+            if (id == 0) return;
+            ImageView iv = new ImageView(this);
+            iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            iv.setBackgroundColor(0xFF3E83B3);
+            iv.setImageResource(id);
+            addContentView(iv, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            splashOverlay = iv;
+            splashHandler.postDelayed(splashTimeout, 8000); // اگر صفحه خبر نداد، لایه خودش برداشته می‌شود
+        } catch (Throwable ignore) { }
+    }
+
+    /** صفحه (کلیپ شروع) می‌گوید ویدیو دیده می‌شود: لایهٔ بومی برداشته می‌شود. از هر نخی صدا زده شود امن است. */
+    static void hideSplashOverlay() {
+        final ImageView iv = splashOverlay;
+        if (iv == null) return;
+        splashOverlay = null;
+        try {
+            iv.post(new Runnable() {
+                @Override public void run() {
+                    try {
+                        if (iv.getParent() instanceof ViewGroup) ((ViewGroup) iv.getParent()).removeView(iv);
+                    } catch (Throwable ignore) { }
+                }
+            });
+        } catch (Throwable ignore) { }
+    }
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         current = this;
@@ -33,6 +74,7 @@ public class MainActivity extends BridgeActivity {
         // بروزرسانی ظاهر اپ از سایت: قبل از بالا آمدن Capacitor نسخهٔ آماده فعال یا نسخهٔ خراب برگردانده می‌شود
         AppUpdaterPlugin.webBoot(this);
         super.onCreate(savedInstanceState);
+        if (savedInstanceState == null) showSplashOverlay();
         // دانلود بروزرسانی در پس‌زمینه (فقط با اینترنت، حتی وقتی اپ بسته است)
         UpdateJobService.schedule(this);
         handleAzanLink(getIntent());
@@ -117,6 +159,8 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onDestroy() {
         if (current == this) current = null;
+        try { splashHandler.removeCallbacks(splashTimeout); } catch (Throwable ignore) { }
+        splashOverlay = null;
         super.onDestroy();
     }
 }

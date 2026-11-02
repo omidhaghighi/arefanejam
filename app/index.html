@@ -9,116 +9,80 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
-<link rel="stylesheet" href="css/style.css?v=162">
+<style id="intro-critical">
+/* صفحهٔ شروع: همان لحظهٔ اول (بدون انتظار برای style.css) اولین فریم کلیپ دیده می‌شود، نه صفحهٔ آبی و نه آیکون خاکستری پخش */
+html,body{margin:0;padding:0;background:#3E83B3}
+#intro-splash{position:fixed;top:0;right:0;bottom:0;left:0;z-index:99999;background:#3E83B3 url(intro/intro-first.jpg) center center/cover no-repeat;overflow:hidden}
+#intro-splash.hidden{display:none!important}
+#intro-splash .intro-media{display:block;width:100%;height:100%;object-fit:cover;background:transparent;opacity:0;pointer-events:none}
+#intro-splash .intro-media.is-playing{opacity:1}
+</style>
+<link rel="preload" as="image" href="intro/intro-first.jpg">
+<link rel="stylesheet" href="css/style.css?v=162" media="print" onload="this.media='all';window.__cssOk=1" onerror="window.__cssOk=1">
+<noscript><link rel="stylesheet" href="css/style.css?v=162"></noscript>
 <script>try{var __mc=parseInt(localStorage.getItem('arefanejam_more_cols'),10);if(__mc>=2&&__mc<=5)document.documentElement.setAttribute('data-more-cols',String(__mc));}catch(e){}</script>
 </head>
 <body>
 
-<div id="intro-splash" class="intro-splash hidden" oncontextmenu="return false">
-  <img id="intro-image" class="intro-media hidden" alt="" draggable="false">
-  <video id="intro-video" class="intro-media hidden" playsinline muted autoplay disablepictureinpicture disableremoteplayback controlslist="nodownload noplaybackrate noremoteplayback" draggable="false"></video>
-  <button id="intro-skip-btn" class="intro-skip-btn" type="button">رد کردن ‹‹</button>
+<div id="intro-splash" class="intro-splash" oncontextmenu="return false">
+  <video id="intro-video" class="intro-media" playsinline muted autoplay preload="auto" poster="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" disablepictureinpicture disableremoteplayback controlslist="nodownload noplaybackrate noremoteplayback" draggable="false"></video>
 </div>
 <script>
-/* صفحهٔ شروع (ویدیو / عکس / گیف) — فقط هنگام لود اپ، بدون هیچ راه دانلود.
-   اول از آخرین تنظیماتِ ذخیره‌شده روی گوشی، بلافاصله نشان داده می‌شود (بدون انتظار برای اینترنت).
-   app.js بعد از دریافت تنظیمات، ArefIntro.update(settings) را صدا می‌زند. */
+/* صفحهٔ شروع: همیشه همان کلیپ داخل اپ (intro/intro.mp4)، بدون هیچ تنظیمی از سایت و بدون ترافیک.
+   ترتیب دیده‌شدن: اولین فریم کلیپ (فوری) ← کلیپ ← اپ.  آیکون پخشِ خاکستریِ پیش‌فرض وب‌ویو با poster شفاف و پنهان‌بودن ویدیو تا لحظهٔ پخش حذف شده است.
+   اپ (native-bridge.js و app.js) تا پایان کلیپ بالا نمی‌آید. */
 (function () {
-  var KEY = 'arefanejam_intro_cache', VCN = 'arefanejam-video-cache-v1', BUILTIN = 'intro/intro.mp4', t0 = Date.now();
-  var splash = document.getElementById('intro-splash'), vid = document.getElementById('intro-video'),
-      img = document.getElementById('intro-image'), skip = document.getElementById('intro-skip-btn');
-  var started = false, finished = false, timer = null, waiters = [], blobUrl = '';
+  var BUILTIN = 'intro/intro.mp4', t0 = Date.now();
+  var splash = document.getElementById('intro-splash'), vid = document.getElementById('intro-video');
+  var started = false, finished = false, ending = false, timer = null, waiters = [];
+  try { localStorage.removeItem('arefanejam_intro_cache'); } catch (e) {} // تنظیمات قدیمیِ صفحهٔ شروع دیگر استفاده نمی‌شود
+  // لایهٔ بومی (اولین فریم کلیپ) را وقتی ویدیو واقعاً دیده می‌شود بردار؛ در APKهای قدیمی بی‌اثر است
+  function nativeReady() { try { var H = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.ArefHub; if (H && H.introReady) { var r = H.introReady(); if (r && r.catch) r.catch(function () {}); } } catch (e) {} }
   function release() { var w = waiters; waiters = []; for (var k = 0; k < w.length; k++) { try { w[k](); } catch (e) {} } }
-  function sec(u) { return String(u || '').replace(/^http:\/\//i, 'https://'); }
-  // m: builtin (ویدیوی داخل اپ؛ پیش‌فرض) | custom (ویدیو/عکس آپلودیِ مدیر؛ یک‌بار دانلود و ذخیره روی گوشی) | off
-  function cfgFrom(s) {
-    s = s || {};
-    var secs = parseInt(s.intro_image_secs, 10); if (!(secs >= 1)) secs = 3; if (secs > 600) secs = 600;
-    var m = s.intro_mode === 'custom' || s.intro_mode === 'off' ? s.intro_mode : 'builtin';
-    return { m: m, v: sec(s.intro_video_url), i: sec(s.intro_image_url), s: secs };
-  }
+  // پیش از نشان‌دادن اپ، مطمئن شو style.css (که حالا غیرمسدودکننده است) لود شده
+  function cssReady(cb) { var n = 0; (function w() { if (window.__cssOk || n++ > 100) cb(); else setTimeout(w, 50); })(); }
   function done() {
-    if (finished) return; finished = true; clearTimeout(timer);
-    release(); // حالا اپ شروع به بالا آمدن می‌کند
-    splash.classList.add('intro-out');
-    setTimeout(function () {
-      splash.classList.add('hidden'); splash.classList.remove('intro-out');
-      try { vid.pause(); } catch (e) {}
-      vid.removeAttribute('src'); vid.removeAttribute('poster'); try { vid.load(); } catch (e) {}
-      img.removeAttribute('src');
-      if (blobUrl) { try { URL.revokeObjectURL(blobUrl); } catch (e) {} blobUrl = ''; }
-    }, 350);
+    if (ending) return; ending = true; clearTimeout(timer); nativeReady();
+    cssReady(function () {
+      finished = true;
+      release(); // حالا اپ شروع به بالا آمدن می‌کند
+      splash.classList.add('intro-out');
+      setTimeout(function () {
+        splash.classList.add('hidden'); splash.classList.remove('intro-out');
+        try { vid.pause(); } catch (e) {}
+        vid.classList.remove('is-playing'); vid.removeAttribute('src'); try { vid.load(); } catch (e) {}
+      }, 350);
+    });
   }
-  function showImage(secs) {
-    vid.classList.add('hidden'); img.classList.remove('hidden');
-    var fired = false;
-    function begin() { if (fired) return; fired = true; clearTimeout(timer); timer = setTimeout(done, secs * 1000); }
-    img.onload = begin; img.onerror = done;
-    timer = setTimeout(done, 8000); // اگر عکس نیامد، معطل نکن
-    img.src = img.getAttribute('data-src');
-    if (img.complete && img.naturalWidth) begin();
-  }
-  function playVideo(src, c) {
-    vid.classList.remove('hidden'); img.classList.add('hidden');
-    var bad = function () { if (c.m === 'custom' && c.i) showImage(c.s); else done(); };
-    var playing = false;
-    vid.addEventListener('playing', function () { playing = true; clearTimeout(timer); }, { once: true });
-    vid.addEventListener('ended', done, { once: true });
-    vid.addEventListener('loadedmetadata', function () { // سقف اطمینان: اگر ویدیو وسط کار گیر کرد، اپ برای همیشه معطل نماند
-      if (isFinite(vid.duration)) { clearTimeout(timer); timer = setTimeout(done, vid.duration * 1000 + 8000); }
-    }, { once: true });
-    vid.addEventListener('error', function () { if (!playing) bad(); else done(); }, { once: true });
-    timer = setTimeout(function () { if (!playing) bad(); }, 6000);
-    vid.muted = true; vid.src = src;
-    var pr = vid.play(); if (pr && pr.catch) pr.catch(bad);
-  }
-  function start(c, replay) {
+  function start(replay) {
     if (started && !replay) return;
-    if (replay) { if (!c || c.m === 'off') return; if (started && !finished) return; finished = false; }
-    else if (finished || !c) return;
-    if (c.m === 'off') return;
-    started = true;
+    if (replay && started && !finished) return;
+    started = true; finished = false; ending = false;
     splash.classList.remove('hidden', 'intro-out');
-    timer = setTimeout(done, 20000); // سقف مطلق
-    if (c.m === 'custom' && (c.v || c.i)) {
-      if (c.i) img.setAttribute('data-src', c.i);
-      if (!c.v) { showImage(c.s); return; }
-      // ویدیوی آپلودی: فقط اگر قبلاً روی گوشی ذخیره شده باشد (بدون ترافیک)؛ وگرنه ویدیوی داخل اپ/عکس
-      var key = c.v.replace(/#.*$/, '');
-      var fallback = function () { if (c.i) showImage(c.s); else playVideo(BUILTIN, c); };
-      try {
-        caches.open(VCN).then(function (ca) { return ca.match(key); }).then(function (hit) { return hit ? hit.blob() : null; })
-          .then(function (b) {
-            if (b && b.size > 1000) { blobUrl = URL.createObjectURL(/^video\//.test(b.type || '') ? b : new Blob([b], { type: 'video/mp4' })); playVideo(blobUrl, c); }
-            else fallback();
-          }).catch(fallback);
-      } catch (e) { fallback(); }
-      return;
-    }
-    playVideo(BUILTIN, c);
+    vid.classList.remove('is-playing');
+    clearTimeout(timer); timer = setTimeout(done, 20000); // سقف مطلق
+    var playing = false;
+    vid.onplaying = function () { playing = true; vid.classList.add('is-playing'); setTimeout(nativeReady, 60); clearTimeout(timer); timer = setTimeout(done, 15000); };
+    vid.onended = done;
+    vid.onloadedmetadata = function () { if (isFinite(vid.duration)) { clearTimeout(timer); timer = setTimeout(done, vid.duration * 1000 + 8000); } };
+    vid.onerror = done;
+    setTimeout(function () { if (!playing && !ending) done(); }, 6000); // اگر ویدیو شروع نشد، معطل نکن
+    vid.muted = true; vid.src = BUILTIN;
+    var pr = vid.play(); if (pr && pr.catch) pr.catch(done);
   }
-  skip.addEventListener('click', done);
   ['contextmenu', 'dragstart', 'selectstart'].forEach(function (ev) { splash.addEventListener(ev, function (e) { e.preventDefault(); }); });
-  var cached = null; try { cached = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
-  if (!cached || !cached.m) cached = { m: (cached && (cached.v || cached.i)) ? 'custom' : 'builtin', v: cached && cached.v || '', i: cached && cached.i || '', s: cached && cached.s || 3 };
-  start(cached);
+  start(false);
   // هر بار که کاربر از اپ بیرون می‌رود و دوباره برمی‌گردد (بیش از چند ثانیه)، دوباره پخش می‌شود
   var hiddenAt = 0;
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
-    if (hiddenAt && Date.now() - hiddenAt >= 4000) { var c2 = null; try { c2 = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {} start(c2 && c2.m ? c2 : cached, true); }
+    if (hiddenAt && Date.now() - hiddenAt >= 4000) start(true);
     hiddenAt = 0;
   });
   window.ArefIntro = {
-    // اپ (native-bridge.js و app.js) تا پایان صفحهٔ شروع بالا نمی‌آید؛ اگر صفحهٔ شروعی نباشد همان لحظه اجرا می‌شود
     whenDone: function (cb) { if (!started || finished) cb(); else waiters.push(cb); },
     active: function () { return started && !finished; },
-    update: function (settings) {
-      var c = cfgFrom(settings);
-      try { localStorage.setItem(KEY, JSON.stringify(c)); } catch (e) {}
-      if (!started && Date.now() - t0 < 6000) start(c);
-      return c;
-    }
+    update: function () { return { m: 'builtin' }; } // سازگاری با app.js؛ دیگر هیچ تنظیمی از سایت نمی‌آید
   };
 })();
 </script>
@@ -1822,8 +1786,7 @@
       <input type="time" id="reminder-time-input">
       <label class="rem-f"><span>🔁 تکرار</span>
         <select id="note-repeat"><option value="none">یک‌بار</option><option value="daily">هر روز</option><option value="weekly">هر هفته</option><option value="monthly">هر ماه (در همین روزِ ماه)</option><option value="yearly">هر سال</option></select></label>
-      <label class="rem-f"><span>🔔 صدای آلارم</span>
-        <span class="rem-snd"><select id="note-snd"><option value="1">۱ — زنگ ساده</option><option value="2">۲ — ناقوس</option><option value="3">۳ — بیدارباش</option><option value="4">۴ — نسیم</option><option value="5">۵ — کریستال</option><option value="6">۶ — دو نت</option><option value="7">۷ — پیانو</option><option value="8">۸ — موج</option><option value="9">۹ — ملودی کوتاه</option><option value="10">۱۰ — هشدار قوی</option></select><button type="button" class="ghost-btn small-btn" id="note-snd-play">▶</button></span></label>
+      <span hidden aria-hidden="true"><input type="hidden" id="note-snd" value="1"><button type="button" id="note-snd-play" tabindex="-1"></button></span>
     </div>
     <div class="modal-actions">
       <button id="note-delete-btn" class="danger-btn small-btn hidden">حذف</button>
@@ -1892,8 +1855,7 @@
       <span>⏰ آلارم/اعلان در ساعت مشخص‌شده</span>
       <input type="checkbox" id="myev-alarm">
     </label>
-    <label class="rem-f" id="myev-snd-row"><span>🔔 صدای آلارم</span>
-      <span class="rem-snd"><select id="myev-snd"><option value="1">۱ — زنگ ساده</option><option value="2">۲ — ناقوس</option><option value="3">۳ — بیدارباش</option><option value="4">۴ — نسیم</option><option value="5">۵ — کریستال</option><option value="6">۶ — دو نت</option><option value="7">۷ — پیانو</option><option value="8">۸ — موج</option><option value="9">۹ — ملودی کوتاه</option><option value="10">۱۰ — هشدار قوی</option></select><button type="button" class="ghost-btn small-btn" id="myev-snd-play">▶</button></span></label>
+    <span id="myev-snd-row" hidden style="display:none" aria-hidden="true"><input type="hidden" id="myev-snd" value="1"><button type="button" id="myev-snd-play" tabindex="-1"></button></span>
     <p id="myev-err" class="myev-err"></p>
     <div class="modal-actions">
       <button id="myev-delete-btn" class="danger-btn small-btn hidden" type="button">حذف</button>
@@ -2193,7 +2155,7 @@
 /* native-bridge.js و app.js (به‌همین ترتیب) فقط بعد از پایان صفحهٔ شروع (ویدیو/عکس/گیف) بارگذاری می‌شوند.
    اگر صفحهٔ شروعی نباشد یا تمام شده باشد، بی‌درنگ بارگذاری می‌شوند. */
 (function () {
-  var list = ['js/native-bridge.js?v=48', 'js/app.js?v=248'], i = 0;
+  var list = ['js/native-bridge.js?v=49', 'js/app.js?v=249'], i = 0;
   function next() {
     if (i >= list.length) return;
     var el = document.createElement('script'); el.src = list[i++];

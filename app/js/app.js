@@ -2291,20 +2291,17 @@ document.getElementById('announcement-dismiss-btn').addEventListener('click', ()
   document.getElementById('announcement-banner').classList.add('hidden');
 });
 
-const ALARM_SOUND_COUNT = 10;
+// فقط یک آلارم پیش‌فرض داریم (sounds/alarm_1.mp3)؛ انتخاب صدا حذف شده و هر مقدار قدیمیِ snd هم همین صدا را پخش می‌کند.
 let alarmAudioEl = null;
-function playAlarmSound(sndId) {
-  const id = parseInt(sndId, 10);
-  if (id >= 1 && id <= ALARM_SOUND_COUNT) {
-    try {
-      if (alarmAudioEl) { try { alarmAudioEl.pause(); } catch (e) {} }
-      alarmAudioEl = new Audio('sounds/alarm_' + id + '.mp3');
-      alarmAudioEl.volume = 1;
-      const pr = alarmAudioEl.play();
-      if (pr && pr.catch) pr.catch(() => playAlarmSoundSynth());
-      return;
-    } catch (e) { /* به صدای ساده برمی‌گردیم */ }
-  }
+function playAlarmSound() {
+  try {
+    if (alarmAudioEl) { try { alarmAudioEl.pause(); } catch (e) {} }
+    alarmAudioEl = new Audio('sounds/alarm_1.mp3');
+    alarmAudioEl.volume = 1;
+    const pr = alarmAudioEl.play();
+    if (pr && pr.catch) pr.catch(() => playAlarmSoundSynth());
+    return;
+  } catch (e) { /* به صدای ساده برمی‌گردیم */ }
   playAlarmSoundSynth();
 }
 function playAlarmSoundSynth() {

@@ -241,7 +241,7 @@
     return applyScheduleLegacy(prayers, enabled, brand, voiceId);
   }
 
-  function alarmChannel(n) { var i = parseInt(n, 10); return (i >= 1 && i <= 10) ? 'alarm-' + i : CH_NOTES; }
+  function alarmChannel(n) { return 'alarm-1'; } // فقط یک آلارم پیش‌فرض
   function applyNotes(list) {
     return cancelByKind('note').then(function () {
       var now = Date.now();
@@ -473,7 +473,8 @@
         { id: CH_NOTES, name: 'یادآوری یادداشت‌ها', description: 'یادآورهای یادداشت شخصی', importance: 4, visibility: 1, vibration: true },
         { id: CH_STICKY, name: 'تاریخ و پیام روز', description: 'نوتیفیکیشن ثابت تاریخ و پیام روز (بی‌صدا)', importance: 2, visibility: 1, vibration: false }
       ];
-      for (var ai = 1; ai <= 10; ai++) ch.push({ id: 'alarm-' + ai, name: 'آلارم — صدای ' + ai, description: 'آلارم یادداشت و تقویم', importance: 5, visibility: 1, vibration: true, sound: 'alarm_' + ai + '.mp3' });
+      ch.push({ id: 'alarm-1', name: 'آلارم یادداشت و تقویم', description: 'آلارم یادداشت و تقویم', importance: 5, visibility: 1, vibration: true, sound: 'alarm_1.mp3' });
+      try { if (typeof LN.deleteChannel === 'function') for (var ai = 2; ai <= 10; ai++) LN.deleteChannel({ id: 'alarm-' + ai }); } catch (e) {}
       VOICES.forEach(function (v) {
         ch.push({ id: voiceChannel(v.id), name: 'اذان — ' + (v.name || v.id), description: 'اعلان و صدای اذان', importance: 5, visibility: 1, vibration: true, sound: voiceFile(v.id) });
       });

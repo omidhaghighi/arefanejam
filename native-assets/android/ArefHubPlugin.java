@@ -20,6 +20,13 @@ public class ArefHubPlugin extends Plugin {
     /** مقصدی که از اعلان/ابزارک آمده و صفحه هنوز نگرفته (JSON) */
     static volatile String pendingGo = null;
 
+    /** کلیپ شروع (وب) دیده می‌شود: لایهٔ بومیِ اولین فریم برداشته شود. */
+    @PluginMethod
+    public void introReady(PluginCall call) {
+        try { MainActivity.hideSplashOverlay(); } catch (Throwable ignore) { }
+        call.resolve();
+    }
+
     @PluginMethod
     public void openBazaar(PluginCall call) {
         JSObject r = new JSObject();
