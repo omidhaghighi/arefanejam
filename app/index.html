@@ -16,6 +16,8 @@ html,body{margin:0;padding:0;background:#3E83B3}
 #intro-splash.hidden{display:none!important}
 #intro-splash .intro-media{display:block;width:100%;height:100%;object-fit:cover;background:transparent;opacity:0;pointer-events:none}
 #intro-splash .intro-media.is-playing{opacity:1}
+/* اپ پشت ویدیو بالا می‌آید (لود موازی) ولی تا پایان کلیپ دیده نمی‌شود؛ visibility چیدمان را عوض نمی‌کند پس اندازه‌گیری‌ها درست می‌مانند */
+html.intro-on body>*:not(#intro-splash){visibility:hidden!important}
 </style>
 <link rel="preload" as="image" href="intro/intro-first.jpg">
 <link rel="stylesheet" href="css/style.css?v=162" media="print" onload="this.media='all';window.__cssOk=1" onerror="window.__cssOk=1">
@@ -30,42 +32,55 @@ html,body{margin:0;padding:0;background:#3E83B3}
 <script>
 /* صفحهٔ شروع: همیشه همان کلیپ داخل اپ (intro/intro.mp4)، بدون هیچ تنظیمی از سایت و بدون ترافیک.
    ترتیب دیده‌شدن: اولین فریم کلیپ (فوری) ← کلیپ ← اپ.  آیکون پخشِ خاکستریِ پیش‌فرض وب‌ویو با poster شفاف و پنهان‌بودن ویدیو تا لحظهٔ پخش حذف شده است.
-   اپ (native-bridge.js و app.js) تا پایان کلیپ بالا نمی‌آید. */
+   لود موازی: به‌محض شروع پخش کلیپ، native-bridge.js و app.js پشت ویدیو لود و اجرا می‌شوند (اپ زیر ویدیو پنهان است: html.intro-on).
+   وقتی کلیپ تمام شد اپ از قبل آماده است و فقط ویدیو محو می‌شود؛ مکثی برای لود اپ نمی‌ماند. */
 (function () {
   var BUILTIN = 'intro/intro.mp4', t0 = Date.now();
   var splash = document.getElementById('intro-splash'), vid = document.getElementById('intro-video');
-  var started = false, finished = false, ending = false, timer = null, waiters = [];
+  var started = false, finished = false, ending = false, prep = false, timer = null, waiters = [], startWaiters = [], startFired = false;
   try { localStorage.removeItem('arefanejam_intro_cache'); } catch (e) {} // تنظیمات قدیمیِ صفحهٔ شروع دیگر استفاده نمی‌شود
   // لایهٔ بومی (اولین فریم کلیپ) را وقتی ویدیو واقعاً دیده می‌شود بردار؛ در APKهای قدیمی بی‌اثر است
   function nativeReady() { try { var H = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.ArefHub; if (H && H.introReady) { var r = H.introReady(); if (r && r.catch) r.catch(function () {}); } } catch (e) {} }
   function release() { var w = waiters; waiters = []; for (var k = 0; k < w.length; k++) { try { w[k](); } catch (e) {} } }
-  // پیش از نشان‌دادن اپ، مطمئن شو style.css (که حالا غیرمسدودکننده است) لود شده
-  function cssReady(cb) { var n = 0; (function w() { if (window.__cssOk || n++ > 100) cb(); else setTimeout(w, 50); })(); }
+  // شروع لود موازی اپ: وقتی ویدیو واقعاً شروع به پخش شد (یا حداکثر ~۱٫۲ ثانیه بعد)
+  function fireStart() { if (startFired) return; startFired = true; var w = startWaiters; startWaiters = []; for (var k = 0; k < w.length; k++) { try { w[k](); } catch (e) {} } }
+  function appHidden(on) { try { document.documentElement.classList[on ? 'add' : 'remove']('intro-on'); } catch (e) {} }
+  // اپ پشت ویدیو آماده است؟ (style.css لود شده و app.js تا آخر اجرا شده؛ اگر اسکریپت‌ها تمام شدند ولی خطا داشتند هم منتظر نمی‌مانیم)
+  function appReady() { return !!(window.__cssOk && (window.__arefBooted || window.__arefScriptsDone)); }
+  // چند صد میلی‌ثانیه مانده به پایان کلیپ، اپ را (زیر ویدیوی کدر) رسم می‌کنیم تا لحظهٔ محوشدن هیچ پرشی نباشد
+  function prepaint() { if (prep || ending || !appReady()) return; prep = true; appHidden(false); }
+  function finish() {
+    finished = true; appHidden(false);
+    release();
+    splash.classList.add('intro-out');
+    setTimeout(function () {
+      splash.classList.add('hidden'); splash.classList.remove('intro-out');
+      try { vid.pause(); } catch (e) {}
+      vid.classList.remove('is-playing'); vid.removeAttribute('src'); try { vid.load(); } catch (e) {}
+    }, 350);
+  }
   function done() {
-    if (ending) return; ending = true; clearTimeout(timer); nativeReady();
-    cssReady(function () {
-      finished = true;
-      release(); // حالا اپ شروع به بالا آمدن می‌کند
-      splash.classList.add('intro-out');
-      setTimeout(function () {
-        splash.classList.add('hidden'); splash.classList.remove('intro-out');
-        try { vid.pause(); } catch (e) {}
-        vid.classList.remove('is-playing'); vid.removeAttribute('src'); try { vid.load(); } catch (e) {}
-      }, 350);
-    });
+    if (ending) return; ending = true; clearTimeout(timer); nativeReady(); fireStart();
+    var waited = 0;
+    (function w() { // معمولاً اپ همین الان آماده است؛ فقط در گوشی خیلی کند تا سقف ۶ ثانیه صبر می‌کنیم
+      if (appReady() || waited >= 6000) finish(); else { waited += 50; setTimeout(w, 50); }
+    })();
   }
   function start(replay) {
     if (started && !replay) return;
     if (replay && started && !finished) return;
-    started = true; finished = false; ending = false;
+    started = true; finished = false; ending = false; prep = false;
+    appHidden(true);
     splash.classList.remove('hidden', 'intro-out');
     vid.classList.remove('is-playing');
     clearTimeout(timer); timer = setTimeout(done, 20000); // سقف مطلق
     var playing = false;
-    vid.onplaying = function () { playing = true; vid.classList.add('is-playing'); setTimeout(nativeReady, 60); clearTimeout(timer); timer = setTimeout(done, 15000); };
+    vid.onplaying = function () { playing = true; vid.classList.add('is-playing'); setTimeout(nativeReady, 60); fireStart(); clearTimeout(timer); timer = setTimeout(done, 15000); };
     vid.onended = done;
+    vid.ontimeupdate = function () { try { if (isFinite(vid.duration) && vid.duration - vid.currentTime < 0.5) prepaint(); } catch (e) {} };
     vid.onloadedmetadata = function () { if (isFinite(vid.duration)) { clearTimeout(timer); timer = setTimeout(done, vid.duration * 1000 + 8000); } };
     vid.onerror = done;
+    setTimeout(fireStart, 1200); // اگر رویداد پخش دیر رسید، لود اپ را عقب نینداز
     setTimeout(function () { if (!playing && !ending) done(); }, 6000); // اگر ویدیو شروع نشد، معطل نکن
     vid.muted = true; vid.src = BUILTIN;
     var pr = vid.play(); if (pr && pr.catch) pr.catch(done);
@@ -81,6 +96,7 @@ html,body{margin:0;padding:0;background:#3E83B3}
   });
   window.ArefIntro = {
     whenDone: function (cb) { if (!started || finished) cb(); else waiters.push(cb); },
+    whenStarted: function (cb) { if (!started || startFired) cb(); else startWaiters.push(cb); },
     active: function () { return started && !finished; },
     update: function () { return { m: 'builtin' }; } // سازگاری با app.js؛ دیگر هیچ تنظیمی از سایت نمی‌آید
   };
@@ -2152,17 +2168,18 @@ html,body{margin:0;padding:0;background:#3E83B3}
 <script src="js/iran-cities.js?v=15"></script>
 <script src="js/native-config.js"></script>
 <script>
-/* native-bridge.js و app.js (به‌همین ترتیب) فقط بعد از پایان صفحهٔ شروع (ویدیو/عکس/گیف) بارگذاری می‌شوند.
-   اگر صفحهٔ شروعی نباشد یا تمام شده باشد، بی‌درنگ بارگذاری می‌شوند. */
+/* native-bridge.js و app.js (به‌همین ترتیب) به‌محض شروع پخش کلیپ شروع (ArefIntro.whenStarted) و پشت ویدیو بارگذاری می‌شوند،
+   تا وقتی کلیپ تمام شد اپ آماده باشد. اگر صفحهٔ شروعی نباشد، بی‌درنگ بارگذاری می‌شوند.
+   window.__arefScriptsDone: هر دو اسکریپت تمام شده‌اند (موفق یا خطا) — صفحهٔ شروع برای اپ خراب‌شده بی‌نهایت منتظر نمی‌ماند. */
 (function () {
   var list = ['js/native-bridge.js?v=49', 'js/app.js?v=249'], i = 0;
   function next() {
-    if (i >= list.length) return;
+    if (i >= list.length) { window.__arefScriptsDone = true; return; }
     var el = document.createElement('script'); el.src = list[i++];
     el.onload = next; el.onerror = next;
     document.body.appendChild(el);
   }
-  if (window.ArefIntro && window.ArefIntro.whenDone) window.ArefIntro.whenDone(next); else next();
+  if (window.ArefIntro && window.ArefIntro.whenStarted) window.ArefIntro.whenStarted(next); else next();
 })();
 </script>
 </body>
