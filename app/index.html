@@ -10,18 +10,18 @@
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Lalezar&family=Aref+Ruqaa:wght@400;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
 <style id="intro-critical">
-/* صفحهٔ شروع: همان لحظهٔ اول (بدون انتظار برای style.css) اولین فریم کلیپ دیده می‌شود، نه صفحهٔ آبی و نه آیکون خاکستری پخش */
-html,body{margin:0;padding:0;background:#3E83B3}
-#intro-splash{position:fixed;top:0;right:0;bottom:0;left:0;z-index:99999;background:#3E83B3 url(intro/intro-first.jpg) center center/cover no-repeat;overflow:hidden}
+/* صفحهٔ شروع: همان لحظهٔ اول (بدون انتظار برای style.css) لوگوی عارفان جام روی زمینهٔ سفید دیده می‌شود (نه صفحهٔ آبی و نه آیکون خاکستری پخش) و با شروع کلیپ جایش را به ویدیو می‌دهد */
+html,body{margin:0;padding:0;background:#FDFDFD}
+#intro-splash{position:fixed;top:0;right:0;bottom:0;left:0;z-index:99999;background:#FDFDFD url(intro/intro-logo.png) center center/288px 288px no-repeat;overflow:hidden}
 #intro-splash.hidden{display:none!important}
 #intro-splash .intro-media{display:block;width:100%;height:100%;object-fit:cover;background:transparent;opacity:0;pointer-events:none}
 #intro-splash .intro-media.is-playing{opacity:1}
 /* اپ پشت ویدیو بالا می‌آید (لود موازی) ولی تا پایان کلیپ دیده نمی‌شود؛ visibility چیدمان را عوض نمی‌کند پس اندازه‌گیری‌ها درست می‌مانند */
 html.intro-on body>*:not(#intro-splash){visibility:hidden!important}
 </style>
-<link rel="preload" as="image" href="intro/intro-first.jpg">
-<link rel="stylesheet" href="css/style.css?v=163" media="print" onload="this.media='all';window.__cssOk=1" onerror="window.__cssOk=1">
-<noscript><link rel="stylesheet" href="css/style.css?v=163"></noscript>
+<link rel="preload" as="image" href="intro/intro-logo.png">
+<link rel="stylesheet" href="css/style.css?v=164" media="print" onload="this.media='all';window.__cssOk=1" onerror="window.__cssOk=1">
+<noscript><link rel="stylesheet" href="css/style.css?v=164"></noscript>
 <script>try{var __mc=parseInt(localStorage.getItem('arefanejam_more_cols'),10);if(__mc>=2&&__mc<=5)document.documentElement.setAttribute('data-more-cols',String(__mc));}catch(e){}</script>
 </head>
 <body>
@@ -1397,8 +1397,8 @@ html.intro-on body>*:not(#intro-splash){visibility:hidden!important}
           <b>بانک سوال</b>
         </div>
         <div id="shariq-cats-row" class="shariq-cats"></div>
-        <div id="shariq-list-content" class="shariq-list"></div>
       </div>
+      <div id="shariq-list-content" class="shariq-list"></div>
       <div id="shariq-fatwa-cats" class="shariq-cats hidden"></div>
       <div id="shariq-fatwa-content" class="shariq-list hidden"></div>
     </section>
@@ -2207,7 +2207,7 @@ html.intro-on body>*:not(#intro-splash){visibility:hidden!important}
    تا وقتی کلیپ تمام شد اپ آماده باشد. اگر صفحهٔ شروعی نباشد، بی‌درنگ بارگذاری می‌شوند.
    window.__arefScriptsDone: هر دو اسکریپت تمام شده‌اند (موفق یا خطا) — صفحهٔ شروع برای اپ خراب‌شده بی‌نهایت منتظر نمی‌ماند. */
 (function () {
-  var list = ['js/native-bridge.js?v=49', 'js/app.js?v=251'], i = 0;
+  var list = ['js/native-bridge.js?v=49', 'js/app.js?v=252'], i = 0;
   function next() {
     if (i >= list.length) { window.__arefScriptsDone = true; return; }
     var el = document.createElement('script'); el.src = list[i++];

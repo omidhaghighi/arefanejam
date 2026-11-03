@@ -11307,11 +11307,19 @@ async function shariqApplySearch() {
   shariqRenderList(hit, false, q);
 }
 
-function selectShariqCategory(categoryId, chipEl) {
+// بعد از انتخاب دسته، صفحه خودکار تا ابتدای فهرست سوال‌ها پایین می‌رود (کاربر لازم نیست اسکرول کند)
+function shariqScrollToList() {
+  const el = document.getElementById('shariq-list-content');
+  if (!el) return;
+  const go = () => { try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { try { el.scrollIntoView(true); } catch (e2) {} } };
+  requestAnimationFrame(() => setTimeout(go, 60));
+}
+async function selectShariqCategory(categoryId, chipEl) {
   shariqState.activeCategory = categoryId;
   document.querySelectorAll('#shariq-cats-row .shariq-chip').forEach((c) => c.classList.remove('active'));
   chipEl.classList.add('active');
-  loadShariqList(categoryId);
+  await loadShariqList(categoryId);
+  shariqScrollToList();
 }
 
 async function loadShariqList(categoryId) {
@@ -11679,6 +11687,18 @@ function shariqBankApply() {
 function shariqBankSet(open) {
   shariqState.bank = !!open;
   shariqBankApply();
+  if (!open) {
+    // خروج از بانک: برگشت به نمایش همهٔ سوال‌ها (بدون دسته و جستجو)
+    const inp = document.getElementById('shariq-search-input');
+    const dirty = shariqState.activeCategory != null || !!shariqNorm(shariqState.q) || (inp && inp.value);
+    if (dirty) {
+      shariqState.activeCategory = null; shariqState.q = '';
+      if (inp) inp.value = '';
+      const clr = document.getElementById('shariq-search-clear'); if (clr) clr.classList.add('hidden');
+      document.querySelectorAll('#shariq-cats-row .shariq-chip').forEach((c, i) => c.classList.toggle('active', i === 0));
+      loadShariqList(null);
+    }
+  }
   try { window.scrollTo(0, 0); const m = document.querySelector('main'); if (m) m.scrollTop = 0; } catch (e) {}
 }
 document.getElementById('shariq-bank-btn').addEventListener('click', () => shariqBankSet(true));

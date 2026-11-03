@@ -6,12 +6,14 @@
 // هر خطایی بیلد را قرمز نمی‌کند؛ در بدترین حالت فایل خالی می‌ماند و اپ مثل قبل با اینترنت تنظیمات را می‌گیرد.
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 const OUT = 'app/js/native-seed.js';
 const MAX_ITEM_BYTES = 1400000;      // هر مسیر (کمتر از سقف 1.5MB خود اپ)
 const MAX_TOTAL_BYTES = 4300000;     // کل بسته (حافظهٔ localStorage محدود است)
-const MAX_FILE_IMG_BYTES = 2500000;  // هر عکس که به‌صورت فایل داخل APK می‌رود (app/seed-img)
-const MAX_FILE_IMG_TOTAL = 24000000; // مجموع عکس‌های فایلی
+const MAX_FILE_IMG_BYTES = 2500000;  // سقف دانلود هر عکس (پیش از کوچک‌سازی)
+const MAX_FILE_IMG_AFTER = 400000;   // سقف حجم هر عکس بعد از کوچک‌سازی (app/seed-img)
+const MAX_FILE_IMG_TOTAL = 5000000;  // مجموع عکس‌های فایلی داخل APK (قبلاً ۲۴ مگابایت؛ برای کم‌کردن حجم APK)
 const MAX_FILE_IMAGES = 160;
 const MAX_IMG_BYTES = 220000;        // هر تصویر که داخل بسته می‌رود
 const MAX_IMG_TOTAL = 2000000;       // مجموع تصویرها
@@ -121,11 +123,22 @@ exports.run = async function run(API, HEADERS) {
       try {
         const res = await fetch(secure(u), { headers: HEADERS, redirect: 'follow', signal: AbortSignal.timeout(30000) });
         if (!res.ok) continue;
-        const buf = Buffer.from(await res.arrayBuffer());
-        if (buf.length < 50 || buf.length > MAX_FILE_IMG_BYTES || bytes + buf.length > MAX_FILE_IMG_TOTAL) continue;
+        let buf = Buffer.from(await res.arrayBuffer());
+        if (buf.length < 50 || buf.length > MAX_FILE_IMG_BYTES) continue;
         const head = buf.slice(0, 60).toString('utf8').toLowerCase();
         if (head.indexOf('<html') > -1 || head.indexOf('<!doctype html') > -1) continue;
         const ext = ((u.split('?')[0].split('.').pop() || 'img').toLowerCase().replace(/[^a-z0-9]/g, '') || 'img').slice(0, 5);
+        // کوچک‌سازی (همان قالب و پسوند): حداکثر ۱۰۸۰ پیکسل و کیفیت ۷۸؛ اگر ImageMagick نبود یا خطا داد، فایل اصلی می‌ماند
+        if (buf.length > 120000 && /^(jpe?g|png|webp)$/.test(ext)) {
+          try {
+            const tin = '/tmp/seed_in.' + ext, tout = '/tmp/seed_out.' + ext;
+            fs.writeFileSync(tin, buf);
+            execFileSync('convert', [tin, '-auto-orient', '-resize', '1080x1080>', '-strip', '-quality', '78', tout], { stdio: 'ignore' });
+            const small = fs.readFileSync(tout);
+            if (small.length > 50 && small.length < buf.length) buf = small;
+          } catch (e) { /* همان عکس اصلی */ }
+        }
+        if (buf.length > MAX_FILE_IMG_AFTER || bytes + buf.length > MAX_FILE_IMG_TOTAL) continue;
         const fn = 'seed-img/i' + (n++) + '.' + ext;
         fs.writeFileSync('app/' + fn, buf);
         imgFiles[secure(u)] = fn; if (secure(u) !== u) imgFiles[u] = fn;

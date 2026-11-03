@@ -39,7 +39,7 @@ public class MainActivity extends BridgeActivity {
 
     /**
      * کلیپ شروع به‌صورت بومی: ویدیوی داخل APK (assets/public/intro/intro.mp4) از همان اولین فریم اکتیویتی با MediaPlayer
-     * پخش می‌شود و منتظر بالا آمدن وب‌ویو نمی‌ماند. تا شروع پخش، اولین فریم کلیپ (drawable/splash) دیده می‌شود.
+     * پخش می‌شود و منتظر بالا آمدن وب‌ویو نمی‌ماند. تا شروع پخش، لوگوی عارفان جام (drawable/launch_logo؛ در نبودش اولین فریم کلیپ) دیده می‌شود.
      * لایه وقتی برداشته می‌شود که کلیپ تمام شده و صفحه خبر داده اپ آماده است (introAppReady).
      */
     private static volatile FrameLayout splashRoot = null;
@@ -62,12 +62,21 @@ public class MainActivity extends BridgeActivity {
     private void showSplashOverlay() {
         try {
             FrameLayout root = new FrameLayout(this);
-            root.setBackgroundColor(0xFF3E83B3);
+            // لوگوی عارفان جام روی زمینهٔ سفید (هم‌شکل با اسپلش سیستمی)؛ اگر فایل لوگو در APK نبود همان اولین فریم کلیپ مثل قبل
+            int logoId = getResources().getIdentifier("launch_logo", "drawable", getPackageName());
+            root.setBackgroundColor(logoId != 0 ? 0xFFFDFDFD : 0xFF3E83B3);
             // ویدیو زیر، اولین فریم ثابت روی آن؛ وقتی اولین فریم ویدیو رسم شد ثابت برداشته می‌شود (بدون پرش)
             TextureView tv = new TextureView(this);
             root.addView(tv, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
             int id = getResources().getIdentifier("splash", "drawable", getPackageName());
-            if (id != 0) {
+            if (logoId != 0) {
+                ImageView iv = new ImageView(this);
+                iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                iv.setImageResource(logoId);
+                int px = Math.round(288f * getResources().getDisplayMetrics().density);   // همان بوم ۲۸۸dp اسپلش اندروید ۱۲
+                root.addView(iv, new FrameLayout.LayoutParams(px, px, android.view.Gravity.CENTER));
+                introFrame = iv;
+            } else if (id != 0) {
                 ImageView iv = new ImageView(this);
                 iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
                 iv.setImageResource(id);
