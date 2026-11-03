@@ -20,8 +20,8 @@ html,body{margin:0;padding:0;background:#3E83B3}
 html.intro-on body>*:not(#intro-splash){visibility:hidden!important}
 </style>
 <link rel="preload" as="image" href="intro/intro-first.jpg">
-<link rel="stylesheet" href="css/style.css?v=162" media="print" onload="this.media='all';window.__cssOk=1" onerror="window.__cssOk=1">
-<noscript><link rel="stylesheet" href="css/style.css?v=162"></noscript>
+<link rel="stylesheet" href="css/style.css?v=163" media="print" onload="this.media='all';window.__cssOk=1" onerror="window.__cssOk=1">
+<noscript><link rel="stylesheet" href="css/style.css?v=163"></noscript>
 <script>try{var __mc=parseInt(localStorage.getItem('arefanejam_more_cols'),10);if(__mc>=2&&__mc<=5)document.documentElement.setAttribute('data-more-cols',String(__mc));}catch(e){}</script>
 </head>
 <body>
@@ -1386,8 +1386,19 @@ html.intro-on body>*:not(#intro-splash){visibility:hidden!important}
         <button type="button" class="shariq-view-btn active" id="shariq-view-qa">❓ پرسش و پاسخ</button>
         <button type="button" class="shariq-view-btn" id="shariq-view-fatwa">📜 فتوا</button>
       </div>
-      <div id="shariq-cats-row" class="shariq-cats"></div>
-      <div id="shariq-list-content" class="shariq-list"></div>
+      <button type="button" class="bk-entry shariq-bank-btn" id="shariq-bank-btn">
+        <span class="bk-entry-shine"></span>
+        <span class="bk-entry-txt"><b>بانک سوال</b><small>سوال‌ها و پاسخ‌ها به تفکیک موضوع</small></span>
+        <span class="bk-entry-arrow">‹</span>
+      </button>
+      <div id="shariq-bank-wrap" class="hidden">
+        <div class="shariq-bank-head">
+          <button type="button" class="ghost-btn small-btn" id="shariq-bank-back">› بازگشت</button>
+          <b>بانک سوال</b>
+        </div>
+        <div id="shariq-cats-row" class="shariq-cats"></div>
+        <div id="shariq-list-content" class="shariq-list"></div>
+      </div>
       <div id="shariq-fatwa-cats" class="shariq-cats hidden"></div>
       <div id="shariq-fatwa-content" class="shariq-list hidden"></div>
     </section>
@@ -2196,7 +2207,7 @@ html.intro-on body>*:not(#intro-splash){visibility:hidden!important}
    تا وقتی کلیپ تمام شد اپ آماده باشد. اگر صفحهٔ شروعی نباشد، بی‌درنگ بارگذاری می‌شوند.
    window.__arefScriptsDone: هر دو اسکریپت تمام شده‌اند (موفق یا خطا) — صفحهٔ شروع برای اپ خراب‌شده بی‌نهایت منتظر نمی‌ماند. */
 (function () {
-  var list = ['js/native-bridge.js?v=49', 'js/app.js?v=249'], i = 0;
+  var list = ['js/native-bridge.js?v=49', 'js/app.js?v=251'], i = 0;
   function next() {
     if (i >= list.length) { window.__arefScriptsDone = true; return; }
     var el = document.createElement('script'); el.src = list[i++];

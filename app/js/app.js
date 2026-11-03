@@ -641,8 +641,8 @@ function collectImageUrls(obj) {
   return out;
 }
 let siteImagePrefetching = false;
-/* کاهش ترافیک هاست: عکس‌ها فقط وقتی کاربر وارد همان بخش شد لود می‌شوند و سرویس‌ورکر (push-worker.js) همان موقع در گوشی ذخیرهشان می‌کند.
-   دانلود پیشاپیش (بدون اینکه کاربر به آن بخش برود) خاموش است. برای روشن‌کردن مجدد مقدار زیر را true کنید. */
+/* کاهش ترافیک هاست: عکس‌ها فقط وقتی کاربر وارد همان بخش شد لود می‌شوند و همان موقع (بعد از نمایش) داخل خود اپ در گوشی ذخیره می‌شوند
+   (بخش «کش آفلاین عکس‌ها» پایین‌تر). دانلود پیشاپیش (بدون اینکه کاربر به آن بخش برود) خاموش است. برای روشن‌کردن مجدد مقدار زیر را true کنید. */
 var EAGER_IMAGE_PREFETCH = false;
 async function prefetchSiteImages(urls) {
   if (!EAGER_IMAGE_PREFETCH) return;
@@ -651,19 +651,134 @@ async function prefetchSiteImages(urls) {
   siteImagePrefetching = true;
   try {
     const list = Array.from(new Set(urls.map((u) => secureUrl(u)).filter(Boolean))).slice(0, 40);
-    const cache = await caches.open(SITE_MEDIA_CACHE_NAME);
-    for (const u of list) {
-      try {
-        if (await cache.match(u)) continue;
-        let res;
-        try { res = await fetch(u, { mode: 'cors' }); if (!res.ok) throw new Error('bad'); }
-        catch (e1) { res = await fetch(u, { mode: 'no-cors' }); } // سرور هدر CORS نداد؛ پاسخ مبهم برای نمایش عکس کافی است
-        if (res && (res.ok || res.type === 'opaque')) await cache.put(u, res);
-      } catch (e2) { /* این عکس ذخیره نشد؛ بقیه ادامه پیدا کنند */ }
-    }
+    for (const u of list) await arefImgStore(u, SITE_MEDIA_CACHE_NAME);
   } catch (e) { /* کش در دسترس نبود */ }
   siteImagePrefetching = false;
 }
+
+/* ---------- کش آفلاین عکس‌ها (داخل خود اپ؛ بدون سرویس‌ورکر) ----------
+ * عکس‌های پیشخوان (آپلودهای سایت) پس از اولین نمایش در کش گوشی (Cache API) ذخیره می‌شوند و دفعهٔ بعد — حتی بدون اینترنت —
+ * از همان‌جا نشان داده می‌شوند. هر <img> که به صفحه اضافه شود یا src آن عوض شود بررسی می‌شود:
+ *   ۱) اگر عکس در کش بود، src با آدرس موقت همان نسخه عوض می‌شود؛
+ *   ۲) اگر نبود و از آپلودهای همین سایت است، بعد از لود شدن در کش «عکس‌های سایت» ذخیره می‌شود.
+ * عکس‌های بیرون از سایت (مثل لوگوی شبکه‌های اجتماعی و خیرین) فقط از کش «کمک‌های مردمی» خوانده می‌شوند (ذخیره‌شان با prefetchCharity/Social...). */
+var AREF_IMG_MEMO = {};      // آدرس اصلی ← آدرس موقت (blob) نسخهٔ کش
+var AREF_IMG_MEMO_N = 0;
+var AREF_IMG_FAILED = {};    // عکس‌هایی که در همین نشست ذخیره نشدند (تلاش دوباره نکنیم)
+var AREF_IMG_BUSY = 0;
+var AREF_IMG_WAIT = [];
+function arefImgIsSiteUpload(u) {
+  try {
+    const x = new URL(u);
+    return x.hostname === new URL(DEFAULT_API_URL).hostname && x.pathname.indexOf('/wp-content/uploads/') !== -1;
+  } catch (e) { return false; }
+}
+function arefImgIsCacheable(u) {
+  if (!u || !/^https?:\/\//i.test(u)) return false;
+  try { return new URL(u).origin !== location.origin; } catch (e) { return false; }
+}
+async function arefImgCachedBlobUrl(url) {
+  if (AREF_IMG_MEMO[url]) return AREF_IMG_MEMO[url];
+  if (!window.caches) return '';
+  for (const name of [SITE_MEDIA_CACHE_NAME, CHARITY_MEDIA_CACHE_NAME]) {
+    try {
+      const c = await caches.open(name);
+      const r = await c.match(url);
+      if (!r) continue;
+      const b = await r.blob();
+      if (b && b.size > 0) {
+        const bu = URL.createObjectURL(b);
+        if (AREF_IMG_MEMO_N < 300) { AREF_IMG_MEMO[url] = bu; AREF_IMG_MEMO_N++; }
+        return bu;
+      }
+      await c.delete(url); // نسخهٔ قدیمیِ «مبهم» (بی‌محتوا) قابل نمایش نیست؛ پاک شود تا دوباره درست ذخیره شود
+    } catch (e) { /* این کش در دسترس نبود */ }
+  }
+  return '';
+}
+// دانلود از راه بومی اندروید (CapacitorHttp) وقتی سرور هدر CORS نمی‌دهد
+async function arefImgNativeFetch(url) {
+  try {
+    const Cap = window.Capacitor;
+    const H = Cap && Cap.Plugins && Cap.Plugins.CapacitorHttp;
+    if (!H || typeof H.get !== 'function') return null;
+    const r = await H.get({ url: url, responseType: 'blob' });
+    if (!r || r.status !== 200 || typeof r.data !== 'string' || !r.data) return null;
+    const bin = atob(r.data);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    const h = r.headers || {};
+    const ct = h['Content-Type'] || h['content-type'] || 'image/jpeg';
+    return new Blob([arr], { type: ct });
+  } catch (e) { return null; }
+}
+async function arefImgStoreNow(url, cacheName) {
+  try {
+    if (!window.caches || !url || AREF_IMG_FAILED[url] || navigator.onLine === false) return false;
+    const cache = await caches.open(cacheName || SITE_MEDIA_CACHE_NAME);
+    const old = await cache.match(url);
+    if (old) { const ob = await old.clone().blob(); if (ob && ob.size > 0) return true; }
+    let blob = null;
+    try {
+      const res = await fetch(url, { mode: 'cors', cache: 'force-cache' });
+      if (res && res.ok) blob = await res.blob();
+    } catch (e1) { blob = null; }
+    if (!blob || !blob.size) blob = await arefImgNativeFetch(url);
+    if (!blob || !blob.size || blob.size > 8000000 || (blob.type && !/^image\//i.test(blob.type))) { AREF_IMG_FAILED[url] = true; return false; }
+    await cache.put(url, new Response(blob, { status: 200, headers: { 'Content-Type': blob.type || 'image/jpeg' } }));
+    return true;
+  } catch (e) { return false; }
+}
+// صف ذخیره: حداکثر دو عکس هم‌زمان تا اپ کند نشود
+function arefImgStore(url, cacheName) {
+  return new Promise((resolve) => {
+    AREF_IMG_WAIT.push({ url: url, cache: cacheName, done: resolve });
+    arefImgPump();
+  });
+}
+function arefImgPump() {
+  while (AREF_IMG_BUSY < 2 && AREF_IMG_WAIT.length) {
+    const j = AREF_IMG_WAIT.shift();
+    AREF_IMG_BUSY++;
+    arefImgStoreNow(j.url, j.cache).then((ok) => { AREF_IMG_BUSY--; j.done(ok); arefImgPump(); });
+  }
+}
+function arefImgAttach(img) {
+  try {
+    const src = img.getAttribute('src');
+    if (!src || img._arefSrc === src || !arefImgIsCacheable(src)) return;
+    img._arefSrc = src;
+    arefImgCachedBlobUrl(src).then((bu) => {
+      if (bu) {
+        if (img.getAttribute('src') === src) { img._arefSrc = null; img.setAttribute('src', bu); }
+      } else if (arefImgIsSiteUpload(src)) {
+        if (img.complete && img.naturalWidth > 0) arefImgStore(src, SITE_MEDIA_CACHE_NAME);
+        else {
+          const onLoad = () => { img.removeEventListener('load', onLoad); arefImgStore(src, SITE_MEDIA_CACHE_NAME); };
+          img.addEventListener('load', onLoad);
+        }
+      }
+    });
+  } catch (e) { /* بی‌اهمیت */ }
+}
+(function arefImgInit() {
+  try {
+    if (!window.MutationObserver || !window.caches) return;
+    const scan = (n) => {
+      if (!n || n.nodeType !== 1) return;
+      if (n.tagName === 'IMG') arefImgAttach(n);
+      else if (n.querySelectorAll) n.querySelectorAll('img[src]').forEach(arefImgAttach);
+    };
+    new MutationObserver((muts) => {
+      for (let i = 0; i < muts.length; i++) {
+        const m = muts[i];
+        if (m.type === 'attributes') { if (m.target && m.target.tagName === 'IMG') arefImgAttach(m.target); }
+        else m.addedNodes.forEach(scan);
+      }
+    }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] });
+    document.querySelectorAll('img[src]').forEach(arefImgAttach);
+  } catch (e) { /* بی‌اهمیت */ }
+})();
 
 /* ---------- ناوبری تب‌ها (با پشتیبانی از برگشت دقیق و ماندگاری هنگام رفرش) ---------- */
 let currentTab = sessionStorage.getItem('arefanejam_current_tab') || 'home';
@@ -711,7 +826,7 @@ function switchToTab(tabName, opts) {
   if (tabName === 'social') loadSocialLinks();
   if (tabName === 'gallery') loadGallery();
   if (tabName === 'books') loadBooks();
-  if (tabName === 'shariq') { if (typeof shariqSetView === 'function') shariqSetView('qa'); loadShariqCategories(); }
+  if (tabName === 'shariq') { try { shariqState.bank = false; } catch (e) {} if (typeof shariqSetView === 'function') shariqSetView('qa'); loadShariqCategories(); }
   if (tabName === 'shariq-mine') loadShariqMine();
   if (tabName === 'shariq-booking') { try { bkSetView('free'); loadBooking(); } catch (e) {} }
   if (tabName === 'khatm') loadKhatmList();
@@ -846,6 +961,7 @@ function handleHardwareBack() {
       loadShariqList(null);
       return;
     }
+    if (currentTab === 'shariq' && shariqState && shariqState.bank) { shariqBankSet(false); return; }
     if (currentTab !== 'home') { goBackInApp(); return; }
     maybeConfirmExit(true);
   } catch (err) {
@@ -1579,7 +1695,7 @@ function myevSaveFromForm() {
   if (rec.alarm && !rec.time) { errEl.textContent = 'برای آلارم، ساعت را مشخص کنید.'; document.getElementById('myev-time').focus(); return; }
   const idx = myEvents.findIndex((e) => e.id === rec.id);
   if (idx >= 0) myEvents[idx] = rec; else myEvents.push(rec);
-  myevSave(); try { syncNotesToServiceWorker(getLocalNotes()); } catch (e1) {}
+  myevSave(); try { syncNoteAlarms(getLocalNotes()); } catch (e1) {}
   const len = jalaliMonthLength(jy, jm);
   const [gy, gm, gd] = jalaliToGregorian(jy, jm, Math.min(jd, len));
   selectedDate = new Date(gy, gm - 1, gd);
@@ -1847,27 +1963,21 @@ renderCalendarWidget();
 // ذخیره می‌شوند تا اگر بعداً هنگام باز شدن اپ اینترنت نبود، همچنان محاسبهٔ اوقات
 // شرعی و پخش صدای اذان با آخرین تنظیماتِ شناخته‌شده کار کند.
 const SETTINGS_CACHE_KEY = 'arefanejam_settings_cache';
-// باید دقیقاً با AZAN_OFFLINE_CACHE در push-worker.js یکی باشد؛ اسم کش آفلاینِ صدای اذان است
-// تا موقع پاک‌سازی کش‌های قدیمی، این یکی به‌اشتباه پاک نشود.
+// اسم کش آفلاینِ صدای اذان؛ باید از پاک‌سازی کش‌های قدیمی مستثنا بماند.
 const AZAN_OFFLINE_CACHE_NAME = 'arefanejam-azan-offline-v1';
 // کش جداگانهٔ فایل صوتیِ «اعلان» (پیام صوتی مدیر) برای پخش آفلاین؛ عمداً از کش اذان جدا
-// است تا جایگزینی فایل اذان این یکی را پاک نکند. باید دقیقاً با ANNOUNCEMENT_AUDIO_CACHE
-// در push-worker.js یکی باشد.
+// است تا جایگزینی فایل اذان این یکی را پاک نکند.
 const ANNOUNCEMENT_AUDIO_CACHE_NAME = 'arefanejam-announcement-audio-v1';
 const ANNOUNCEMENT_AUDIO_META_KEY = 'arefanejam_announcement_audio_meta';
-// باید دقیقاً با APP_SHELL_CACHE در push-worker.js یکی باشد؛ اسم کشِ پوستهٔ اصلی
-// اپ (HTML/CSS/JS/آیکون) است که کارکرد کامل آفلاین را ممکن می‌کند، تا موقع
-// پاک‌سازی کش‌های قدیمی، این یکی هم به‌اشتباه پاک نشود.
-const APP_SHELL_CACHE_NAME = 'arefanejam-app-shell-v4';
 // کش صوت تلاوت‌های ذخیره‌شدهٔ قرآن برای پخش آفلاین؛ باید از پاک‌سازی کش‌های قدیمی مستثنا باشد.
 const QURAN_AUDIO_CACHE_NAME = 'arefanejam-quran-audio-v1';
 // ذخیرهٔ آفلاینِ محتوای بخش «کمک‌های مردمی»: متن/کارت‌ها/لینک‌ها در localStorage و تصاویر در این کش.
-// اسم کش باید دقیقاً با CHARITY_MEDIA_CACHE در push-worker.js یکی باشد و از پاک‌سازی کش‌های قدیمی مستثنا بماند.
+// اسم کش باید از پاک‌سازی کش‌های قدیمی مستثنا بماند.
 const CHARITY_CACHE_KEY = 'arefanejam_charity_cache';
 const FOOD_ITEMS_CACHE_KEY = 'arefanejam_food_items_cache';
 const CHARITY_MEDIA_CACHE_NAME = 'arefanejam-charity-media-v1';
 // عکس‌هایی که مدیر در پیشخوان گذاشته (مکاتب، چارت، اسلایدر، گالری، ...) برای دیدن آفلاین؛
-// باید دقیقاً با SITE_MEDIA_CACHE در push-worker.js یکی باشد و از پاک‌سازی کش‌های قدیمی مستثنا بماند.
+// از پاک‌سازی کش‌های قدیمی مستثنا بماند.
 const SITE_MEDIA_CACHE_NAME = 'arefanejam-site-media-v1';
 // ویدیوهایی که کاربر یک‌بار پخش کرده؛ کامل روی گوشی می‌مانند تا دفعهٔ بعد ترافیکی مصرف نشود. از پاک‌سازی کش‌های قدیمی مستثنا بماند.
 const VIDEO_CACHE_NAME = 'arefanejam-video-cache-v1';
@@ -3944,7 +4054,7 @@ function computePrayerTimes() {
   checkPreAzanAlarm(list, now);
   scheduleNextAzanTimer(list, now);
   updateStickyNotification(upcoming);
-  syncScheduleToServiceWorker(list);
+  syncAzanSchedule(list);
   try { weatherEnsure(); } catch (e) {}
 }
 
@@ -3959,9 +4069,8 @@ let lastScheduleSyncKey = '';
 function bgModeOnSafe() {
   try { return isBgModeOn(); } catch (e) { return true; }
 }
-function syncScheduleToServiceWorker(list) {
-  const swReady = ('serviceWorker' in navigator) && !!navigator.serviceWorker.controller;
-  if (!swReady && !window.NativeAlarms) return;
+function syncAzanSchedule(list) {
+  if (!window.NativeAlarms) return;
   const s = state.settings || {};
   const NON_PRAYER_KEYS = ['sunrise', 'sunset'];
   // امروز + ۳ روز بعد، تا اگر اپ چند روز باز نشد هم اذان‌ها و یادآوری «وقت نماز» آفلاین سر وقت بیایند
@@ -4000,64 +4109,6 @@ function syncScheduleToServiceWorker(list) {
   // نسخهٔ اندروید (Capacitor): آلارم‌ها به سیستم آلارم خود اندروید سپرده می‌شوند
   if (window.NativeAlarms) window.NativeAlarms.syncSchedule(nativePrayers, enabled, s.brand_name || 'عارفان جام', voiceId, normalizeAzanUrl(s.azan_audio_url) || '', { silence: silenceOn, sitems: sitems });
   if (window.NativeAlarms && typeof window.NativeAlarms.syncPre === 'function') window.NativeAlarms.syncPre(enabled && preM > 0 ? nativePrayers.slice(0, 35) : [], preM);
-  if (!swReady) return;
-  navigator.serviceWorker.controller.postMessage({
-    type: 'AREFANEJAM_SCHEDULE_SYNC',
-    prayers,
-    audioUrl: s.azan_audio_url || '',
-    brandName: s.brand_name || 'عارفان جام',
-    enabled,
-  });
-}
-
-// وقتی سرویس‌ورکر (مثلاً بعد از لمس نوتیفیکیشن یا بیداری با Periodic Background Sync)
-// تشخیص داد الان وقت اذان است، به همین صفحه پیام می‌دهد تا صدای واقعی اذان را پخش کند.
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.addEventListener('message', (event) => {
-    const msg = event.data;
-    if (!msg) return;
-    if (msg.type === 'AREFANEJAM_PLAY_AZAN_NOW') {
-      playAzanSound(msg.prayerLabel || (state.settings && state.settings.brand_name) || '');
-      return;
-    }
-    // کاربر روی نوتیفیکیشنِ یادآوریِ یک یادداشت لمس کرده؛ همان یادداشت باز شود.
-    if (msg.type === 'AREFANEJAM_OPEN_NOTE') {
-      switchToTab('notes', { push: true });
-      const note = getLocalNotes().find((n) => n.id === msg.noteId);
-      if (note) openNoteModal(note);
-      return;
-    }
-    // یک اعلانِ صوتی رسیده: یا کاربر لمس کرده، یا (مورد اصلی) همین الان که Push رسید و
-    // اپ از قبل باز بوده (حتی در پس‌زمینه)، بدون نیاز به لمس، همین لحظه پخش می‌شود.
-    if (msg.type === 'AREFANEJAM_PLAY_ANNOUNCEMENT_AUDIO') {
-      // اگر این همان اعلانی است که قبلاً دیده/پخش شده (مثلاً پوش تکراریِ نوتیفیکیشن
-      // ثابت هر ۳۰ دقیقه، یا لمس نوتیفیکیشن روی یک صفحهٔ از قبل بازشده)، دوباره پخش نشود.
-      if (msg.announcementId) {
-        if (localStorage.getItem('arefanejam_announcement_seen') === msg.announcementId) return;
-        localStorage.setItem('arefanejam_announcement_seen', msg.announcementId);
-      }
-      playAnnouncementAudio(msg.url, true);
-      if (msg.text) {
-        showAlarmModal('اعلان جدید از دارالحفظ', msg.text, msg.link || '', 'announcement_link_clicked');
-        renderAnnouncement();
-      }
-      return;
-    }
-  });
-}
-
-/* ---------- رساندن شناسهٔ دستگاه به سرویس‌ورکر ----------
-   سرویس‌ورکر برای خواندنِ یادآوریِ یادداشت‌های همین دستگاه (وقتی با Push بیدار
-   می‌شود) به همین شناسه نیاز دارد؛ چون به localStorage دسترسی ندارد، از همین راه
-   (postMessage) در IndexedDB خودش ذخیره می‌کند. */
-function syncDeviceIdToServiceWorker(deviceId) {
-  if (!('serviceWorker' in navigator) || !navigator.serviceWorker.controller || !deviceId) return;
-  navigator.serviceWorker.controller.postMessage({ type: 'AREFANEJAM_DEVICE_ID_SYNC', deviceId });
-}
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    ensureDeviceId().then(syncDeviceIdToServiceWorker);
-  });
 }
 
 /* ---------- نوتیفیکیشن ثابت بالای گوشی: تاریخ امروز + اذان بعدی ----------
@@ -4321,25 +4372,6 @@ function checkPrayerTimeAlarm(list, now) {
   });
 }
 
-// اگر مرورگر پخش صدا را مسدود کرد (مثلاً صفحه قفل است و صدای نگه‌دارنده هنوز شروع نشده)،
-// یک نوتیفیکیشن محلی (بدون نیاز به اینترنت) با لرزش نشان داده می‌شود؛ لمس آن، اذان را
-// همان لحظه پخش می‌کند (سرویس‌ورکر پیام AREFANEJAM_PLAY_AZAN_NOW را برای همین تگ می‌فرستد).
-function showAzanFallbackNotification(prayerLabel) {
-  if (!('serviceWorker' in navigator) || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
-  navigator.serviceWorker.getRegistration('push-worker.js').then((reg) => {
-    if (!reg) return;
-    reg.showNotification((state.settings && state.settings.brand_name) || 'عارفان جام', {
-      body: 'وقت نماز ' + (prayerLabel || '') + ' است. برای پخش اذان لمس کنید.',
-      tag: 'arefanejam-azan-current',
-      renotify: true,
-      timestamp: Date.now(),
-      requireInteraction: true,
-      vibrate: [200, 100, 200, 100, 200],
-      data: { link: '', kind: 'azan', playAzan: true },
-    }).catch(() => {});
-  }).catch(() => {});
-}
-
 let currentAzanAudio = null;
 function playAzanSound(prayerLabel) {
   const s = state.settings || {};
@@ -4361,10 +4393,9 @@ function playAzanSound(prayerLabel) {
       if (usingLocal) {
         const online = new Audio(url);
         currentAzanAudio = online;
-        online.play().catch(() => { if (currentAzanAudio === online) { playAlarmSound(); showAzanFallbackNotification(prayerLabel); } });
+        online.play().catch(() => { if (currentAzanAudio === online) { playAlarmSound(); } });
       } else {
         playAlarmSound();
-        showAzanFallbackNotification(prayerLabel);
       }
     };
     const pr = audio.play();
@@ -4379,7 +4410,6 @@ function playAzanSound(prayerLabel) {
     }
   } else {
     playAlarmSound();
-    if (document.hidden) showAzanFallbackNotification(prayerLabel);
   }
   if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
   showAlarmModal('وقت نماز فرا رسید', 'وقت نماز ' + prayerLabel + ' است.');
@@ -6562,16 +6592,15 @@ function formatReminderDate(ts) {
 }
 function saveLocalNotes(notes) {
   localStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(notes));
-  syncNotesToServiceWorker(notes);
+  syncNoteAlarms(notes);
 }
 
 /* ---------- سپردن یادآوریِ یادداشت‌ها به سرویس‌ورکر (کارکرد آفلاین و با اپ بسته) ----------
    سرویس‌ورکر به localStorage دسترسی ندارد؛ پس هر بار یادداشتی ذخیره/ویرایش/حذف شود (و هر بار
    اپ باز شود)، فهرست یادداشت‌های دارای یادآوری برایش فرستاده و در IndexedDB نگه‌داری می‌شود. */
-function syncNotesToServiceWorker(notes) {
+function syncNoteAlarms(notes) {
   try {
-    const swReady = ('serviceWorker' in navigator) && !!navigator.serviceWorker.controller;
-    if (!swReady && !window.NativeAlarms) return;
+    if (!window.NativeAlarms) return;
     const list = (notes || getLocalNotes())
       .filter((n) => n && n.reminderAt)
       .map((n) => ({ id: n.id, title: n.title || '', content: n.content || '', reminderAt: n.reminderAt, reminderFired: !!n.reminderFired, snd: n.snd || 1, repeat: n.repeat || 'none',
@@ -6579,13 +6608,7 @@ function syncNotesToServiceWorker(notes) {
     try { myevAlarmList().forEach((x) => list.push(x)); } catch (e0) {}
     if (window.NativeAlarms) window.NativeAlarms.syncNotes(list);
     try { if (window.arefWidgetSync) setTimeout(window.arefWidgetSync, 300); if (window.arefNcRefresh) setTimeout(window.arefNcRefresh, 300); } catch (e2) {}
-    if (!swReady) return;
-    navigator.serviceWorker.controller.postMessage({ type: 'AREFANEJAM_NOTES_SYNC', notes: list });
   } catch (e) { /* بی‌اهمیت */ }
-}
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.addEventListener('controllerchange', () => syncNotesToServiceWorker());
-  navigator.serviceWorker.ready.then(() => syncNotesToServiceWorker()).catch(() => {});
 }
 function loadNotes() { renderNotes(getLocalNotes()); }
 
@@ -6747,7 +6770,7 @@ function checkNoteReminders() {
       } else n.reminderFired = true;
     }
   });
-  if (changed) { saveLocalNotes(notes); if (advanced) { try { syncNoteReminder(advanced); } catch (e) {} } try { syncNotesToServiceWorker(notes); } catch (e) {} }
+  if (changed) { saveLocalNotes(notes); if (advanced) { try { syncNoteReminder(advanced); } catch (e) {} } try { syncNoteAlarms(notes); } catch (e) {} }
 }
 setInterval(checkNoteReminders, 30000);
 
@@ -9274,6 +9297,15 @@ function applyMoreIconToTile(tile) {
       badge.classList.add('has-custom-icon');
       badge.classList.toggle('cicon-free', moreIconsData.shape === 'free');
       badge.style.setProperty('background-image', 'url("' + url + '")', 'important');
+      try {
+        const fullUrl = String(secureUrl(raw));
+        if (arefImgIsCacheable(fullUrl)) {
+          arefImgCachedBlobUrl(fullUrl).then((bu) => {
+            if (bu) { if (badge.classList.contains('has-custom-icon')) badge.style.setProperty('background-image', 'url("' + bu + '")', 'important'); }
+            else if (arefImgIsSiteUpload(fullUrl)) arefImgStore(fullUrl, SITE_MEDIA_CACHE_NAME);
+          });
+        }
+      } catch (e2) {}
     } else if (badge.classList.contains('has-custom-icon')) {
       badge.classList.remove('has-custom-icon', 'cicon-free');
       badge.style.removeProperty('background-image');
@@ -10247,19 +10279,7 @@ async function prefetchCharityMediaForOffline(c) {
     // تصاویری که دیگر در صفحه نیستند از کش حذف شوند تا حافظه بی‌جهت پر نشود
     const existing = await cache.keys();
     await Promise.all(existing.filter((r) => unique.indexOf(r.url) === -1 && (window.__socialIconUrls || []).indexOf(r.url) === -1).map((r) => cache.delete(r)));
-    for (const u of unique) {
-      if (await cache.match(u)) continue;
-      try {
-        let res;
-        try {
-          res = await fetch(u, { mode: 'cors' });
-          if (!res.ok) throw new Error('bad');
-        } catch (e1) {
-          res = await fetch(u, { mode: 'no-cors' }); // سرور هدر CORS نداد؛ پاسخ مبهم هم برای نمایش تصویر کافی است
-        }
-        if (res && (res.ok || res.type === 'opaque')) await cache.put(u, res);
-      } catch (e2) { /* این تصویر ذخیره نشد؛ بقیه ادامه پیدا کنند */ }
-    }
+    for (const u of unique) await arefImgStore(u, CHARITY_MEDIA_CACHE_NAME); // اگر قبلاً ذخیره شده باشد دوباره دانلود نمی‌شود
   } catch (e) { /* کش در دسترس نبود */ }
 }
 let charityRefreshing = null;
@@ -10710,15 +10730,7 @@ async function prefetchSocialIconsForOffline(links) {
   window.__socialIconUrls = urls;
   try {
     const cache = await caches.open(CHARITY_MEDIA_CACHE_NAME);
-    for (const u of urls) {
-      if (await cache.match(u)) continue;
-      try {
-        let res;
-        try { res = await fetch(u, { mode: 'cors' }); if (!res.ok) throw new Error('bad'); }
-        catch (e1) { res = await fetch(u, { mode: 'no-cors' }); }
-        if (res && (res.ok || res.type === 'opaque')) await cache.put(u, res);
-      } catch (e2) { /* این لوگو ذخیره نشد؛ بقیه ادامه پیدا کنند */ }
-    }
+    for (const u of urls) await arefImgStore(u, CHARITY_MEDIA_CACHE_NAME);
   } catch (e) { /* کش در دسترس نبود */ }
 }
 async function loadSocialLinks() {
@@ -11087,7 +11099,7 @@ async function loadBooks() {
 }
 
 /* ---------- سوالات شرعی ---------- */
-const shariqState = { categories: [], activeCategory: null, list: [], q: '' };
+const shariqState = { categories: [], activeCategory: null, list: [], q: '', bank: false };
 
 function shariqIconMarkup(s) {
   if (s.nav_icon_image) return `<img src="${secureUrl(s.nav_icon_image)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
@@ -11234,11 +11246,9 @@ async function loadShariqCategories() {
     shariqCacheSet('cats', shariqState.categories);
   } catch (e) { shariqState.categories = shariqAsArray(shariqCacheGet('cats')); }
 
-  const SQ_ICONS = ['🕌', '📿', '🧼', '🌙', '💰', '🤝', '📖', '🕋', '⚖️', '🍽️', '👨‍👩‍👧', '🛍️'];
-  const total = shariqState.categories.reduce((a, c) => a + (Number(c.count) || 0), 0);
   const allChip = document.createElement('button');
   allChip.className = 'shariq-chip shariq-tile active';
-  allChip.innerHTML = '<span class="sq-ic">🗂️</span><span class="sq-nm">همه</span><span class="sq-ct">' + toPersianDigits(total) + '</span>';
+  allChip.innerHTML = '<span class="sq-nm">همه</span>';
   allChip.style.animationDelay = '0s';
   allChip.addEventListener('click', () => selectShariqCategory(null, allChip));
   row.appendChild(allChip);
@@ -11247,7 +11257,7 @@ async function loadShariqCategories() {
     const chip = document.createElement('button');
     chip.className = 'shariq-chip shariq-tile sq-c' + (i % 6);
     chip.style.animationDelay = `${(i + 1) * 0.05}s`;
-    chip.innerHTML = '<span class="sq-ic">' + SQ_ICONS[i % SQ_ICONS.length] + '</span><span class="sq-nm">' + shariqEsc(c.name) + '</span><span class="sq-ct">' + toPersianDigits(c.count) + '</span>';
+    chip.innerHTML = '<span class="sq-nm">' + shariqEsc(c.name) + '</span>';
     chip.addEventListener('click', () => selectShariqCategory(c.id, chip));
     row.appendChild(chip);
   });
@@ -11657,6 +11667,23 @@ async function bkSubmit() {
   });
 })();
 
+/* ---------- بانک سوال ----------
+   در «پرسش و پاسخ» اول فقط دکمهٔ «بانک سوال» دیده می‌شود؛ با زدن آن، دسته‌ها (فقط با عنوان) و سوال‌ها باز می‌شوند. */
+function shariqBankApply() {
+  const fatwa = shariqState.view === 'fatwa';
+  const open = !!shariqState.bank && !fatwa;
+  const btn = document.getElementById('shariq-bank-btn'), wrap = document.getElementById('shariq-bank-wrap');
+  if (btn) btn.classList.toggle('hidden', fatwa || open);
+  if (wrap) wrap.classList.toggle('hidden', !open);
+}
+function shariqBankSet(open) {
+  shariqState.bank = !!open;
+  shariqBankApply();
+  try { window.scrollTo(0, 0); const m = document.querySelector('main'); if (m) m.scrollTop = 0; } catch (e) {}
+}
+document.getElementById('shariq-bank-btn').addEventListener('click', () => shariqBankSet(true));
+document.getElementById('shariq-bank-back').addEventListener('click', () => shariqBankSet(false));
+
 /* ---------- فتوا (تب کنار «پرسش و پاسخ») ---------- */
 function shariqSetView(v) {
   const fatwa = v === 'fatwa';
@@ -11667,6 +11694,7 @@ function shariqSetView(v) {
   const cats = document.getElementById('shariq-cats-row'), list = document.getElementById('shariq-list-content'), fat = document.getElementById('shariq-fatwa-content');
   if (cats) cats.classList.toggle('hidden', fatwa);
   if (list) list.classList.toggle('hidden', fatwa);
+  shariqBankApply();
   if (fat) fat.classList.toggle('hidden', !fatwa);
   const fcats = document.getElementById('shariq-fatwa-cats'); if (fcats) fcats.classList.toggle('hidden', !fatwa);
   if (fatwa) loadShariqFatwas();
@@ -14128,7 +14156,6 @@ async function sendHeartbeat() {
   apiFetch('/heartbeat', { method: 'POST', body: JSON.stringify(hbBody) }).then((r) => {
     try { if (r && r.fu && r.fu.id) fuShow(r.fu); } catch (e) {}
   }).catch(() => {});
-  syncDeviceIdToServiceWorker(device_id);
   try { pvFlush(); } catch (e) {}
 }
 sendHeartbeat();
@@ -14178,31 +14205,6 @@ document.getElementById('onboarding-location-later-btn').addEventListener('click
   document.getElementById('onboarding-location-modal').classList.add('hidden');
 });
 
-/* ---------- ثبت زودهنگام سرویس‌ورکر، مستقل از نوتیفیکیشن ----------
-   قبلاً push-worker.js (که کش‌کردن فایل صوتی اذان برای پخش آفلاین را انجام می‌دهد)
-   فقط وقتی ثبت می‌شد که کاربر نوتیفیکیشن را فعال می‌کرد؛ یعنی کاربرانی که هیچ‌وقت
-   نوتیفیکیشن را روشن نمی‌کردند، اصلاً کش آفلاینی برای اذان نداشتند. حالا مستقل از
-   نوتیفیکیشن و بدون نیاز به اجازهٔ کاربر، همان اول بازشدنِ اپ ثبت می‌شود تا کش آفلاین
-   اذان برای همهٔ کاربران کار کند. */
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('push-worker.js').then((reg) => {
-    // هر بار اپ باز می‌شود، فوراً از سرور می‌پرسد که آیا نسخهٔ تازه‌تری از سرویس‌ورکر
-    // (push-worker.js) هست یا نه؛ به این ترتیب هر آپدیتی حداکثر با یک بار باز کردن
-    // اپ روی گوشی اعمال می‌شود، نه با تا ۲۴ ساعت تأخیرِ پیش‌فرض مرورگر.
-    reg.update().catch(() => {});
-    // ثبت Periodic Background Sync: لایهٔ یدکیِ هشدار اذان وقتی اپ کاملاً بسته است.
-    // فقط در کروم/اندروید (و فقط برای اپ نصب‌شده روی گوشی) در دسترس است؛ در بقیهٔ
-    // مرورگرها (از جمله سافاری) بی‌سروصدا نادیده گرفته می‌شود.
-    if (reg && 'periodicSync' in reg) {
-      reg.periodicSync.register('arefanejam-azan-check', { minInterval: 20 * 60 * 1000 }).catch(() => {});
-    } else if (reg && 'sync' in reg) {
-      // یدکِ یدک: اگر Periodic Sync نبود ولی Background Sync معمولی بود، حداقل
-      // با هر بار وصل‌شدن دوبارهٔ اینترنت یک چک انجام می‌شود.
-      reg.sync.register('arefanejam-azan-check').catch(() => {});
-    }
-  }).catch(() => {});
-}
-
 /* ---------- راه‌اندازی اولیه ---------- */
 document.getElementById('settings-api-url').value = state.apiUrl;
 switchToTab(currentTab);
@@ -14223,69 +14225,19 @@ document.addEventListener('visibilitychange', () => {
   else checkEidCelebration({ resume: true });
 });
 
-if ('serviceWorker' in navigator) {
-  // فقط سرویس‌ورکرهای قدیمیِ غیرمرتبط با نوتیفیکیشن پاک می‌شوند
-  // (push-worker.js را دست نمی‌زنیم چون خود اپ برای اعلان‌های واقعی و کش آفلاین اذان به آن نیاز دارد).
-  navigator.serviceWorker.getRegistrations().then((regs) => {
-    regs.forEach((reg) => {
-      const url = (reg.active && reg.active.scriptURL) || (reg.installing && reg.installing.scriptURL) || (reg.waiting && reg.waiting.scriptURL) || '';
-      if (!url.includes('push-worker.js')) reg.unregister();
-    });
-  });
-  if (window.caches) {
-    // کش‌های «پخش آفلاین اذان» و «پوستهٔ اصلی اپ» حذف نشوند؛ قبلاً این خط با هر بار
-    // باز شدن اپ همهٔ کش‌ها را پاک می‌کرد و در نتیجه چیزی برای کارکرد آفلاین باقی نمی‌ماند.
-    caches.keys().then((keys) => keys.forEach((k) => {
-      if (k !== AZAN_OFFLINE_CACHE_NAME && k !== APP_SHELL_CACHE_NAME && k !== QURAN_AUDIO_CACHE_NAME && k !== ANNOUNCEMENT_AUDIO_CACHE_NAME && k !== CHARITY_MEDIA_CACHE_NAME && k !== SITE_MEDIA_CACHE_NAME && k !== API_MIRROR_CACHE_NAME && k !== EID_AUDIO_CACHE_NAME && k !== VIDEO_CACHE_NAME) caches.delete(k);
-    }));
+/* ---------- پاک‌سازی بقایای سرویس‌ورکر قدیمی ----------
+   اپ دیگر هیچ سرویس‌ورکری ندارد (نه کش، نه اعلان، نه پوش). نسخه‌های قبلی ممکن است یکی روی گوشی ثبت کرده باشند؛
+   اینجا همهٔ آن‌ها برداشته می‌شوند. کش‌های بی‌استفاده (مثل پوستهٔ قدیمی اپ) هم پاک می‌شوند؛ کش‌های داده‌ای که اپ خودش مدیریت می‌کند می‌مانند. */
+try {
+  if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistrations) {
+    navigator.serviceWorker.getRegistrations().then((regs) => { regs.forEach((reg) => { try { reg.unregister(); } catch (e) {} }); }).catch(() => {});
   }
+} catch (e) {}
+if (window.caches) {
+  caches.keys().then((keys) => keys.forEach((k) => {
+    if (k !== AZAN_OFFLINE_CACHE_NAME && k !== QURAN_AUDIO_CACHE_NAME && k !== ANNOUNCEMENT_AUDIO_CACHE_NAME && k !== CHARITY_MEDIA_CACHE_NAME && k !== SITE_MEDIA_CACHE_NAME && k !== API_MIRROR_CACHE_NAME && k !== EID_AUDIO_CACHE_NAME && k !== VIDEO_CACHE_NAME) caches.delete(k);
+  })).catch(() => {});
 }
-
-
-/* ---------- پاک‌سازی اعلان‌های قدیمیِ اذان/نماز ----------
-   فقط اعلانِ همان وقت باید در نوار اعلانات بماند. سرویس‌ورکر خودش قدیمی‌ها را
-   می‌بندد؛ اینجا هم هنگام باز شدن اپ / برگشت به آن یک بار از او می‌خواهیم
-   (بدون هیچ اینترنتی کار می‌کند). */
-function clearStaleAzanNotifications() {
-  try {
-    if (!('serviceWorker' in navigator)) return;
-    navigator.serviceWorker.getRegistration('push-worker.js').then((reg) => {
-      const w = reg && (reg.active || navigator.serviceWorker.controller);
-      if (w) w.postMessage({ type: 'AREFANEJAM_CLEAR_STALE_AZAN' });
-    }).catch(() => {});
-  } catch (e) {}
-}
-clearStaleAzanNotifications();
-setTimeout(clearStaleAzanNotifications, 4000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) clearStaleAzanNotifications(); });
-window.addEventListener('focus', clearStaleAzanNotifications);
-setInterval(clearStaleAzanNotifications, 5 * 60 * 1000);
-
-
-/* ---------- باز شدن اپ با لمس اعلان اذان ----------
-   وقتی اپ کاملاً بسته بود و کاربر اعلان اذان را لمس کرد، سرویس‌ورکر اپ را با
-   ?azan=<نماز>&at=<زمان> باز می‌کند؛ پیام مستقیم ممکن است پیش از آماده‌شدن صفحه گم شود.
-   اینجا صبر می‌کنیم تنظیمات (حتی از کش آفلاین) بیاید و سپس اذان پخش می‌شود. */
-(function playAzanFromLaunchLink() {
-  let label = '', at = 0;
-  try {
-    const q = new URLSearchParams(location.search);
-    if (!q.has('azan')) return;
-    label = q.get('azan') || '';
-    at = Number(q.get('at') || 0);
-    history.replaceState(null, '', location.pathname + location.hash);
-  } catch (e) { return; }
-  if (at && Date.now() - at > 30 * 60000) return; // قدیمی است؛ دیگر پخش نشود
-  let tries = 0;
-  const timer = setInterval(() => {
-    tries++;
-    const s = state.settings || {};
-    if (s.azan_audio_url !== undefined || tries > 12) {
-      clearInterval(timer);
-      playAzanSound(label);
-    }
-  }, 500);
-})();
 
 /* ===================== مصحف صفحه‌ای =====================
    قرآن را مثل مصحف چاپی (۶۰۴ صفحه) نشان می‌دهد: هر بار فقط یک صفحه، با نوار بالای «جزء / شمارهٔ صفحه / سوره»،

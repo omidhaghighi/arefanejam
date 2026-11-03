@@ -5816,11 +5816,12 @@ body.qcf-fs #mini-player { display: none !important; }
 
 /* ===== سوالات شرعی: دسته‌ها به‌صورت کاشی + جستجو ===== */
 #shariq-cats-row.shariq-cats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;overflow:visible;padding:6px 14px 12px;flex-wrap:wrap}
-.shariq-chip.shariq-tile{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:84px;padding:12px 6px 10px;border-radius:18px;border:0;color:#fff;text-align:center;white-space:normal;box-shadow:0 6px 14px rgba(0,0,0,.14);background:linear-gradient(145deg,#1f6f63,#0f3f38);overflow:hidden}
+.shariq-chip.shariq-tile{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:58px;padding:10px 6px;border-radius:18px;border:0;color:#fff;text-align:center;white-space:normal;box-shadow:0 6px 14px rgba(0,0,0,.14);background:linear-gradient(145deg,#1f6f63,#0f3f38);overflow:hidden}
 .shariq-tile::after{content:"";position:absolute;width:70px;height:70px;border-radius:50%;background:rgba(255,255,255,.12);top:-26px;left:-22px}
-.shariq-tile .sq-ic{font-size:26px;line-height:1;filter:drop-shadow(0 2px 2px rgba(0,0,0,.25))}
-.shariq-tile .sq-nm{font-size:12.5px;font-weight:700;line-height:1.5}
-.shariq-tile .sq-ct{position:absolute;top:6px;right:8px;min-width:20px;padding:1px 6px;border-radius:999px;background:rgba(255,255,255,.25);font-size:10.5px}
+.shariq-tile .sq-nm{font-size:13.5px;font-weight:700;line-height:1.5}
+/* بانک سوال: دکمهٔ ورود + سربرگ بازگشت (کاشی‌های دسته فقط عنوان دارند، بدون آیکون و شمارنده) */
+.shariq-bank-head{display:flex;align-items:center;gap:10px;padding:2px 18px 10px}
+.shariq-bank-head b{font-family:var(--font-callig,inherit);font-size:17px;font-weight:700}
 .shariq-tile.sq-c0{background:linear-gradient(145deg,#2b7a6b,#124a41)}
 .shariq-tile.sq-c1{background:linear-gradient(145deg,#7b5ea7,#463066)}
 .shariq-tile.sq-c2{background:linear-gradient(145deg,#c9822b,#8a4f12)}

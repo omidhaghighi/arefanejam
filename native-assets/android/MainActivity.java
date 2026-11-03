@@ -90,14 +90,17 @@ public class MainActivity extends BridgeActivity {
         } catch (Throwable ignore) { nativeIntroOn = false; }
     }
 
-    private void startIntroPlayer(Surface surface) {
+    // پخش‌کننده از همان ابتدای onCreate (قبل از بالا آمدن وب‌ویو) آماده‌سازی می‌شود تا وقتی صفحه رسم شد کلیپ بدون مکث شروع شود
+    private Surface introSurface = null;
+    private boolean introPrepared = false;
+
+    private void prewarmIntro() {
         try {
             if (introPlayer != null) return;
             MediaPlayer mp = new MediaPlayer();
             introPlayer = mp;
             AssetFileDescriptor afd = getAssets().openFd("public/intro/intro.mp4");
             try { mp.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength()); } finally { try { afd.close(); } catch (Throwable ignore) { } }
-            mp.setSurface(surface);
             mp.setVolume(0f, 0f);
             mp.setLooping(false);
             mp.setOnVideoSizeChangedListener(new MediaPlayer.OnVideoSizeChangedListener() {
@@ -120,12 +123,39 @@ public class MainActivity extends BridgeActivity {
             });
             mp.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
                 @Override public void onPrepared(MediaPlayer p) {
-                    try { vidW = p.getVideoWidth(); vidH = p.getVideoHeight(); fitIntro(); p.start(); introPlaying = true; } catch (Throwable ignore) { }
+                    try { vidW = p.getVideoWidth(); vidH = p.getVideoHeight(); } catch (Throwable ignore) { }
+                    introPrepared = true;
+                    tryStartIntro();
                 }
             });
             mp.prepareAsync();
         } catch (Throwable t) {
-            nativeIntroOn = false; introClipDone = true;   // نشد: صفحه خودش کلیپ را پخش می‌کند (اگر هنوز نپرسیده) و لایه با آن برداشته می‌شود
+            introPlayer = null;
+        }
+    }
+
+    /** هم کلیپ آماده است و هم سطح نمایش (TextureView) وجود دارد؟ پس پخش شروع شود. */
+    private void tryStartIntro() {
+        try {
+            MediaPlayer mp = introPlayer;
+            Surface sf = introSurface;
+            if (mp == null || sf == null || !introPrepared || introPlaying) return;
+            fitIntro();
+            mp.start();
+            introPlaying = true;
+        } catch (Throwable ignore) { }
+    }
+
+    private void startIntroPlayer(Surface surface) {
+        try {
+            introSurface = surface;
+            if (introPlayer == null) prewarmIntro();   // اگر آماده‌سازی زودهنگام نشده بود، همین حالا
+            MediaPlayer mp = introPlayer;
+            if (mp == null) { nativeIntroOn = false; introClipDone = true; return; }  // نشد: صفحه خودش کلیپ را پخش می‌کند
+            mp.setSurface(surface);
+            tryStartIntro();
+        } catch (Throwable t) {
+            nativeIntroOn = false; introClipDone = true;
         }
     }
 
@@ -174,7 +204,7 @@ public class MainActivity extends BridgeActivity {
         nativeIntroOn = false;
         try { splashHandler.removeCallbacks(splashTimeout); } catch (Throwable ignore) { }
         try { if (introPlayer != null) { introPlayer.release(); introPlayer = null; } } catch (Throwable ignore) { }
-        introTv = null; introFrame = null; introPlaying = false;
+        introTv = null; introFrame = null; introPlaying = false; introPrepared = false; introSurface = null;
         if (root == null) return;
         try {
             if (root.getParent() instanceof ViewGroup) ((ViewGroup) root.getParent()).removeView(root);
@@ -198,6 +228,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         current = this;
+        if (savedInstanceState == null) prewarmIntro();   // کلیپ از همین لحظه آماده می‌شود، موازی با بالا آمدن وب‌ویو
         registerPlugin(AppUpdaterPlugin.class);
         registerPlugin(ArefHubPlugin.class);
         // بروزرسانی ظاهر اپ از سایت: قبل از بالا آمدن Capacitor نسخهٔ آماده فعال یا نسخهٔ خراب برگردانده می‌شود
