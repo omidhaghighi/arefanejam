@@ -839,6 +839,8 @@ function switchToTab(tabName, opts) {
   if (tabName === 'settings') { try { settingsOnTabOpen(); } catch (e) {} }
   if (tabName === 'settings') { try { window.arefWidgetsRender && window.arefWidgetsRender(); } catch (e) {} }
   if (tabName === 'students') { try { window.stuOnTabOpen(); } catch (e) {} }
+  if (tabName === 'people-safir') { try { window.pplSafirOpen(); } catch (e) {} }
+  if (tabName === 'people-inquiry') { try { window.pplInqOpen(); } catch (e) {} } else { try { window.pplInqStop && window.pplInqStop(); } catch (e) {} }
   // مکاتب: بارگذاری داده همین‌جا انجام می‌شود (نه فقط با کلیک کاشی «بیشتر»)، تا از منوی پایین هم کامل باز شود
   if (tabName === 'mokatib-public') { try { loadMokatibPublicTree(); } catch (e) {} }
   if (tabName === 'mokatib-home') { try { loadMokatibHome(); } catch (e) {} }
@@ -13136,7 +13138,7 @@ async function loadDhikrList() {
       card.dataset.arabic = d.arabic_text || '';
       card.dataset.virtue = d.virtue || '';
       card.dataset.target = d.target_count || 33;
-      card.innerHTML = `<span class="dhikr-card-icon">${DHIKR_ICONS[idx % DHIKR_ICONS.length]}</span><span class="dhikr-card-title">${d.title}</span>`;
+      card.innerHTML = `<span class="dhikr-card-icon">${DHIKR_ICONS[idx % DHIKR_ICONS.length]}</span><span class="dhikr-card-title">${shariqEsc(d.title)}</span>`;
       wrap.appendChild(card);
     });
   } catch (e) { /* ignore */ }
@@ -13883,7 +13885,7 @@ function renderMokatibTree(parentId, listElId) {
   children.forEach((m) => {
     const row = document.createElement('div');
     row.className = 'city-row';
-    row.innerHTML = `<strong>${m.name}</strong>${m.imam_name ? ' — ' + mkRoleLabel(m) + ': ' + m.imam_name : ''}`;
+    row.innerHTML = `<strong>${shariqEsc(m.name)}</strong>${m.imam_name ? ' — ' + mkRoleLabel(m) + ': ' + shariqEsc(m.imam_name) : ''}`;
     row.addEventListener('click', () => openMokatibMosque(m.id));
     el.appendChild(row);
   });
@@ -16584,6 +16586,7 @@ bnrLoad();
       $('stu-login').classList.toggle('hidden', which !== 'login');
       const rg = $('stu-reg'); if (rg) rg.classList.toggle('hidden', which !== 'reg');
       $('stu-main').classList.toggle('hidden', which !== 'main');
+      const gt = $('stu-gate'); if (gt) gt.classList.toggle('hidden', which !== 'login'); const fp = $('fk-pending'); if (fp && which !== 'login') fp.classList.add('hidden');
     }
     function stuForceLogout(msg) {
       setToken(''); S.me = null; S.users = []; S.viewId = null;
@@ -16601,7 +16604,7 @@ bnrLoad();
         setToken(d.token); S.me = d.me; S.viewId = null;
         $('stu-password').value = '';
         await stuRefreshUsers();
-        showOnly('main'); stuRender();
+        showOnly('main'); fkEntry();
       } catch (e) { err.textContent = e.message || 'ورود انجام نشد.'; }
       btn.disabled = false;
     }
@@ -16626,11 +16629,12 @@ bnrLoad();
       loadSettings();
       if (!S.token) { showOnly('login'); return; }
       showOnly('main');
-      if (S.me) stuRender(); else $('stu-main').innerHTML = '<p class="muted-text small center-block">در حال بارگذاری…</p>';
+      if (S.me) fkShowMenu(); else $('stu-main').innerHTML = '<p class="muted-text small center-block">در حال بارگذاری…</p>';
       try {
+        const first = !S.me;
         await stuRefreshAll();
         if (S.viewId && !findUser(S.viewId)) S.viewId = null;
-        stuRender();
+        if (first) fkShowMenu();
       } catch (e) {
         if (!S.token) return;
         if (!S.me) { $('stu-main').innerHTML = '<p class="error-text center-block">' + esc(e.message) + '</p><div class="center-block"><button class="ghost-btn" id="stu-retry">تلاش دوباره</button></div>'; const r = $('stu-retry'); if (r) r.onclick = window.stuOnTabOpen; }
@@ -16675,6 +16679,7 @@ bnrLoad();
       const u = isMe ? S.me : (findUser(S.viewId) || S.me);
       const meView = u.id === S.me.id;
       let h = '';
+      if (meView) h += '<div class="stu-topbar"><button type="button" class="ghost-btn small-btn" data-stu="sv-fk-menu">‹ منوی اصلی</button></div>';
       if (!meView) {
         const par = findUser(u.parent_id);
         h += '<div class="stu-topbar"><button type="button" class="ghost-btn small-btn" data-stu="up">‹ ' + esc(par ? par.full_name : 'بازگشت') + '</button></div>';
@@ -17199,7 +17204,7 @@ bnrLoad();
       if (inRoles(['head', 'manager', 'deputy', 'driver'])) add('sv-bus', '🚌', 'سرویس مدرسه', r === 'driver' ? 'دانش‌آموزان من و اعلان به اولیا' : 'تخصیص دانش‌آموز به راننده');
       if (inRoles(['head', 'manager', 'deputy'])) add('sv-an', '📢', 'اعلان به همهٔ اولیا', 'یک پیام عمومی از طرف مدرسه');
       if (r !== 'janitor') add('sv-tk', '🎫', 'تیکت‌ها', r === 'head' || r === 'manager' ? 'پیام به همه و پاسخ به پیام‌ها' : 'پیام به مدیر');
-      svShell('🏫 خدمات مدرسه', 'cancel', '<div class="sv-menu">' + items.join('') + '</div>');
+      svShell('🏫 خدمات مدرسه', 'sv-fk-menu', '<div class="sv-menu">' + items.join('') + '</div>');
       stuFetch('/tickets/list', {}).then((d) => {
         const b = $('sv-b-sv-tk');
         if (b && d.unread) { b.textContent = fa(d.unread); b.classList.remove('hidden'); }
@@ -17866,6 +17871,435 @@ bnrLoad();
       else if (act === 'open') { S.viewId = parseInt(t.getAttribute('data-id'), 10) || null; stuRender(); }
       else if (act === 'up') { S.viewId = (cur.parent_id && cur.parent_id !== S.me.id && findUser(cur.parent_id)) ? cur.parent_id : null; stuRender(); }
     });
+
+    /* =====================================================================
+       منوی اصلی بخش دانش‌آموزان + امکانات تکمیلی مدرسه
+       (برنامه هفتگی، حضور و غیاب، اطلاعیه‌ها، امتیازات، کارنامه، نمودار پیشرفت، کلاس آنلاین، آزمون آنلاین)
+       - قبل از ورود: همین منو با توضیح هر بخش دیده می‌شود (#stu-gate)؛ با انتخاب یک بخش، بعد از ورود مستقیم وارد همان بخش می‌شود.
+       - بعد از ورود: منو اولین صفحه است؛ «حساب من و کاربران» همان صفحهٔ قبلی (سلسله‌مراتب) و «خدمات مدرسه» همان منوی قبلی است.
+       - سرور: includes/class-school-plus.php (مسیرهای /sp/...). صفحه‌ها با svShell/SVA ساخته می‌شوند تا دسترسی و ظاهر یکسان بماند.
+       ===================================================================== */
+    const FK = { cls: 0, range: 'month', ptSid: 0, cardSid: 0, cardDays: 0, pgSid: 0, pending: '' };
+    const FK_DAYS = ['شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنجشنبه', 'جمعه'];
+    const FK_TILES = [
+      { k: 'sched', ic: '📅', c: '#2f7df6', bg: '#e3f0ff', t: 'برنامه هفتگی', s: 'مدیریت و مشاهده برنامه کلاسی',
+        d: 'با این امکان برنامهٔ هفتگی کلاس‌ها را دقیق و منظم مدیریت کنید. مدیر و معاون برنامهٔ هر کلاس را تنظیم می‌کنند و دانش‌آموزان و معلمان هم به‌راحتی به آن دسترسی دارند. این بخش درس‌ها، ساعت برگزاری و نام معلم را نشان می‌دهد.' },
+      { k: 'att', ic: '📋', c: '#1e9e63', bg: '#e1f5ea', t: 'حضور و غیاب', s: 'ثبت دقیق و سریع حضور و غیاب',
+        d: 'معلمان و مدیران حضور، غیبت و تأخیر دانش‌آموزان را آنلاین و در لحظه ثبت می‌کنند. گزارش وضعیت حضور هر دانش‌آموز قابل مشاهده است و غیبت‌ها به «موجه» و «غیرموجه» تقسیم می‌شوند. اولیا از هر ثبت باخبر می‌شوند.' },
+      { k: 'notice', ic: '📣', c: '#e8920c', bg: '#fff0d6', t: 'اطلاعیه‌ها', s: 'ارسال و دریافت اطلاعیه‌ها',
+        d: 'مدیران، معاونان و معلمان اطلاعیه‌ها و پیام‌های مهم مدرسه را برای دانش‌آموزان و والدین منتشر می‌کنند؛ از تغییرات برنامه تا رویدادها و موارد انضباطی. همهٔ کاربران بلافاصله مطلع می‌شوند و اولیا اعلان دریافت می‌کنند.' },
+      { k: 'points', ic: '🏅', c: '#d6384f', bg: '#fde2e7', t: 'امتیازات', s: 'ثبت و مدیریت امتیازات',
+        d: 'معلمان و مدیران برای عملکرد تحصیلی، انضباط و فعالیت‌های فوق‌برنامه به دانش‌آموزان امتیاز (مثبت یا منفی) می‌دهند. امتیازات برای مدیر، معاون، معلم، دانش‌آموز و والدین قابل مشاهده است و بر اساس هفته، ماه و ترم گزارش‌گیری می‌شود.' },
+      { k: 'card', ic: '📊', c: '#0aa5c0', bg: '#dff5f9', t: 'کارنامه', s: 'صدور و مشاهده کارنامه',
+        d: 'کارنامهٔ تحصیلی از روی نمره‌هایی که معلمان ثبت کرده‌اند خودکار ساخته می‌شود: میانگین هر درس، معدل کل، وضعیت حضور و غیاب، امتیازات و آزمون‌ها. کارنامه قابل چاپ است و والدین هم می‌توانند آن را ببینند.' },
+      { k: 'progress', ic: '📈', c: '#8a4fd1', bg: '#efe3fa', t: 'نمودار پیشرفت', s: 'مشاهده نمودار پیشرفت تحصیلی',
+        d: 'نمودار پیشرفت تحصیلی هر دانش‌آموز را ماه‌به‌ماه نشان می‌دهد. تحلیل خودکار روند نمره‌ها، نقاط قوت و ضعف و وضعیت حضور به مدیر، معلم و والدین کمک می‌کند افت یا پیشرفت را زود تشخیص دهند.' },
+      { k: 'live', ic: '🖥️', c: '#4553c4', bg: '#e4e7f8', t: 'کلاس آنلاین', s: 'برگزاری کلاس‌های آنلاین',
+        d: 'معلمان جلسهٔ کلاس آنلاین زمان‌بندی می‌کنند؛ دانش‌آموزان با یک لمس وارد اتاق ویدیویی می‌شوند و فایل‌ها و لینک‌های آموزشی هر جلسه کنار آن است. اولیا هم از زمان برگزاری باخبر می‌شوند.' },
+      { k: 'exam', ic: '📝', c: '#f08a00', bg: '#fff3d1', t: 'آزمون آنلاین', s: 'برگزاری آزمون‌های آنلاین',
+        d: 'معلمان آزمون تستی از بانک سؤال می‌سازند؛ دانش‌آموزان در زمان مشخص آنلاین شرکت می‌کنند و پاسخ‌ها خودکار تصحیح می‌شود. نتیجه و آمار آزمون برای معلم و مدیر و نمرهٔ هر دانش‌آموز برای خودش و اولیا قابل مشاهده است.' },
+    ];
+    const FK_ROLE_CARDS = [
+      { t: 'مدیر', f: ['مشاهدهٔ آزمون‌های برگزارشده و نتایج', 'بانک سؤال و ساخت آزمون', 'گزارش حضور و غیاب', 'تعیین برنامهٔ هفتگی کلاس‌ها', 'ارسال اطلاعیه به دانش‌آموزان و اولیا', 'کارنامه، امتیازات و نمودار پیشرفت'] },
+      { t: 'معاون', f: ['مشاهدهٔ آزمون‌ها و گزارش‌ها', 'ثبت حضور و غیاب و نمره', 'تعیین برنامهٔ هفتگی کلاس‌ها', 'ارسال اطلاعیه به اولیا', 'ثبت امتیاز و موارد انضباطی', 'کارنامه و نمودار پیشرفت'] },
+      { t: 'معلم', f: ['برگزاری آزمون و کلاس آنلاین', 'ثبت حضور و غیاب دانش‌آموزان', 'ثبت نمره و امتیاز', 'ارسال اطلاعیه به کلاس و اولیا', 'گزارش نمرات و روند پیشرفت', 'مشاهدهٔ برنامهٔ هفتگی'] },
+      { t: 'دانش‌آموز', f: ['ورود به کلاس‌های آنلاین', 'شرکت در آزمون‌های آنلاین', 'مشاهدهٔ حضور و غیاب و امتیازات', 'دریافت کارنامه تحصیلی', 'نمودار پیشرفت و تحلیل روند', 'مشاهدهٔ برنامهٔ هفتگی و اطلاعیه‌ها'] },
+      { t: 'ولی / سرپرست', f: ['مشاهدهٔ وضعیت درسی فرزند', 'اعلان حضور و غیاب، نمره و امتیاز', 'کارنامه و نمودار پیشرفت فرزند', 'اطلاعیه‌ها و برنامهٔ هفتگی', 'شهریه و سرویس مدرسه'] },
+    ];
+    const fkTile = (t, attr) => '<button type="button" class="fk-tile" ' + attr + '="' + t.k + '"><span class="fk-ic" style="background:' + t.bg + ';color:' + t.c + '">' + t.ic + '</span><b>' + esc(t.t) + '</b><small>' + esc(t.s) + '</small></button>';
+    const fkFind = (k) => FK_TILES.filter((x) => x.k === k)[0];
+    const fkRoleCards = () => '<div class="fk-roles">' + FK_ROLE_CARDS.map((r) => '<div class="fk-role"><h4>' + esc(r.t) + '</h4><ul>' + r.f.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ul></div>').join('') + '</div>';
+
+    /* ----- قبل از ورود ----- */
+    function fkRenderGate() {
+      const g = $('stu-gate'); if (!g) return;
+      g.innerHTML = '<div class="section-block"><h3>خدمات مدرسه</h3><p class="muted-text small">یکی از بخش‌ها را انتخاب کنید تا توضیحش را ببینید؛ برای استفاده باید وارد حساب خود شوید.</p><div class="fk-grid">' + FK_TILES.map((t) => fkTile(t, 'data-fk')).join('') + '</div></div>' +
+        '<div class="section-block"><h3>امکانات هر نقش</h3>' + fkRoleCards() + '</div>';
+    }
+    function fkClosePop() { const p = $('fk-pop'); if (p) p.remove(); }
+    function fkPopup(t) {
+      fkClosePop();
+      const el = document.createElement('div');
+      el.id = 'fk-pop'; el.className = 'fk-pop-bg';
+      el.innerHTML = '<div class="fk-pop"><div class="fk-pop-h"><span class="fk-ic" style="background:' + t.bg + ';color:' + t.c + '">' + t.ic + '</span><b>' + esc(t.t) + '</b><button type="button" class="fk-x" data-fkx="1" aria-label="بستن">✕</button></div>' +
+        '<p>' + esc(t.d) + '</p><button type="button" class="secondary-btn" style="width:100%" data-fkgo="' + t.k + '">ورود به حساب و ادامه</button></div>';
+      $('tab-students').appendChild(el);
+    }
+    function fkSetPending(k) {
+      FK.pending = k || '';
+      const p = $('fk-pending');
+      if (p) { const t = k ? fkFind(k) : null; p.textContent = t ? 'پس از ورود، مستقیم وارد «' + t.t + '» می‌شوید.' : ''; p.classList.toggle('hidden', !t); }
+    }
+    document.addEventListener('click', (ev) => {
+      const tg = ev.target && ev.target.closest ? ev.target.closest('#tab-students') : null;
+      if (!tg) return;
+      const a = ev.target.closest('[data-fk]');
+      if (a) { const t = fkFind(a.getAttribute('data-fk')); if (t) fkPopup(t); return; }
+      const x = ev.target.closest('[data-fkx]');
+      if (x) { fkClosePop(); return; }
+      if (ev.target.id === 'fk-pop') { fkClosePop(); return; }
+      const g = ev.target.closest('[data-fkgo]');
+      if (g) {
+        fkSetPending(g.getAttribute('data-fkgo')); fkClosePop();
+        const u = $('stu-username'); if (u) { try { u.scrollIntoView({ block: 'center', behavior: 'smooth' }); u.focus(); } catch (e) {} }
+      }
+    });
+
+    /* ----- بعد از ورود ----- */
+    function fkEntry() {
+      FK.cls = 0; FK.ptSid = 0; FK.cardSid = 0; FK.pgSid = 0;
+      const k = FK.pending; FK.pending = ''; fkSetPending('');
+      if (k) { fkGo(k); return; }
+      fkShowMenu();
+    }
+    function fkShowMenu() {
+      if (!S.me) return;
+      svStop(); fkClosePop();
+      const r = S.me.role;
+      const limited = ['janitor', 'driver', 'accountant'].indexOf(r) !== -1;
+      let h = '<div class="fk-menu"><p class="fk-hello">سلام ' + esc(S.me.full_name) + ' <small>(' + esc(S.me.role_label || LABEL[r] || '') + ')</small></p>';
+      if (!limited) h += '<div class="fk-grid">' + FK_TILES.map((t) => fkTile(t, 'data-stu="sv-fk-tile" data-k')).join('') + '</div>';
+      h += '<div class="fk-extra">';
+      h += '<button type="button" class="sv-menu-item" data-stu="sv-home"><span class="sv-mi-ic">🏫</span><span class="sv-mi-main"><b>خدمات مدرسه</b><small>تیکت، ثبت نمره، انضباطی، شهریه، سرویس، کلاس‌بندی</small></span></button>';
+      const un = S.me.unread || 0;
+      h += '<button type="button" class="sv-menu-item" data-stu="sv-fk-prof"><span class="sv-mi-ic">👤</span><span class="sv-mi-main"><b>حساب من و کاربران</b><small>' + (r === 'parent' ? 'اعلان‌ها و وضعیت فرزند' : 'پروفایل، زیرمجموعه‌ها، افزودن کاربر') + '</small></span>' + (un ? '<span class="sv-badge">' + fa(un) + '</span>' : '') + '</button>';
+      h += '</div></div>';
+      $('stu-main').innerHTML = h;
+      try { window.scrollTo(0, 0); } catch (e) {}
+    }
+    async function fkGo(k) {
+      try {
+        const map = { sched: 'sv-fk-sc', att: 'sv-fk-att', notice: 'sv-fk-nt', points: 'sv-fk-pt', card: 'sv-fk-cd', progress: 'sv-fk-pg', live: 'sv-fk-lv', exam: 'sv-fk-ex' };
+        const f = SVA[map[k]]; if (!f) { fkShowMenu(); return; }
+        await f(null, 0);
+      } catch (e) { svErr(e); }
+    }
+    SVA['sv-fk-menu'] = async () => { fkShowMenu(); };
+    SVA['sv-fk-tile'] = async (t) => { await fkGo(t.getAttribute('data-k')); };
+    SVA['sv-fk-prof'] = async () => { S.viewId = null; stuRender(); };
+
+    /* ----- کمکی‌های نمایش ----- */
+    const fkMonth = (ym) => { const p = String(ym).split('-'); const j = gregorianToJalali(+p[0], +p[1], 15); return JALALI_MONTHS[j[1] - 1]; };
+    const fkTs = (s) => Date.parse(String(s || '').replace(' ', 'T'));
+    const fkNum = (n) => fa(String(Math.round(Number(n) * 100) / 100));
+    const fkBack = 'sv-fk-menu';
+    function fkStudentPick(sel, act) {
+      return field('دانش‌آموز', '<select id="fk-sid">' + SV.students.map((s) => '<option value="' + s.id + '"' + (s.id === sel ? ' selected' : '') + '>' + esc(s.name) + '</option>').join('') + '</select>') + svBtn(act, 'نمایش', '', 'secondary-btn sv-wide');
+    }
+    const fkIsOwnView = () => inRoles(['student', 'parent']);
+    const fkSid = () => (S.me.role === 'student' ? S.me.id : (S.me.role === 'parent' ? ((S.me.linked && S.me.linked.id) || 0) : 0));
+
+    /* ---------- برنامهٔ هفتگی ---------- */
+    SVA['sv-fk-sc'] = async (t, id) => {
+      if (id) FK.cls = id;
+      svLoading('📅 برنامه هفتگی', fkBack);
+      const d = await stuFetch('/sp/sched/list', FK.cls ? { class_id: FK.cls } : {});
+      FK.cls = d.class_id;
+      let h = '';
+      if (!d.classes.length) h = '<p class="muted-text small">هنوز کلاسی برای شما تعریف نشده است.' + (d.can_edit ? ' ابتدا از «خدمات مدرسه ← کلاس‌بندی» کلاس بسازید.' : '') + '</p>';
+      else {
+        if (d.classes.length > 1) h += '<div class="sv-btns">' + d.classes.map((c) => svBtn('sv-fk-sc', esc(c.name), svId(c.id), c.id === d.class_id ? 'secondary-btn small-btn' : 'ghost-btn small-btn')).join('') + '</div>';
+        else h += '<p class="muted-text small">کلاس: <b>' + esc(d.classes[0].name) + '</b></p>';
+        if (!d.items.length) h += '<p class="muted-text small">هنوز برنامه‌ای ثبت نشده است.</p>';
+        for (let w = 0; w < 7; w++) {
+          const rows = d.items.filter((x) => x.wday === w);
+          if (!rows.length) continue;
+          h += '<h4>' + FK_DAYS[w] + '</h4>';
+          rows.forEach((x) => {
+            h += '<div class="sv-item"><b>' + esc(x.subject) + '</b><small>🕘 ' + fa(x.start_t) + ' تا ' + fa(x.end_t) + (x.teacher ? ' · 👨‍🏫 ' + esc(x.teacher) : '') + '</small>' + (d.can_edit ? '<div class="stu-actions">' + svBtn('sv-fk-sc-del', '🗑️ حذف', svId(x.id), 'danger-btn small-btn') + '</div>' : '') + '</div>';
+          });
+        }
+        if (d.can_edit) {
+          h += '<h4>➕ افزودن درس به برنامه</h4>';
+          h += field('روز', '<select id="fk-sc-day">' + FK_DAYS.map((n, i) => '<option value="' + i + '">' + n + '</option>').join('') + '</select>');
+          h += field('ساعت شروع', '<input type="time" id="fk-sc-st" dir="ltr">') + field('ساعت پایان', '<input type="time" id="fk-sc-en" dir="ltr">');
+          h += field('درس', '<input type="text" id="fk-sc-sub" maxlength="100">') + field('معلم (اختیاری)', '<input type="text" id="fk-sc-tch" maxlength="100">');
+          h += svBtn('sv-fk-sc-save', 'ذخیره', '', 'secondary-btn sv-wide');
+        }
+      }
+      svShell('📅 برنامه هفتگی', fkBack, h);
+    };
+    SVA['sv-fk-sc-save'] = async (t) => {
+      t.disabled = true;
+      try {
+        await stuFetch('/sp/sched/save', { class_id: FK.cls, wday: parseInt(gv('fk-sc-day'), 10) || 0, start: gv('fk-sc-st'), end: gv('fk-sc-en'), subject: gv('fk-sc-sub'), teacher: gv('fk-sc-tch') });
+        await SVA['sv-fk-sc'](null, 0);
+      } finally { t.disabled = false; }
+    };
+    SVA['sv-fk-sc-del'] = async (t, id) => {
+      if (!(await svAsk('این درس از برنامه حذف شود؟', 'حذف'))) return;
+      await stuFetch('/sp/sched/delete', { id }); await SVA['sv-fk-sc'](null, 0);
+    };
+
+    /* ---------- حضور و غیاب ---------- */
+    SVA['sv-fk-att'] = async () => {
+      const r = S.me.role;
+      if (fkIsOwnView()) {
+        const sid = fkSid();
+        if (!sid) { svShell('📋 حضور و غیاب', fkBack, '<p class="muted-text small">دانش‌آموزی به حساب شما وصل نیست.</p>'); return; }
+        svShell('📋 حضور و غیاب', fkBack, '<div id="stu-att-box" data-sid="' + sid + '"></div>');
+        loadAttBox(); return;
+      }
+      if (!S.me.can_att) { svShell('📋 حضور و غیاب', fkBack, '<p class="muted-text small">ثبت حضور و غیاب برای نقش شما فعال نیست.</p>'); return; }
+      svLoading('📋 حضور و غیاب', fkBack);
+      const d = await stuFetch('/sp/classes', {});
+      if (d.classes.length) { await SVA['sv-cls'](); return; }
+      await openSheet(S.me.id, '');
+    };
+
+    /* ---------- اطلاعیه‌ها ---------- */
+    const FK_AUD = { all: 'همه', students: 'دانش‌آموزان', parents: 'اولیا', staff: 'کارکنان' };
+    SVA['sv-fk-nt'] = async () => {
+      svLoading('📣 اطلاعیه‌ها', fkBack);
+      const d = await stuFetch('/sp/notice/list', {});
+      FK.noticeClasses = d.classes;
+      let h = d.can_write ? svBtn('sv-fk-nt-new', '➕ اطلاعیهٔ جدید', '', 'secondary-btn sv-wide') : '';
+      if (!d.items.length) h += '<p class="muted-text small">اطلاعیه‌ای وجود ندارد.</p>';
+      d.items.forEach((n) => {
+        h += '<div class="sv-item"><b>' + esc(n.title) + '</b><small>' + esc(dtFa(n.at)) + ' · ' + esc(n.author || '') + (n.author_role ? ' (' + esc(n.author_role) + ')' : '') + ' · برای: ' + esc(FK_AUD[n.aud] || 'همه') + (n.class_name ? ' · ' + esc(n.class_name) : '') + '</small>';
+        h += '<p style="white-space:pre-wrap;margin:6px 0 0">' + esc(n.body) + '</p>';
+        if (n.mine || inRoles(['head', 'manager'])) h += '<div class="stu-actions">' + svBtn('sv-fk-nt-del', '🗑️ حذف', svId(n.id), 'danger-btn small-btn') + '</div>';
+        h += '</div>';
+      });
+      svShell('📣 اطلاعیه‌ها', fkBack, h);
+    };
+    SVA['sv-fk-nt-new'] = async () => {
+      const cl = FK.noticeClasses || [];
+      const teacher = isTeach();
+      let h = field('عنوان', '<input type="text" id="fk-nt-t" maxlength="160">');
+      h += field('متن', '<textarea id="fk-nt-b" rows="6" maxlength="2000"></textarea>');
+      h += field('مخاطب', '<select id="fk-nt-a"><option value="all">همه</option><option value="students">دانش‌آموزان</option><option value="parents">اولیا</option>' + (teacher ? '' : '<option value="staff">کارکنان</option>') + '</select>');
+      h += field('کلاس', '<select id="fk-nt-c">' + (teacher ? '' : '<option value="0">همهٔ مجموعه</option>') + cl.map((c) => '<option value="' + c.id + '">' + esc(c.name) + '</option>').join('') + '</select>');
+      h += '<p class="muted-text small">اولیای مخاطب در بخش اعلان‌هایشان هم خبر را می‌بینند.</p>';
+      h += svBtn('sv-fk-nt-save', '📨 انتشار', '', 'secondary-btn sv-wide');
+      svShell('📣 اطلاعیهٔ جدید', 'sv-fk-nt', h);
+    };
+    SVA['sv-fk-nt-save'] = async (t) => {
+      t.disabled = true;
+      try {
+        await stuFetch('/sp/notice/save', { title: gv('fk-nt-t'), body: gv('fk-nt-b'), aud: gv('fk-nt-a'), class_id: parseInt(gv('fk-nt-c'), 10) || 0 });
+        await SVA['sv-fk-nt']();
+      } finally { t.disabled = false; }
+    };
+    SVA['sv-fk-nt-del'] = async (t, id) => {
+      if (!(await svAsk('این اطلاعیه حذف شود؟', 'حذف'))) return;
+      await stuFetch('/sp/notice/delete', { id }); await SVA['sv-fk-nt']();
+    };
+
+    /* ---------- امتیازات ---------- */
+    const FK_CAT = { study: '📚 تحصیلی', discipline: '⚖️ انضباط', extra: '🎨 فوق‌برنامه' };
+    const FK_RANGE = { week: 'هفته', month: 'ماه', term: 'ترم', all: 'کل' };
+    const fkRangeChips = () => '<div class="sv-btns">' + Object.keys(FK_RANGE).map((r) => svBtn('sv-fk-pt-r', FK_RANGE[r], ' data-r="' + r + '"', FK.range === r ? 'secondary-btn small-btn' : 'ghost-btn small-btn')).join('') + '</div>';
+    const fkPts = (n) => (n > 0 ? '+' : '') + fa(n);
+    SVA['sv-fk-pt-r'] = async (t) => { FK.range = t.getAttribute('data-r') || 'month'; await SVA['sv-fk-pt'](null, 0); };
+    SVA['sv-fk-pt'] = async (t, id) => {
+      if (fkIsOwnView()) FK.ptSid = fkSid();
+      svLoading('🏅 امتیازات', fkBack);
+      if (FK.ptSid) { await fkPtDetail(); return; }
+      const d = await stuFetch('/sp/points/list', { range: FK.range });
+      let h = fkRangeChips();
+      h += d.can_write ? svBtn('sv-fk-pt-new', '➕ ثبت امتیاز', '', 'secondary-btn sv-wide') : '';
+      if (!d.board.length) h += '<p class="muted-text small">دانش‌آموزی در دسترس نیست.</p>';
+      else {
+        h += '<div class="stu-list sv-list">';
+        d.board.forEach((s, i) => { h += '<button type="button" class="stu-item" data-stu="sv-fk-pt-st"' + svId(s.id) + '><span class="stu-item-main"><b>' + fa(i + 1) + '. ' + esc(s.name) + '</b></span><span class="fk-pts ' + (s.pts < 0 ? 'neg' : '') + '">' + fkPts(s.pts) + '</span></button>'; });
+        h += '</div>';
+      }
+      svShell('🏅 امتیازات (' + FK_RANGE[FK.range] + ')', fkBack, h);
+    };
+    SVA['sv-fk-pt-st'] = async (t, id) => { FK.ptSid = id; await fkPtDetail(); };
+    async function fkPtDetail() {
+      const d = await stuFetch('/sp/points/list', { range: FK.range, student_id: FK.ptSid });
+      let h = '<p class="muted-text small">دانش‌آموز: <b>' + esc(d.student.name) + '</b></p>' + fkRangeChips();
+      h += '<div class="stu-att-sum">';
+      [['all', 'جمع'], ['study', 'تحصیلی'], ['discipline', 'انضباط'], ['extra', 'فوق‌برنامه']].forEach((x) => { h += '<div class="stu-att-cnt"><b>' + fkPts(d.totals[x[0]]) + '</b><small>' + x[1] + '</small></div>'; });
+      h += '</div>';
+      if (d.can_write && !fkIsOwnView()) h += svBtn('sv-fk-pt-new', '➕ ثبت امتیاز برای این دانش‌آموز', ' data-s="' + FK.ptSid + '"', 'secondary-btn sv-wide');
+      if (!d.items.length) h += '<p class="muted-text small">در این بازه امتیازی ثبت نشده است.</p>';
+      d.items.forEach((r) => {
+        h += '<div class="sv-item"><b>' + (FK_CAT[r.cat] || '') + ' <span class="fk-pts ' + (r.pts < 0 ? 'neg' : '') + '">' + fkPts(r.pts) + '</span></b><small>' + esc(jal(r.p_date)) + (r.by ? ' · ' + esc(r.by) : '') + '</small>' + (r.reason ? '<p style="margin:4px 0 0">' + esc(r.reason) + '</p>' : '') + (r.can_del ? '<div class="stu-actions">' + svBtn('sv-fk-pt-del', '🗑️ حذف', svId(r.id), 'danger-btn small-btn') + '</div>' : '') + '</div>';
+      });
+      svShell('🏅 امتیازات (' + FK_RANGE[FK.range] + ')', fkIsOwnView() ? fkBack : 'sv-fk-pt-back', h);
+    }
+    SVA['sv-fk-pt-back'] = async () => { FK.ptSid = 0; await SVA['sv-fk-pt'](null, 0); };
+    SVA['sv-fk-pt-new'] = async (t) => {
+      const pre = parseInt(t && t.getAttribute('data-s'), 10) || 0;
+      svLoading('🏅 ثبت امتیاز', 'sv-fk-pt');
+      const list = await svStudents();
+      let h = '<div class="sv-btns">' + svBtn('sv-fk-all', 'انتخاب همه', ' data-on="1"') + svBtn('sv-fk-all', 'هیچ‌کدام', ' data-on="0"') + '</div>';
+      h += '<div class="sv-chks">' + svChecks(list, 'fk-pt-s', (s) => s.id === pre) + '</div>';
+      h += field('نوع', '<select id="fk-pt-c"><option value="study">📚 تحصیلی</option><option value="discipline">⚖️ انضباط</option><option value="extra">🎨 فوق‌برنامه</option></select>');
+      h += field('امتیاز (مثبت یا منفی، مثلاً ۵ یا ‎-۳)', '<input type="text" inputmode="numeric" id="fk-pt-n" dir="ltr" placeholder="5">');
+      h += field('دلیل (اختیاری)', '<input type="text" id="fk-pt-r" maxlength="300">');
+      h += '<p class="muted-text small">برای اولیای هر دانش‌آموز اعلان ارسال می‌شود.</p>';
+      h += svBtn('sv-fk-pt-save', 'ثبت', '', 'secondary-btn sv-wide');
+      svShell('🏅 ثبت امتیاز', FK.ptSid ? 'sv-fk-pt-back' : 'sv-fk-pt', h);
+    };
+    SVA['sv-fk-all'] = async (t) => { const on = t.getAttribute('data-on') === '1'; document.querySelectorAll('#stu-main .fk-pt-s').forEach((c) => { c.checked = on; }); };
+    SVA['sv-fk-pt-save'] = async (t) => {
+      const ids = svPicked('fk-pt-s');
+      const n = parseInt(latin(gv('fk-pt-n')), 10);
+      if (!ids.length) throw new Error('حداقل یک دانش‌آموز را انتخاب کنید.');
+      if (!n) throw new Error('امتیاز را به‌صورت عدد وارد کنید.');
+      t.disabled = true;
+      try {
+        await stuFetch('/sp/points/save', { student_ids: ids, cat: gv('fk-pt-c'), pts: n, reason: gv('fk-pt-r') });
+        if (FK.ptSid) await SVA['sv-fk-pt'](null, 0); else await SVA['sv-fk-pt'](null, 0);
+      } finally { t.disabled = false; }
+    };
+    SVA['sv-fk-pt-del'] = async (t, id) => {
+      if (!(await svAsk('این امتیاز حذف شود؟', 'حذف'))) return;
+      await stuFetch('/sp/points/delete', { id }); await fkPtDetail();
+    };
+
+    /* ---------- کارنامه ---------- */
+    const FK_PERIOD = [[0, 'همهٔ سال'], [30, '۳۰ روز اخیر'], [90, '۹۰ روز اخیر'], [180, '۶ ماه اخیر']];
+    SVA['sv-fk-cd-p'] = async (t) => { FK.cardDays = parseInt(t.getAttribute('data-d'), 10) || 0; await SVA['sv-fk-cd-go'](); };
+    SVA['sv-fk-cd'] = async () => {
+      if (fkIsOwnView()) { FK.cardSid = fkSid(); await SVA['sv-fk-cd-go'](); return; }
+      svLoading('📊 کارنامه', fkBack);
+      await svStudents();
+      if (!SV.students.length) { svShell('📊 کارنامه', fkBack, '<p class="muted-text small">دانش‌آموزی در دسترس نیست.</p>'); return; }
+      svShell('📊 کارنامه', fkBack, fkStudentPick(FK.cardSid, 'sv-fk-cd-sel'));
+    };
+    SVA['sv-fk-cd-sel'] = async () => { FK.cardSid = parseInt(gv('fk-sid'), 10) || 0; await SVA['sv-fk-cd-go'](); };
+    let fkCardText = '';
+    SVA['sv-fk-cd-go'] = async () => {
+      svLoading('📊 کارنامه', fkIsOwnView() ? fkBack : 'sv-fk-cd');
+      const body = { student_id: FK.cardSid };
+      if (FK.cardDays) { const dt = new Date(); dt.setDate(dt.getDate() - FK.cardDays); body.from = fmtD(dt); }
+      const d = await stuFetch('/sp/card', body);
+      const a = d.attendance, lines = [];
+      let h = '<div class="sv-btns">' + FK_PERIOD.map((p) => svBtn('sv-fk-cd-p', p[1], ' data-d="' + p[0] + '"', FK.cardDays === p[0] ? 'secondary-btn small-btn' : 'ghost-btn small-btn')).join('') + '</div>';
+      h += '<div class="fk-card-print">';
+      h += '<div class="fk-card-head"><b>کارنامه تحصیلی</b>' + (d.org ? '<small>' + esc(d.org) + '</small>' : '') + '</div>';
+      h += '<div class="stu-rows">' + row('دانش‌آموز', d.student.name) + row('کلاس', d.student.class) + row('تاریخ صدور', jal(d.today)) + row('بازه', d.from ? ('از ' + jal(d.from)) : 'همهٔ نمره‌های ثبت‌شده') + '</div>';
+      lines.push('کارنامه تحصیلی — ' + d.student.name + (d.student.class ? ' (' + d.student.class + ')' : ''));
+      if (!d.subjects.length) h += '<p class="muted-text small">هنوز نمره‌ای ثبت نشده است.</p>';
+      else {
+        h += '<table class="fk-tbl"><thead><tr><th>درس</th><th>تعداد</th><th>میانگین (از ۲۰)</th></tr></thead><tbody>';
+        d.subjects.forEach((s) => { h += '<tr><td>' + esc(s.subject) + '</td><td>' + fa(s.count) + '</td><td class="' + (s.avg < 10 ? 'neg' : '') + '"><b>' + fkNum(s.avg) + '</b></td></tr>'; lines.push(s.subject + ': ' + fkNum(s.avg)); });
+        h += '</tbody></table>';
+        h += '<div class="fk-overall">معدل کل: <b>' + fkNum(d.overall) + '</b> از ۲۰</div>';
+        lines.push('معدل کل: ' + fkNum(d.overall));
+      }
+      h += '<h4>حضور و غیاب</h4><div class="stu-att-sum">' + Object.keys(ATT).map((k) => '<div class="stu-att-cnt stu-att-' + k + '"><b>' + fa(a[k] || 0) + '</b><small>' + ATT[k][0] + '</small></div>').join('') + '</div>';
+      h += '<div class="fk-overall">جمع امتیازات: <b>' + fkPts(d.points) + '</b></div>';
+      if (d.exams.length) {
+        h += '<h4>آزمون‌های آنلاین</h4>';
+        d.exams.forEach((e) => { h += '<div class="stu-row"><span class="stu-row-l">' + esc(e.title) + '</span><span class="stu-row-v">' + fa(e.score) + ' از ' + fa(e.total) + ' (' + fa(e.pct) + '٪)</span></div>'; });
+      }
+      h += '</div>';
+      h += '<div class="stu-actions">' + svBtn('sv-fk-print', '🖨️ چاپ / ذخیره PDF') + svBtn('sv-fk-copy', '📋 کپی متن') + '</div>';
+      lines.push('جمع امتیازات: ' + fkPts(d.points)); lines.push('غیبت: ' + fa(a.absent || 0) + '، تأخیر: ' + fa(a.late || 0));
+      fkCardText = lines.join('\n');
+      svShell('📊 کارنامه', fkIsOwnView() ? fkBack : 'sv-fk-cd', h);
+    };
+    SVA['sv-fk-print'] = async () => { try { window.print(); } catch (e) { throw new Error('چاپ در این دستگاه پشتیبانی نمی‌شود؛ از «کپی متن» استفاده کنید.'); } };
+    SVA['sv-fk-copy'] = async () => {
+      try { await navigator.clipboard.writeText(fkCardText); }
+      catch (e) { const ta = document.createElement('textarea'); ta.value = fkCardText; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch (e2) {} ta.remove(); }
+      try { appAlert('fk_copied', null, { text: 'متن کارنامه کپی شد.', title: 'کپی شد', icon: '✅', tone: 'ok' }); } catch (e3) {}
+    };
+
+    /* ---------- نمودار پیشرفت ---------- */
+    SVA['sv-fk-pg'] = async () => {
+      if (fkIsOwnView()) { FK.pgSid = fkSid(); await SVA['sv-fk-pg-go'](); return; }
+      svLoading('📈 نمودار پیشرفت', fkBack);
+      await svStudents();
+      if (!SV.students.length) { svShell('📈 نمودار پیشرفت', fkBack, '<p class="muted-text small">دانش‌آموزی در دسترس نیست.</p>'); return; }
+      svShell('📈 نمودار پیشرفت', fkBack, fkStudentPick(FK.pgSid, 'sv-fk-pg-sel'));
+    };
+    SVA['sv-fk-pg-sel'] = async () => { FK.pgSid = parseInt(gv('fk-sid'), 10) || 0; await SVA['sv-fk-pg-go'](); };
+    function fkChart(series) {
+      const W = 320, H = 190, L = 28, R = 10, T = 12, B = 30, iw = W - L - R, ih = H - T - B;
+      const n = series.length, x = (i) => L + (n === 1 ? iw / 2 : (iw * i) / (n - 1)), y = (v) => T + ih - (ih * v) / 20;
+      let s = '<svg viewBox="0 0 ' + W + ' ' + H + '" class="fk-chart" role="img" aria-label="نمودار میانگین ماهانه">';
+      [0, 5, 10, 15, 20].forEach((g) => { s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(g) + '" y2="' + y(g) + '" class="fk-grid-l"/><text x="' + (L - 4) + '" y="' + (y(g) + 3) + '" text-anchor="end" class="fk-axis">' + g + '</text>'; });
+      let path = '', pts = '';
+      series.forEach((p, i) => {
+        s += '<text x="' + x(i) + '" y="' + (H - 10) + '" text-anchor="middle" class="fk-axis">' + fkMonth(p.month) + '</text>';
+        if (p.avg === null) return;
+        path += (path ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(p.avg).toFixed(1) + ' ';
+        pts += '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(p.avg).toFixed(1) + '" r="4" class="fk-dot"/><text x="' + x(i).toFixed(1) + '" y="' + (y(p.avg) - 8).toFixed(1) + '" text-anchor="middle" class="fk-val">' + p.avg + '</text>';
+      });
+      if (path) s += '<path d="' + path + '" class="fk-line"/>';
+      return s + pts + '</svg>';
+    }
+    SVA['sv-fk-pg-go'] = async () => {
+      svLoading('📈 نمودار پیشرفت', fkIsOwnView() ? fkBack : 'sv-fk-pg');
+      const d = await stuFetch('/sp/progress', { student_id: FK.pgSid, months: 6 });
+      let h = '<p class="muted-text small">دانش‌آموز: <b>' + esc(d.student.name) + '</b> · میانگین ماهانهٔ نمره‌ها (از ۲۰)</p>';
+      h += d.series.some((p) => p.avg !== null) ? fkChart(d.series) : '<p class="muted-text small">هنوز نمره‌ای برای رسم نمودار ثبت نشده است.</p>';
+      if (d.subjects.length) {
+        h += '<h4>میانگین هر درس</h4>';
+        d.subjects.forEach((s) => {
+          h += '<div class="fk-bar"><span>' + esc(s.subject) + '</span><div><i style="width:' + Math.max(2, Math.min(100, s.avg * 5)) + '%"></i></div><b>' + fkNum(s.avg) + '</b>' + (s.trend === null ? '' : '<em class="' + (s.trend < 0 ? 'neg' : 'pos') + '">' + (s.trend < 0 ? '▼' : '▲') + '</em>') + '</div>';
+        });
+      }
+      h += '<h4>تحلیل خودکار</h4><ul class="fk-an">' + d.analysis.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ul>';
+      h += '<p class="muted-text small">این تحلیل از روی نمره‌ها و حضور و غیاب ثبت‌شده به‌صورت خودکار ساخته می‌شود.</p>';
+      svShell('📈 نمودار پیشرفت', fkIsOwnView() ? fkBack : 'sv-fk-pg', h);
+    };
+
+    /* ---------- کلاس آنلاین ---------- */
+    SVA['sv-fk-lv'] = async () => {
+      svLoading('🖥️ کلاس آنلاین', fkBack);
+      const d = await stuFetch('/sp/live/list', {});
+      FK.liveClasses = d.classes;
+      const now = fkTs(d.now);
+      let h = d.can_write ? svBtn('sv-fk-lv-new', '➕ جلسهٔ جدید', '', 'secondary-btn sv-wide') : '';
+      if (!d.items.length) h += '<p class="muted-text small">جلسه‌ای زمان‌بندی نشده است.</p>';
+      d.items.forEach((x) => {
+        const st = fkTs(x.start_at), en = st + x.dur * 60000;
+        const live = now >= st - 10 * 60000 && now <= en, past = now > en;
+        const badge = live ? '<span class="fk-badge live">🔴 در حال برگزاری</span>' : (past ? '<span class="fk-badge">پایان‌یافته</span>' : '<span class="fk-badge soon">⏳ به‌زودی</span>');
+        h += '<div class="sv-item"><b>' + esc(x.title) + ' ' + badge + '</b><small>' + esc(x.class_name) + ' · ' + esc(dtFa(x.start_at)) + ' · ' + fa(x.dur) + ' دقیقه' + (x.teacher ? ' · 👨‍🏫 ' + esc(x.teacher) : '') + '</small>';
+        if (x.note) h += '<p style="margin:4px 0 0">' + esc(x.note) + '</p>';
+        if (x.files.length) h += '<div class="sv-btns">' + x.files.map((f) => svBtn('sv-fk-open', '📎 ' + esc(f.title || 'فایل'), ' data-u="' + esc(f.url) + '"')).join('') + '</div>';
+        h += '<div class="stu-actions">' + (past ? '' : svBtn('sv-fk-open', '🎥 ورود به کلاس', ' data-u="' + esc(x.link) + '"', 'secondary-btn')) + ((x.mine || inRoles(['head', 'manager', 'deputy'])) && d.can_write ? svBtn('sv-fk-lv-del', '🗑️ حذف', svId(x.id), 'danger-btn small-btn') : '') + '</div></div>';
+      });
+      svShell('🖥️ کلاس آنلاین', fkBack, h);
+    };
+    SVA['sv-fk-open'] = async (t) => { const u = t.getAttribute('data-u') || ''; if (/^https:\/\//i.test(u)) { try { window.open(u, '_blank'); } catch (e) { location.href = u; } } };
+    SVA['sv-fk-lv-new'] = async () => {
+      const cl = FK.liveClasses || [];
+      let h = field('کلاس', '<select id="fk-lv-c">' + cl.map((c) => '<option value="' + c.id + '">' + esc(c.name) + '</option>').join('') + '</select>');
+      h += field('عنوان جلسه', '<input type="text" id="fk-lv-t" maxlength="160">');
+      h += field('تاریخ', '<input type="date" id="fk-lv-d" dir="ltr" value="' + todayStr() + '">') + field('ساعت', '<input type="time" id="fk-lv-h" dir="ltr">');
+      h += field('مدت (دقیقه)', '<input type="text" inputmode="numeric" id="fk-lv-m" dir="ltr" value="60">');
+      h += field('لینک جلسه (اختیاری)', '<input type="url" id="fk-lv-l" dir="ltr" placeholder="https://...">');
+      h += '<p class="muted-text small">اگر لینک نگذارید، یک اتاق ویدیویی خودکار (Jitsi) ساخته می‌شود. می‌توانید لینک Google Meet، Skyroom و مانند آن را هم بگذارید (باید با https شروع شود).</p>';
+      h += field('فایل‌ها و لینک‌های آموزشی (هر خط: عنوان | https://...)', '<textarea id="fk-lv-f" rows="3" dir="ltr"></textarea>');
+      h += field('توضیح (اختیاری)', '<input type="text" id="fk-lv-n" maxlength="500">');
+      h += svBtn('sv-fk-lv-save', 'ثبت جلسه', '', 'secondary-btn sv-wide');
+      svShell('🖥️ جلسهٔ جدید', 'sv-fk-lv', h);
+    };
+    SVA['sv-fk-lv-save'] = async (t) => {
+      const files = gv('fk-lv-f').split('\n').map((l) => l.trim()).filter(Boolean).map((l) => { const i = l.indexOf('|'); return i === -1 ? { title: '', url: l } : { title: l.slice(0, i).trim(), url: l.slice(i + 1).trim() }; });
+      t.disabled = true;
+      try {
+        await stuFetch('/sp/live/save', { class_id: parseInt(gv('fk-lv-c'), 10) || 0, title: gv('fk-lv-t'), date: gv('fk-lv-d'), time: gv('fk-lv-h'), dur: parseInt(latin(gv('fk-lv-m')), 10) || 60, link: gv('fk-lv-l'), files, note: gv('fk-lv-n') });
+        await SVA['sv-fk-lv']();
+      } finally { t.disabled = false; }
+    };
+    SVA['sv-fk-lv-del'] = async (t, id) => {
+      if (!(await svAsk('این جلسه حذف شود؟', 'حذف'))) return;
+      await stuFetch('/sp/live/delete', { id }); await SVA['sv-fk-lv']();
+    };
+
+    /* ---------- آزمون آنلاین ---------- */
+    SVA['sv-fk-ex'] = async () => {
+      const r = S.me.role;
+      if (r === 'parent') {
+        if (S.me.linked && S.me.linked.id) { await SVA['sv-ov'](null, S.me.linked.id); return; }
+        svShell('📝 آزمون آنلاین', fkBack, '<p class="muted-text small">دانش‌آموزی به حساب شما وصل نیست.</p>'); return;
+      }
+      if (inRoles(['student', 'head', 'manager']) || canExam() || canRev()) { await SVA['sv-ex'](); return; }
+      svShell('📝 آزمون آنلاین', fkBack, '<p class="muted-text small">ساخت آزمون برای معلمانی است که مدیر مجموعه «اجازهٔ آزمون» را در بخش «اختیارات» به آن‌ها داده باشد.</p>');
+    };
+
+    fkRenderGate();
     const lb = $('stu-login-btn'); if (lb) lb.addEventListener('click', doLogin);
     ['stu-username', 'stu-password'].forEach((id) => { const e = $(id); if (e) e.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') doLogin(); }); });
 
@@ -19860,6 +20294,7 @@ var GS_KW = {
   'ramadan-countdown': 'ماه رمضان شمارش معکوس سحر افطار روزه',
   'charity': 'خیرین صدقه کمک مالی نیکوکاری',
   'students': 'مدرسه معلم نمره حضور غیاب آزمون ولی',
+  'people': 'پرسنل سفیران سفیر استعلام کارت شناسایی کیوآر qr',
   'date-converter': 'تبدیل شمسی میلادی قمری تقویم تاریخ',
   'settings': 'شهر روش محاسبه اذان حالت شب اعلان صدا تنظیم',
   'notes': 'یادداشت نوشته',
@@ -19880,6 +20315,7 @@ var GS_EXTRA = [
   ['khatm', 'ختم قرآن', '\uD83D\uDCFF'], ['feedback', 'نظر و پشتیبانی', '\uD83D\uDCAC'], ['fun', 'سرگرمی', '\uD83C\uDFAE'],
   ['game-ayah', 'حدس آیه', '\uD83C\uDFAF'], ['contest', 'مسابقه و لیگ', '\uD83C\uDFC6'], ['ads', 'تبلیغات', '\uD83D\uDCE2'],
   ['activities', 'فعالیت‌های حوزه', '\uD83C\uDF1F'], ['ramadan-countdown', 'رمضان', '\uD83C\uDF19'], ['charity', 'کمک‌های مردمی', '\uD83E\uDD1D'],
+  ['people', 'پرسنل و سفیران', '\uD83C\uDD94'],
   ['students', 'دانش‌آموزان', '\uD83C\uDF93'], ['date-converter', 'مبدل تاریخ', '\uD83D\uDCC5'], ['settings', 'تنظیمات', '\u2699\uFE0F'],
 ];
 var GS_MAIN_TABS = ['home', 'quran-list', 'azan', 'qibla', 'shariq', 'more'];
@@ -21538,5 +21974,164 @@ function qcfSyncFs() {
   setInterval(function () { if (!document.hidden) window.arefWidgetSync(); }, 10 * 60000);
 })();
 
+
+/* ===== بیشتر ← پرسنل و سفیران: سفیران (فهرست) و استعلام (اسکن QR کارت شناسایی) ===== */
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  var fa = function (s) { return (typeof toPersianDigits === 'function') ? toPersianDigits(String(s)) : String(s); };
+  function pplFetch(path, body) {
+    return fetch(state.apiUrl.replace(/\/$/, '') + path, { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { if (!r.ok) throw new Error(d.message || 'خطا در ارتباط با سرور'); return d; }); })
+      .catch(function (e) { if (e && e.message && e.message !== 'Failed to fetch') throw e; throw new Error('اتصال اینترنت لازم است؛ اینترنت را بررسی کنید.'); });
+  }
+
+  /* ---------- سفیران ---------- */
+  var listT = null, listSeq = 0;
+  function loadList() {
+    var q = ($('ppl-q') && $('ppl-q').value || '').trim(), box = $('ppl-list'); if (!box) return;
+    var my = ++listSeq;
+    box.innerHTML = '<p class="muted-text small center-block">در حال بارگذاری…</p>';
+    pplFetch('/ambassadors/list', { q: q }).then(function (d) {
+      if (my !== listSeq) return;
+      var it = d.items || [];
+      if (!it.length) { box.innerHTML = '<p class="muted-text small center-block">' + (q ? 'موردی پیدا نشد.' : 'هنوز سفیری ثبت نشده است.') + '</p>'; return; }
+      box.innerHTML = it.map(function (x) {
+        var loc = [x.province, x.city].filter(Boolean).join('، ');
+        return '<div class="ppl-card"><b>' + esc(x.name) + '</b>' +
+          (x.father ? '<small>نام پدر: ' + esc(x.father) + '</small>' : '') +
+          (x.hozeh ? '<small>حوزه: ' + esc(x.hozeh) + '</small>' : '') +
+          (loc ? '<small>محل: ' + esc(loc) + '</small>' : '') +
+          (x.intro ? '<p>' + esc(x.intro) + '</p>' : '') + '</div>';
+      }).join('');
+    }).catch(function (e) { if (my === listSeq) box.innerHTML = '<p class="error-text center-block">' + esc(e.message) + '</p>'; });
+  }
+  var qIn = $('ppl-q');
+  if (qIn) qIn.addEventListener('input', function () { clearTimeout(listT); listT = setTimeout(loadList, 400); });
+  window.pplSafirOpen = function () { if ($('ppl-q')) $('ppl-q').value = ''; loadList(); };
+
+  /* ---------- استعلام ---------- */
+  var stream = null, raf = 0, scanning = false, jsqrP = null;
+  function loadJsQR() {
+    if (window.jsQR) return Promise.resolve();
+    if (jsqrP) return jsqrP;
+    jsqrP = new Promise(function (ok, bad) {
+      var s = document.createElement('script'); s.src = 'js/jsqr.min.js?v=1';
+      s.onload = function () { window.jsQR ? ok() : bad(new Error('jsqr')); }; s.onerror = function () { jsqrP = null; bad(new Error('jsqr')); };
+      document.head.appendChild(s);
+    });
+    return jsqrP;
+  }
+  function setMsg(h) { var m = $('ppl-inq-msg'); if (m) m.innerHTML = h || ''; }
+  function stopCam() {
+    scanning = false; if (raf) { cancelAnimationFrame(raf); raf = 0; }
+    if (stream) { try { stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {} stream = null; }
+    var v = $('ppl-video'); if (v) { try { v.pause(); } catch (e) {} v.srcObject = null; }
+    var w = $('ppl-cam'); if (w) w.classList.add('hidden');
+  }
+  window.pplInqStop = stopCam;
+  window.pplInqOpen = function () { stopCam(); setMsg(''); var r = $('ppl-inq-res'); if (r) r.innerHTML = ''; };
+
+  function showResult(d) {
+    var r = $('ppl-inq-res'); if (!r) return;
+    if (!d || !d.ok) { r.innerHTML = '<div class="ppl-res bad"><div class="ppl-res-h">❌ هویت تأیید نشد</div><p>' + esc((d && d.message) || 'کارت معتبر نیست.') + '</p></div>'; return; }
+    var p = d.person || {}, loc = [p.province, p.city].filter(Boolean).join('، ');
+    var warn = d.active === false;
+    r.innerHTML = '<div class="ppl-res ' + (warn ? 'warn' : 'ok') + '"><div class="ppl-res-h">' + (warn ? '⚠️ کارت غیرفعال است' : '✅ هویت تأیید شد') + '</div>' +
+      '<div class="ppl-type">' + esc(d.type_label || '') + '</div>' +
+      '<div class="ppl-row"><span>نام و نام خانوادگی</span><b>' + esc(p.name) + '</b></div>' +
+      (p.father ? '<div class="ppl-row"><span>نام پدر</span><b>' + esc(p.father) + '</b></div>' : '') +
+      (p.hozeh ? '<div class="ppl-row"><span>نام حوزه</span><b>' + esc(p.hozeh) + '</b></div>' : '') +
+      (p.province ? '<div class="ppl-row"><span>استان</span><b>' + esc(p.province) + '</b></div>' : '') +
+      (p.city ? '<div class="ppl-row"><span>شهر / روستا</span><b>' + esc(p.city) + '</b></div>' : '') +
+      (p.nid ? '<div class="ppl-row"><span>شمارهٔ ملی</span><b dir="ltr">' + esc(fa(p.nid)) + '</b></div>' : '') +
+      (p.intro ? '<div class="ppl-intro"><span>معرفی</span><p>' + esc(p.intro) + '</p></div>' : '') +
+      (warn ? '<p class="muted-text small">این سفیر از سوی مجموعه غیرفعال شده است.</p>' : '') + '</div>';
+    try { r.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {}
+  }
+  function verify(text) {
+    setMsg('<p class="muted-text small center-block">در حال استعلام…</p>');
+    pplFetch('/identity/verify', { payload: text }).then(function (d) { setMsg(''); showResult(d); })
+      .catch(function (e) { setMsg(''); $('ppl-inq-res').innerHTML = '<p class="error-text center-block">' + esc(e.message) + '</p>'; });
+  }
+  function camFail(e) {
+    stopCam();
+    var n = e && e.name;
+    setMsg('<p class="error-text">' + (n === 'NotAllowedError' || n === 'SecurityError'
+      ? 'اجازهٔ دوربین داده نشد. در تنظیمات گوشی اجازهٔ «دوربین» را برای برنامه روشن کنید؛ یا از دکمهٔ «عکس QR» استفاده کنید.'
+      : 'دوربین باز نشد. از دکمهٔ «عکس QR» استفاده کنید.') + '</p>');
+  }
+  function startCam() {
+    setMsg(''); $('ppl-inq-res').innerHTML = '';
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { camFail({ name: 'x' }); return; }
+    loadJsQR().then(function () {
+      return navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+    }).then(function (s) {
+      stream = s; var v = $('ppl-video'); v.srcObject = s; v.setAttribute('playsinline', 'true');
+      $('ppl-cam').classList.remove('hidden');
+      return v.play();
+    }).then(function () {
+      scanning = true;
+      var v = $('ppl-video'), c = document.createElement('canvas'), x = c.getContext('2d', { willReadFrequently: true }), last = 0;
+      (function tick(ts) {
+        if (!scanning) return;
+        raf = requestAnimationFrame(tick);
+        if (ts - last < 120 || v.readyState < 2 || !v.videoWidth) return;
+        last = ts;
+        var k = Math.min(1, 640 / v.videoWidth); c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k);
+        x.drawImage(v, 0, 0, c.width, c.height);
+        var im = x.getImageData(0, 0, c.width, c.height), q = window.jsQR(im.data, c.width, c.height, { inversionAttempts: 'attemptBoth' });
+        if (q && q.data) { stopCam(); try { if (navigator.vibrate) navigator.vibrate(60); } catch (e) {} verify(q.data); }
+      })(0);
+    }).catch(camFail);
+  }
+  function fromFile(f) {
+    if (!f) return;
+    setMsg('<p class="muted-text small center-block">در حال خواندن QR…</p>'); $('ppl-inq-res').innerHTML = '';
+    loadJsQR().then(function () {
+      return new Promise(function (ok, bad) {
+        var img = new Image(), u = URL.createObjectURL(f);
+        img.onload = function () { URL.revokeObjectURL(u); ok(img); }; img.onerror = function () { URL.revokeObjectURL(u); bad(new Error('img')); }; img.src = u;
+      });
+    }).then(function (img) {
+      var sizes = [1000, 640, 1600], res = null;
+      for (var i = 0; i < sizes.length && !res; i++) {
+        var k = Math.min(1, sizes[i] / Math.max(img.width, img.height)), c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
+        var x = c.getContext('2d'); x.drawImage(img, 0, 0, c.width, c.height);
+        res = window.jsQR(x.getImageData(0, 0, c.width, c.height).data, c.width, c.height, { inversionAttempts: 'attemptBoth' });
+      }
+      if (res && res.data) { setMsg(''); verify(res.data); } else setMsg('<p class="error-text">QR در عکس پیدا نشد. نزدیک‌تر و واضح‌تر عکس بگیرید.</p>');
+    }).catch(function () { setMsg('<p class="error-text">خواندن عکس ممکن نشد.</p>'); });
+  }
+  var b1 = $('ppl-scan'), b2 = $('ppl-photo'), b3 = $('ppl-stop'), fi = $('ppl-file');
+  if (b1) b1.addEventListener('click', startCam);
+  if (b3) b3.addEventListener('click', stopCam);
+  if (b2) b2.addEventListener('click', function () { fi.value = ''; fi.click(); });
+  if (fi) fi.addEventListener('change', function () { fromFile(fi.files && fi.files[0]); });
+  document.addEventListener('visibilitychange', function () { if (document.hidden) stopCam(); });
+})();
+
+
+/* عنوان بالای اپ: تک‌خط و خودکار کوچک‌شونده (مستقل از اندازهٔ فونت گوشی) */
+(function () {
+  var el = document.getElementById('topbar-title'); if (!el) return;
+  var busy = false;
+  function fit() {
+    if (busy) return; busy = true;
+    try {
+      var size = 15; el.style.fontSize = size + 'px';
+      while (el.scrollWidth > el.clientWidth + 1 && size > 8) { size -= 0.5; el.style.fontSize = size + 'px'; }
+    } catch (e) {}
+    busy = false;
+  }
+  window.fitTopbarTitle = fit;
+  fit();
+  try { new MutationObserver(function () { setTimeout(fit, 0); }).observe(el, { childList: true, characterData: true, subtree: true }); } catch (e) {}
+  window.addEventListener('resize', fit);
+  window.addEventListener('orientationchange', function () { setTimeout(fit, 200); });
+  try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit); } catch (e) {}
+  setTimeout(fit, 500); setTimeout(fit, 2000);
+})();
 
 window.__arefBooted = true;

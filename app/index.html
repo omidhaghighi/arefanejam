@@ -20,8 +20,8 @@ html,body{margin:0;padding:0;background:#FDFDFD}
 html.intro-on body>*:not(#intro-splash){visibility:hidden!important}
 </style>
 <link rel="preload" as="image" href="intro/intro-logo.png">
-<link rel="stylesheet" href="css/style.css?v=164" media="print" onload="this.media='all';window.__cssOk=1" onerror="window.__cssOk=1">
-<noscript><link rel="stylesheet" href="css/style.css?v=164"></noscript>
+<link rel="stylesheet" href="css/style.css?v=167" media="print" onload="this.media='all';window.__cssOk=1" onerror="window.__cssOk=1">
+<noscript><link rel="stylesheet" href="css/style.css?v=167"></noscript>
 <script>try{var __mc=parseInt(localStorage.getItem('arefanejam_more_cols'),10);if(__mc>=2&&__mc<=5)document.documentElement.setAttribute('data-more-cols',String(__mc));}catch(e){}</script>
 </head>
 <body>
@@ -515,6 +515,10 @@ html.intro-on body>*:not(#intro-splash){visibility:hidden!important}
         <button data-ikey="main:activities" class="menu-tile tile-activities hidden" id="activities-more-tile" data-goto="activities">
           <span class="menu-tile-badge" id="activities-tile-badge">🏛️</span>
           <span class="menu-tile-label" id="activities-tile-label">فعالیت‌های حوزه</span>
+        </button>
+        <button data-ikey="main:people" class="menu-tile tile-people" id="people-more-tile" data-goto="people">
+          <span class="menu-tile-badge">🆔</span>
+          <span class="menu-tile-label">پرسنل و سفیران</span>
         </button>
         <button data-ikey="main:students" class="menu-tile tile-students" id="students-more-tile" data-goto="students">
           <span class="menu-tile-badge" id="students-tile-badge">🎓</span>
@@ -1453,11 +1457,68 @@ html.intro-on body>*:not(#intro-splash){visibility:hidden!important}
     </section>
 
     <!-- دانش‌آموزان: ورود با نام کاربری/رمز، پروفایل و مدیریت زیرمجموعه‌ها (محتوای #stu-main را app.js می‌سازد) -->
+    <section id="tab-people" class="tab-panel">
+      <div class="section-block">
+        <h3>پرسنل و سفیران</h3>
+        <p class="muted-text small">یکی از بخش‌ها را انتخاب کنید.</p>
+      </div>
+      <div class="menu-grid">
+        <button data-ikey="sub:people-staff" class="menu-tile tile-people" data-goto="people-staff">
+          <span class="menu-tile-badge">👥</span>
+          <span class="menu-tile-label">پرسنل</span>
+        </button>
+        <button data-ikey="sub:people-safir" class="menu-tile tile-people" data-goto="people-safir">
+          <span class="menu-tile-badge">🆔</span>
+          <span class="menu-tile-label">سفیران</span>
+        </button>
+        <button data-ikey="sub:people-inquiry" class="menu-tile tile-people" data-goto="people-inquiry">
+          <span class="menu-tile-badge">🔎</span>
+          <span class="menu-tile-label">استعلام</span>
+        </button>
+      </div>
+    </section>
+
+    <section id="tab-people-staff" class="tab-panel">
+      <div class="section-block">
+        <h3>پرسنل</h3>
+        <p class="muted-text small">این بخش به‌زودی فعال می‌شود.</p>
+      </div>
+    </section>
+
+    <section id="tab-people-safir" class="tab-panel">
+      <div class="section-block">
+        <h3>سفیران</h3>
+        <input type="search" id="ppl-q" placeholder="جست‌وجو: نام، حوزه، استان یا شهر" style="width:100%;margin:6px 0 10px">
+        <div id="ppl-list"></div>
+      </div>
+    </section>
+
+    <section id="tab-people-inquiry" class="tab-panel">
+      <div class="section-block">
+        <h3>استعلام هویت</h3>
+        <p class="muted-text small">QR روی کارت شناسایی را اسکن کنید تا هویت فرد نمایش داده شود.</p>
+        <div class="ppl-btns">
+          <button type="button" class="secondary-btn" id="ppl-scan">📷 اسکن با دوربین</button>
+          <button type="button" class="ghost-btn" id="ppl-photo">🖼️ عکس QR</button>
+        </div>
+        <input type="file" id="ppl-file" accept="image/*" class="hidden">
+        <div id="ppl-cam" class="ppl-cam hidden">
+          <video id="ppl-video" muted playsinline></video>
+          <div class="ppl-frame"></div>
+          <button type="button" class="ghost-btn small-btn" id="ppl-stop">بستن دوربین</button>
+        </div>
+        <div id="ppl-inq-msg"></div>
+        <div id="ppl-inq-res"></div>
+      </div>
+    </section>
+
     <section id="tab-students" class="tab-panel">
       <div class="section-block">
         <h3 id="stu-title">دانش‌آموزان</h3>
         <p class="muted-text small hidden" id="stu-intro"></p>
       </div>
+      <div id="stu-gate"></div>
+      <p class="muted-text small hidden" id="fk-pending" style="text-align:center"></p>
       <div id="stu-login" class="section-block center-block">
         <div class="stu-login-ic">🎓</div>
         <p class="muted-text small">برای ورود، نام کاربری و رمزی را که مسئول به شما داده وارد کنید.</p>
@@ -2207,7 +2268,7 @@ html.intro-on body>*:not(#intro-splash){visibility:hidden!important}
    تا وقتی کلیپ تمام شد اپ آماده باشد. اگر صفحهٔ شروعی نباشد، بی‌درنگ بارگذاری می‌شوند.
    window.__arefScriptsDone: هر دو اسکریپت تمام شده‌اند (موفق یا خطا) — صفحهٔ شروع برای اپ خراب‌شده بی‌نهایت منتظر نمی‌ماند. */
 (function () {
-  var list = ['js/native-bridge.js?v=49', 'js/app.js?v=252'], i = 0;
+  var list = ['js/native-bridge.js?v=49', 'js/app.js?v=256'], i = 0;
   function next() {
     if (i >= list.length) { window.__arefScriptsDone = true; return; }
     var el = document.createElement('script'); el.src = list[i++];

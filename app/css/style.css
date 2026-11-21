@@ -5875,3 +5875,71 @@ body.dark-mode .qs-ar .qf-r, body.dark-mode .ayah-arabic .qf-r { color: #ff6b6b;
 
 /* سوالات شرعی: بعد از انتخاب دسته، فهرست سوال‌ها با کمی فاصله از بالای صفحه نمایش داده می‌شود */
 #shariq-list-content{scroll-margin-top:12px}
+
+/* ===== منوی دانش‌آموزان (فکرینو‌مانند) ===== */
+.fk-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 4px 0; }
+.fk-menu { padding: 12px 14px; }
+.fk-hello { margin: 0 0 10px; font-weight: 700; }
+.fk-tile { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; padding: 14px 8px; border: 1px solid var(--line); border-radius: 16px; background: var(--paper-alt); color: inherit; font-family: inherit; cursor: pointer; box-shadow: var(--raised-sm); }
+.fk-tile b { font-size: 14px; }
+.fk-tile small { font-size: 11px; opacity: .75; line-height: 1.5; }
+.fk-ic { display: inline-flex; align-items: center; justify-content: center; width: 46px; height: 46px; border-radius: 14px; font-size: 24px; flex: none; }
+.fk-extra { display: grid; gap: 8px; margin-top: 12px; }
+.fk-roles { display: grid; gap: 10px; }
+.fk-role { border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; background: var(--paper-alt); }
+.fk-role h4 { margin: 0 0 6px; }
+.fk-role ul, .fk-an { margin: 0; padding: 0 18px 0 0; font-size: 13px; line-height: 1.9; }
+.fk-pop-bg { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 9000; display: flex; align-items: center; justify-content: center; padding: 18px; }
+.fk-pop { background: var(--card-bg, #fff); color: var(--ink); border-radius: 18px; padding: 16px; max-width: 420px; width: 100%; max-height: 85vh; overflow: auto; }
+.fk-pop-h { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.fk-pop-h b { flex: 1; font-size: 16px; }
+.fk-pop p { line-height: 2; font-size: 14px; }
+.fk-x { border: 0; background: transparent; font-size: 18px; cursor: pointer; color: inherit; }
+.fk-pts { font-weight: 700; color: #1e9e63; }
+.fk-pts.neg, .fk-tbl td.neg, .fk-bar em.neg { color: var(--danger, #d6384f); }
+.fk-bar em.pos { color: #1e9e63; }
+.fk-bar em { font-style: normal; font-size: 12px; }
+.fk-tbl { width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0; }
+.fk-tbl th, .fk-tbl td { border-bottom: 1px solid var(--line); padding: 7px 4px; text-align: right; }
+.fk-overall { margin: 8px 0; padding: 8px 10px; border-radius: 12px; background: var(--paper-alt); }
+.fk-card-head { text-align: center; margin-bottom: 8px; }
+.fk-card-head small { display: block; opacity: .7; }
+.fk-bar { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 13px; }
+.fk-bar > span { flex: 0 0 90px; }
+.fk-bar > div { flex: 1; height: 10px; border-radius: 6px; background: var(--line); overflow: hidden; }
+.fk-bar > div i { display: block; height: 100%; background: #8a4fd1; }
+.fk-chart { width: 100%; height: auto; direction: ltr; }
+.fk-grid-l { stroke: var(--line); stroke-width: 1; }
+.fk-axis { font-size: 9px; fill: currentColor; opacity: .7; }
+.fk-line { fill: none; stroke: #8a4fd1; stroke-width: 2.5; }
+.fk-dot { fill: #8a4fd1; }
+.fk-val { font-size: 9px; fill: currentColor; font-weight: 700; }
+.fk-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--line); font-weight: 400; }
+.fk-badge.live { background: #fde2e7; color: #d6384f; }
+.fk-badge.soon { background: #fff0d6; color: #b36b00; }
+@media print { body * { visibility: hidden; } .fk-card-print, .fk-card-print * { visibility: visible; } .fk-card-print { position: absolute; inset: 0 0 auto 0; padding: 16px; } }
+
+/* ===== پرسنل و سفیران ===== */
+.tile-people { --tile-c: #1b7f6b; --tile-cd: #0f4f43; }
+.ppl-btns { display: flex; gap: 8px; margin: 10px 0; }
+.ppl-btns button { flex: 1; }
+.ppl-card { border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; margin-bottom: 8px; background: var(--paper-alt); }
+.ppl-card b { display: block; margin-bottom: 2px; }
+.ppl-card small { display: block; opacity: .8; line-height: 1.7; }
+.ppl-card p { margin: 6px 0 0; font-size: 13px; line-height: 1.8; }
+.ppl-cam { position: relative; margin: 10px 0; text-align: center; }
+.ppl-cam video { width: 100%; max-height: 60vh; border-radius: 14px; background: #000; object-fit: cover; }
+.ppl-frame { position: absolute; top: 12%; left: 50%; width: 60%; aspect-ratio: 1; transform: translateX(-50%); border: 3px solid #fff; border-radius: 16px; box-shadow: 0 0 0 999px rgba(0,0,0,.25); pointer-events: none; }
+.ppl-cam .ghost-btn { margin-top: 8px; }
+.ppl-res { border-radius: 16px; padding: 12px 14px; margin-top: 12px; border: 2px solid; }
+.ppl-res.ok { border-color: #1e9e63; background: #e8f7ef; color: #123; }
+.ppl-res.warn { border-color: #e8920c; background: #fff4de; color: #123; }
+.ppl-res.bad { border-color: #d6384f; background: #fde8eb; color: #123; }
+.ppl-res-h { font-weight: 700; font-size: 16px; margin-bottom: 6px; }
+.ppl-type { display: inline-block; font-size: 12px; padding: 2px 10px; border-radius: 999px; background: rgba(0,0,0,.08); margin-bottom: 8px; }
+.ppl-row { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid rgba(0,0,0,.08); font-size: 14px; }
+.ppl-row span { opacity: .7; }
+.ppl-intro p { margin: 4px 0 0; line-height: 1.8; font-size: 13px; }
+
+/* عنوان بالای اپ: همیشه یک خط؛ اندازه با JS (fitTopbarTitle) طوری کم می‌شود که حتی با بزرگ‌بودن فونت گوشی جا شود */
+.topbar .topbar-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; font-size: 15px; line-height: 1.4; }

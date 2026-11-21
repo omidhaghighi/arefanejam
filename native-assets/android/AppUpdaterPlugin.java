@@ -112,31 +112,68 @@ public class AppUpdaterPlugin extends Plugin {
                 InputStream in = null;
                 OutputStream out = null;
                 File part = new File(updateDir(), "arefanejam.part");
+                SharedPreferences dp = getContext().getSharedPreferences("aref_dl_resume", Context.MODE_PRIVATE);
                 try {
-                    URL u = new URL(url);
+                    // ادامهٔ دانلود نیمه‌کاره (Range): فقط اگر همان آدرس و همان فایل باشد؛ وگرنه از اول
+                    long have = part.exists() ? part.length() : 0;
+                    String validator = dp.getString("validator", "");
+                    if (have > 0 && (!url.equals(dp.getString("url", "")) || validator.length() == 0)) { part.delete(); have = 0; }
+                    boolean retried = false;
                     int code = 0;
-                    // ریدایرکت را دستی دنبال می‌کنیم (گیت‌هاب به یک آدرس دیگر منتقل می‌کند)
-                    for (int i = 0; i < 6; i++) {
-                        c = (HttpURLConnection) u.openConnection();
-                        c.setInstanceFollowRedirects(false);
-                        c.setConnectTimeout(20000);
-                        c.setReadTimeout(30000);
-                        c.setRequestProperty("User-Agent", "ArefanejamApp");
-                        code = c.getResponseCode();
-                        if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
-                            String loc = c.getHeaderField("Location");
-                            c.disconnect();
-                            if (loc == null) throw new IOException("redirect without location");
-                            u = new URL(u, loc);
+                    while (true) {
+                        URL u = new URL(url);
+                        code = 0;
+                        // ریدایرکت را دستی دنبال می‌کنیم (گیت‌هاب به یک آدرس دیگر منتقل می‌کند)
+                        for (int i = 0; i < 6; i++) {
+                            c = (HttpURLConnection) u.openConnection();
+                            c.setInstanceFollowRedirects(false);
+                            c.setConnectTimeout(20000);
+                            c.setReadTimeout(30000);
+                            c.setRequestProperty("User-Agent", "ArefanejamApp");
+                            if (have > 0) {
+                                c.setRequestProperty("Range", "bytes=" + have + "-");
+                                c.setRequestProperty("If-Range", validator);
+                            }
+                            code = c.getResponseCode();
+                            if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
+                                String loc = c.getHeaderField("Location");
+                                c.disconnect();
+                                if (loc == null) throw new IOException("redirect without location");
+                                u = new URL(u, loc);
+                                continue;
+                            }
+                            break;
+                        }
+                        if (code == 416 && have > 0 && !retried) { // نیمه‌فایل نامعتبر است: از اول
+                            retried = true;
+                            part.delete(); have = 0;
+                            try { c.disconnect(); } catch (Exception ignore) { }
                             continue;
                         }
                         break;
                     }
-                    if (code != 200) throw new IOException("HTTP " + code);
+                    if (code != 200 && code != 206) throw new IOException("HTTP " + code);
 
-                    total = c.getContentLengthLong();
+                    boolean resumed = (code == 206 && have > 0);
+                    if (!resumed) have = 0; // سرور Range را نپذیرفت یا فایل عوض شده: از اول
+                    long expect = -1;
+                    if (resumed) {
+                        String cr = c.getHeaderField("Content-Range"); // bytes a-b/total
+                        int sl = cr == null ? -1 : cr.lastIndexOf('/');
+                        if (sl > 0) { try { expect = Long.parseLong(cr.substring(sl + 1).trim()); } catch (Exception ignore) { } }
+                        if (expect <= 0) { long cl = c.getContentLengthLong(); if (cl > 0) expect = have + cl; }
+                    } else {
+                        long cl = c.getContentLengthLong();
+                        if (cl > 0) expect = cl;
+                    }
+                    String vNew = c.getHeaderField("ETag");
+                    if (vNew == null || vNew.length() == 0) vNew = c.getHeaderField("Last-Modified");
+                    dp.edit().putString("url", url).putString("validator", vNew == null ? "" : vNew).apply();
+
+                    total = expect > 0 ? expect : 0;
+                    loaded = have;
                     in = c.getInputStream();
-                    out = new FileOutputStream(part);
+                    out = new FileOutputStream(part, resumed);
                     byte[] buf = new byte[32 * 1024];
                     int n;
                     while ((n = in.read(buf)) != -1) {
@@ -148,10 +185,13 @@ public class AppUpdaterPlugin extends Plugin {
                     out.close();
                     out = null;
 
-                    if (part.length() < 100 * 1024) throw new IOException("file too small");
+                    // دانلود ناقص (قطع شدن اتصال) نباید به‌عنوان فایل کامل پذیرفته شود؛ نیمه‌فایل می‌ماند تا بار بعد ادامه یابد
+                    if (expect > 0 && part.length() != expect) throw new IOException("incomplete download " + part.length() + "/" + expect);
+                    if (part.length() < 100 * 1024) { part.delete(); throw new IOException("file too small"); }
                     File dest = apkFile();
                     if (dest.exists()) dest.delete();
                     if (!part.renameTo(dest)) throw new IOException("rename failed");
+                    dp.edit().clear().apply();
 
                     if (total <= 0) total = dest.length();
                     loaded = total;
@@ -163,7 +203,7 @@ public class AppUpdaterPlugin extends Plugin {
                     boolean wasCancelled = cancelled;
                     state = wasCancelled ? "cancelled" : "error";
                     error = String.valueOf(e.getMessage());
-                    try { part.delete(); } catch (Exception ignore) { }
+                    if (wasCancelled) { try { part.delete(); } catch (Exception ignore) { } try { dp.edit().clear().apply(); } catch (Exception ignore) { } }
                     call.reject(wasCancelled ? "cancelled" : error);
                 } finally {
                     try { if (in != null) in.close(); } catch (Exception ignore) { }
@@ -1570,7 +1610,15 @@ public class AppUpdaterPlugin extends Plugin {
 
             // آیکون کوچک بالای اعلان (دایرهٔ کنار نام اپ): فقط از «آیکون کوچک اعلان» پیشخوان گرفته می‌شود؛ اگر خالی بود آیکون ماهِ پیش‌فرض.
             // اندروید این آیکون را همیشه تک‌رنگ (سفید) نشان می‌دهد؛ پس تصویر قبل از استفاده به یک شکل سفید تبدیل می‌شود (stkSilhouette).
-            if (smallImg != null && Build.VERSION.SDK_INT >= 23) {
+            // روزشمار: دایرهٔ کنار نام اپ = عدد روز ماه شمسی (مثل باد صبا). فقط اگر عدد روز نبود، همان آیکون قبلی.
+            Bitmap dayIcon = (Build.VERSION.SDK_INT >= 23) ? stkDayIcon(day) : null;
+            if (dayIcon != null) {
+                try {
+                    Class<?> iconCompat = Class.forName("androidx.core.graphics.drawable.IconCompat");
+                    Object icon = iconCompat.getMethod("createWithBitmap", Bitmap.class).invoke(null, dayIcon);
+                    b.getClass().getMethod("setSmallIcon", iconCompat).invoke(b, icon);
+                } catch (Throwable ignore) { }
+            } else if (smallImg != null && Build.VERSION.SDK_INT >= 23) {
                 try {
                     Bitmap sm = stkSilhouette(smallImg, 96);
                     if (sm != null) {
@@ -1604,6 +1652,29 @@ public class AppUpdaterPlugin extends Plugin {
                     .setSummaryText(line));
             }
             nm.notify(STK_ID, b.build());
+    }
+
+    /** آیکون کوچک اعلان: حلقهٔ توخالی با عدد روز داخلش (اندروید فقط کانال آلفا را می‌خواند و سفید نشان می‌دهد). */
+    private static Bitmap stkDayIcon(String day) {
+        try {
+            String d = stkFa(day == null ? "" : day.trim());
+            if (d.length() == 0 || d.length() > 2) return null;
+            int sz = 96;
+            Bitmap bm = Bitmap.createBitmap(sz, sz, Bitmap.Config.ARGB_8888);
+            Canvas c = new Canvas(bm);
+            Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
+            ring.setStyle(Paint.Style.STROKE); ring.setStrokeWidth(7f); ring.setColor(0xFFFFFFFF);
+            c.drawCircle(sz / 2f, sz / 2f, sz / 2f - 5f, ring);
+            Paint t = new Paint(Paint.ANTI_ALIAS_FLAG);
+            t.setColor(0xFFFFFFFF); t.setTextAlign(Paint.Align.CENTER); t.setTypeface(Typeface.DEFAULT_BOLD);
+            float size = d.length() == 1 ? 60f : 52f;
+            t.setTextSize(size);
+            float maxW = sz * 0.60f;
+            while (t.measureText(d) > maxW && size > 20f) { size -= 2f; t.setTextSize(size); }
+            Paint.FontMetrics fm = t.getFontMetrics();
+            c.drawText(d, sz / 2f, sz / 2f - (fm.ascent + fm.descent) / 2f, t);
+            return bm;
+        } catch (Throwable e) { return null; }
     }
 
     private static String stkFa(String s) {
