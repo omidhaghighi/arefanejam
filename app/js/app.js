@@ -22011,8 +22011,8 @@ function qcfSyncFs() {
     function camFail(e) {
       stop(); var n = e && e.name;
       setMsg('<p class="error-text">' + (n === 'NotAllowedError' || n === 'SecurityError'
-        ? 'اجازهٔ دوربین داده نشد. در تنظیمات گوشی اجازهٔ «دوربین» را برای برنامه روشن کنید؛ یا از دکمهٔ «عکس QR» استفاده کنید.'
-        : 'دوربین باز نشد. از دکمهٔ «عکس QR» استفاده کنید.') + '</p>');
+        ? 'اجازهٔ دوربین داده نشد. در تنظیمات گوشی اجازهٔ «دوربین» را برای برنامه روشن کنید.'
+        : 'دوربین باز نشد. دوربین گوشی را بررسی کنید.') + '</p>');
     }
     function start() {
       setMsg('');
@@ -22038,26 +22038,7 @@ function qcfSyncFs() {
         })(0);
       }).catch(camFail);
     }
-    function fromFile(f) {
-      if (!f) return;
-      setMsg('<p class="muted-text small center-block">در حال خواندن QR…</p>');
-      loadJsQR().then(function () {
-        return new Promise(function (ok, bad) {
-          var img = new Image(), u = URL.createObjectURL(f);
-          img.onload = function () { URL.revokeObjectURL(u); ok(img); }; img.onerror = function () { URL.revokeObjectURL(u); bad(new Error('img')); }; img.src = u;
-        });
-      }).then(function (img) {
-        var sizes = [1000, 640, 1600], res = null;
-        for (var i = 0; i < sizes.length && !res; i++) {
-          var k = Math.min(1, sizes[i] / Math.max(img.width, img.height)), c = document.createElement('canvas');
-          c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
-          var x = c.getContext('2d'); x.drawImage(img, 0, 0, c.width, c.height);
-          res = window.jsQR(x.getImageData(0, 0, c.width, c.height).data, c.width, c.height, { inversionAttempts: 'attemptBoth' });
-        }
-        if (res && res.data) { setMsg(''); onData(res.data); } else setMsg('<p class="error-text">QR در عکس پیدا نشد. نزدیک‌تر و واضح‌تر عکس بگیرید.</p>');
-      }).catch(function () { setMsg('<p class="error-text">خواندن عکس ممکن نشد.</p>'); });
-    }
-    return { start: start, stop: stop, file: fromFile, msg: setMsg };
+    return { start: start, stop: stop, msg: setMsg };
   }
 
   /* ---------- استعلام ---------- */
@@ -22105,11 +22086,9 @@ function qcfSyncFs() {
   var inq = makeScanner({ video: 'ppl-video', cam: 'ppl-cam', msg: 'ppl-inq-msg' }, verify);
   window.pplInqStop = function () { inq.stop(); lnk.stop(); };
   window.pplInqOpen = function () { inq.stop(); inq.msg(''); var r = $('ppl-inq-res'); if (r) r.innerHTML = ''; };
-  var b1 = $('ppl-scan'), b2 = $('ppl-photo'), b3 = $('ppl-stop'), fi = $('ppl-file');
+  var b1 = $('ppl-scan'), b3 = $('ppl-stop');
   if (b1) b1.addEventListener('click', function () { $('ppl-inq-res').innerHTML = ''; inq.start(); });
   if (b3) b3.addEventListener('click', inq.stop);
-  if (b2) b2.addEventListener('click', function () { fi.value = ''; $('ppl-inq-res').innerHTML = ''; fi.click(); });
-  if (fi) fi.addEventListener('change', function () { inq.file(fi.files && fi.files[0]); });
 
   /* ---------- سفیر: اتصال گوشی و ثبت موقعیت (هر ۲۴ ساعت) ---------- */
   var TOK = 'aref_safir_tok', NAME = 'aref_safir_name', LATER = 'aref_safir_later', LAST = 'aref_safir_last';
@@ -22158,16 +22137,13 @@ function qcfSyncFs() {
     pendingPayload = '';
     box.innerHTML = '<div class="ppl-me"><div class="ppl-me-h">من سفیر هستم</div>' +
       '<p class="muted-text small">برای اینکه مجموعه بتواند موقعیت شما را ببیند: QR کارت شناسایی خودتان را اسکن کنید و شمارهٔ تلفنی را که ثبت کرده‌اید وارد کنید.</p>' +
-      '<div class="ppl-btns"><button type="button" class="secondary-btn" id="pls-scan">📷 اسکن QR کارت من</button><button type="button" class="ghost-btn" id="pls-photo">🖼️ عکس QR</button></div>' +
-      '<input type="file" id="pls-file" accept="image/*" class="hidden">' +
+      '<div class="ppl-btns"><button type="button" class="secondary-btn" id="pls-scan">📷 اسکن QR کارت من</button></div>' +
       '<div id="pls-cam" class="ppl-cam hidden"><video id="pls-video" muted playsinline></video><div class="ppl-frame"></div><button type="button" class="ghost-btn small-btn" id="pls-stop">بستن دوربین</button></div>' +
       '<div id="pls-msg"></div>' +
       '<input type="tel" id="pls-phone" inputmode="tel" dir="ltr" placeholder="شمارهٔ تلفن ثبت‌شده (۰۹…)" style="width:100%;margin:8px 0">' +
       '<button type="button" class="secondary-btn" id="pls-link" style="width:100%">🔗 اتصال این گوشی</button><div id="pls-out"></div></div>';
     $('pls-scan').addEventListener('click', lnk.start);
     $('pls-stop').addEventListener('click', lnk.stop);
-    $('pls-photo').addEventListener('click', function () { var f = $('pls-file'); f.value = ''; f.click(); });
-    $('pls-file').addEventListener('change', function () { lnk.file(this.files && this.files[0]); });
     $('pls-link').addEventListener('click', function () {
       var out = $('pls-out'), btn = this;
       if (!pendingPayload) { out.innerHTML = '<p class="error-text">ابتدا QR کارت را اسکن کنید.</p>'; return; }
