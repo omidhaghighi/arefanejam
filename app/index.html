@@ -20,8 +20,8 @@ html,body{margin:0;padding:0;background:#FDFDFD}
 html.intro-on body>*:not(#intro-splash){visibility:hidden!important}
 </style>
 <link rel="preload" as="image" href="intro/intro-logo.png">
-<link rel="stylesheet" href="css/style.css?v=168" media="print" onload="this.media='all';window.__cssOk=1" onerror="window.__cssOk=1">
-<noscript><link rel="stylesheet" href="css/style.css?v=168"></noscript>
+<link rel="stylesheet" href="css/style.css?v=171" media="print" onload="this.media='all';window.__cssOk=1" onerror="window.__cssOk=1">
+<noscript><link rel="stylesheet" href="css/style.css?v=171"></noscript>
 <script>try{var __mc=parseInt(localStorage.getItem('arefanejam_more_cols'),10);if(__mc>=2&&__mc<=5)document.documentElement.setAttribute('data-more-cols',String(__mc));}catch(e){}</script>
 </head>
 <body>
@@ -1488,9 +1488,14 @@ html.intro-on body>*:not(#intro-splash){visibility:hidden!important}
     <section id="tab-people-safir" class="tab-panel">
       <div class="section-block">
         <h3>سفیران</h3>
-        <input type="search" id="ppl-q" placeholder="جست‌وجو: نام، حوزه، استان یا شهر" style="width:100%;margin:6px 0 10px">
-        <div id="ppl-list"></div>
+        <div class="ppl-info">
+          <div class="ppl-info-ic">🔒</div>
+          <p>اطلاعات سفیران محرمانه است و فهرست عمومی ندارد.</p>
+          <p class="muted-text small">برای اطمینان از هویت یک سفیر، QR کارت او را در بخش «استعلام» اسکن کنید.</p>
+          <button type="button" class="secondary-btn" data-goto="people-inquiry">🔎 رفتن به استعلام</button>
+        </div>
       </div>
+      <div class="section-block" id="pls-box"></div>
     </section>
 
     <section id="tab-people-inquiry" class="tab-panel">
@@ -2268,7 +2273,7 @@ html.intro-on body>*:not(#intro-splash){visibility:hidden!important}
    تا وقتی کلیپ تمام شد اپ آماده باشد. اگر صفحهٔ شروعی نباشد، بی‌درنگ بارگذاری می‌شوند.
    window.__arefScriptsDone: هر دو اسکریپت تمام شده‌اند (موفق یا خطا) — صفحهٔ شروع برای اپ خراب‌شده بی‌نهایت منتظر نمی‌ماند. */
 (function () {
-  var list = ['js/native-bridge.js?v=49', 'js/app.js?v=257'], i = 0;
+  var list = ['js/native-bridge.js?v=49', 'js/app.js?v=260'], i = 0;
   function next() {
     if (i >= list.length) { window.__arefScriptsDone = true; return; }
     var el = document.createElement('script'); el.src = list[i++];

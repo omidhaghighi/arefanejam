@@ -21974,7 +21974,7 @@ function qcfSyncFs() {
 })();
 
 
-/* ===== بیشتر ← پرسنل و سفیران: سفیران (فهرست) و استعلام (اسکن QR کارت شناسایی) ===== */
+/* ===== بیشتر ← پرسنل و سفیران: استعلام (اسکن QR کارت) و اتصال/گزارش موقعیت خود سفیر ===== */
 (function () {
   var $ = function (id) { return document.getElementById(id); };
   var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
@@ -21984,33 +21984,10 @@ function qcfSyncFs() {
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { if (!r.ok) throw new Error(d.message || 'خطا در ارتباط با سرور'); return d; }); })
       .catch(function (e) { if (e && e.message && e.message !== 'Failed to fetch') throw e; throw new Error('اتصال اینترنت لازم است؛ اینترنت را بررسی کنید.'); });
   }
+  window.pplSafirOpen = function () { safirRender(); };
+  document.addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('#tab-people-safir [data-goto]'); if (b) switchToTab(b.getAttribute('data-goto'), { push: true }); });
 
-  /* ---------- سفیران ---------- */
-  var listT = null, listSeq = 0;
-  function loadList() {
-    var q = ($('ppl-q') && $('ppl-q').value || '').trim(), box = $('ppl-list'); if (!box) return;
-    var my = ++listSeq;
-    box.innerHTML = '<p class="muted-text small center-block">در حال بارگذاری…</p>';
-    pplFetch('/ambassadors/list', { q: q }).then(function (d) {
-      if (my !== listSeq) return;
-      var it = d.items || [];
-      if (!it.length) { box.innerHTML = '<p class="muted-text small center-block">' + (q ? 'موردی پیدا نشد.' : 'هنوز سفیری ثبت نشده است.') + '</p>'; return; }
-      box.innerHTML = it.map(function (x) {
-        var loc = [x.province, x.city].filter(Boolean).join('، ');
-        return '<div class="ppl-card"><b>' + esc(x.name) + '</b>' +
-          (x.father ? '<small>نام پدر: ' + esc(x.father) + '</small>' : '') +
-          (x.hozeh ? '<small>حوزه: ' + esc(x.hozeh) + '</small>' : '') +
-          (loc ? '<small>محل: ' + esc(loc) + '</small>' : '') +
-          (x.intro ? '<p>' + esc(x.intro) + '</p>' : '') + '</div>';
-      }).join('');
-    }).catch(function (e) { if (my === listSeq) box.innerHTML = '<p class="error-text center-block">' + esc(e.message) + '</p>'; });
-  }
-  var qIn = $('ppl-q');
-  if (qIn) qIn.addEventListener('input', function () { clearTimeout(listT); listT = setTimeout(loadList, 400); });
-  window.pplSafirOpen = function () { if ($('ppl-q')) $('ppl-q').value = ''; loadList(); };
-
-  /* ---------- استعلام ---------- */
-  var stream = null, raf = 0, scanning = false, jsqrP = null;
+  var jsqrP = null;
   function loadJsQR() {
     if (window.jsQR) return Promise.resolve();
     if (jsqrP) return jsqrP;
@@ -22021,96 +21998,219 @@ function qcfSyncFs() {
     });
     return jsqrP;
   }
-  function setMsg(h) { var m = $('ppl-inq-msg'); if (m) m.innerHTML = h || ''; }
-  function stopCam() {
-    scanning = false; if (raf) { cancelAnimationFrame(raf); raf = 0; }
-    if (stream) { try { stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {} stream = null; }
-    var v = $('ppl-video'); if (v) { try { v.pause(); } catch (e) {} v.srcObject = null; }
-    var w = $('ppl-cam'); if (w) w.classList.add('hidden');
+  /* اسکنر QR با دوربین یا عکس؛ هر صفحه یک نمونهٔ جدا دارد (ids: video, cam, msg) */
+  function makeScanner(ids, onData) {
+    var stream = null, raf = 0, scanning = false;
+    function setMsg(h) { var m = $(ids.msg); if (m) m.innerHTML = h || ''; }
+    function stop() {
+      scanning = false; if (raf) { cancelAnimationFrame(raf); raf = 0; }
+      if (stream) { try { stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {} stream = null; }
+      var v = $(ids.video); if (v) { try { v.pause(); } catch (e) {} v.srcObject = null; }
+      var w = $(ids.cam); if (w) w.classList.add('hidden');
+    }
+    function camFail(e) {
+      stop(); var n = e && e.name;
+      setMsg('<p class="error-text">' + (n === 'NotAllowedError' || n === 'SecurityError'
+        ? 'اجازهٔ دوربین داده نشد. در تنظیمات گوشی اجازهٔ «دوربین» را برای برنامه روشن کنید؛ یا از دکمهٔ «عکس QR» استفاده کنید.'
+        : 'دوربین باز نشد. از دکمهٔ «عکس QR» استفاده کنید.') + '</p>');
+    }
+    function start() {
+      setMsg('');
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { camFail({ name: 'x' }); return; }
+      loadJsQR().then(function () {
+        return navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+      }).then(function (s) {
+        stream = s; var v = $(ids.video); v.srcObject = s; v.setAttribute('playsinline', 'true');
+        $(ids.cam).classList.remove('hidden');
+        return v.play();
+      }).then(function () {
+        scanning = true;
+        var v = $(ids.video), c = document.createElement('canvas'), x = c.getContext('2d', { willReadFrequently: true }), last = 0;
+        (function tick(ts) {
+          if (!scanning) return;
+          raf = requestAnimationFrame(tick);
+          if (ts - last < 120 || v.readyState < 2 || !v.videoWidth) return;
+          last = ts;
+          var k = Math.min(1, 640 / v.videoWidth); c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k);
+          x.drawImage(v, 0, 0, c.width, c.height);
+          var im = x.getImageData(0, 0, c.width, c.height), q = window.jsQR(im.data, c.width, c.height, { inversionAttempts: 'attemptBoth' });
+          if (q && q.data) { stop(); try { if (navigator.vibrate) navigator.vibrate(60); } catch (e) {} onData(q.data); }
+        })(0);
+      }).catch(camFail);
+    }
+    function fromFile(f) {
+      if (!f) return;
+      setMsg('<p class="muted-text small center-block">در حال خواندن QR…</p>');
+      loadJsQR().then(function () {
+        return new Promise(function (ok, bad) {
+          var img = new Image(), u = URL.createObjectURL(f);
+          img.onload = function () { URL.revokeObjectURL(u); ok(img); }; img.onerror = function () { URL.revokeObjectURL(u); bad(new Error('img')); }; img.src = u;
+        });
+      }).then(function (img) {
+        var sizes = [1000, 640, 1600], res = null;
+        for (var i = 0; i < sizes.length && !res; i++) {
+          var k = Math.min(1, sizes[i] / Math.max(img.width, img.height)), c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
+          var x = c.getContext('2d'); x.drawImage(img, 0, 0, c.width, c.height);
+          res = window.jsQR(x.getImageData(0, 0, c.width, c.height).data, c.width, c.height, { inversionAttempts: 'attemptBoth' });
+        }
+        if (res && res.data) { setMsg(''); onData(res.data); } else setMsg('<p class="error-text">QR در عکس پیدا نشد. نزدیک‌تر و واضح‌تر عکس بگیرید.</p>');
+      }).catch(function () { setMsg('<p class="error-text">خواندن عکس ممکن نشد.</p>'); });
+    }
+    return { start: start, stop: stop, file: fromFile, msg: setMsg };
   }
-  window.pplInqStop = stopCam;
-  window.pplInqOpen = function () { stopCam(); setMsg(''); var r = $('ppl-inq-res'); if (r) r.innerHTML = ''; };
 
+  /* ---------- استعلام ---------- */
   function showResult(d) {
     var r = $('ppl-inq-res'); if (!r) return;
-    if (!d || !d.ok) { r.innerHTML = '<div class="ppl-res bad"><div class="ppl-res-h">❌ هویت تأیید نشد</div><p>' + esc((d && d.message) || 'کارت معتبر نیست.') + '</p></div>'; return; }
+    var st = d && d.status;
+    if (!d || !d.ok) {
+      var revoked = st === 'revoked';
+      r.innerHTML = '<div class="ppl-res bad"><div class="ppl-res-h">' + (revoked ? '⛔ کارت باطل شده است' : '❌ کارت معتبر نیست') + '</div>' +
+        '<p>' + esc((d && d.message) || 'کارت معتبر نیست.') + '</p>' +
+        (revoked ? '<div class="ppl-fake">هویت جعلی</div>' : '') + '</div>';
+      return;
+    }
     var p = d.person || {}, loc = [p.province, p.city].filter(Boolean).join('، ');
-    var warn = d.active === false;
-    r.innerHTML = '<div class="ppl-res ' + (warn ? 'warn' : 'ok') + '"><div class="ppl-res-h">' + (warn ? '⚠️ کارت غیرفعال است' : '✅ هویت تأیید شد') + '</div>' +
-      '<div class="ppl-type">' + esc(d.type_label || '') + '</div>' +
-      '<div class="ppl-row"><span>نام و نام خانوادگی</span><b>' + esc(p.name) + '</b></div>' +
-      (p.father ? '<div class="ppl-row"><span>نام پدر</span><b>' + esc(p.father) + '</b></div>' : '') +
-      (p.hozeh ? '<div class="ppl-row"><span>نام حوزه</span><b>' + esc(p.hozeh) + '</b></div>' : '') +
-      (p.province ? '<div class="ppl-row"><span>استان</span><b>' + esc(p.province) + '</b></div>' : '') +
-      (p.city ? '<div class="ppl-row"><span>شهر / روستا</span><b>' + esc(p.city) + '</b></div>' : '') +
-      (p.nid ? '<div class="ppl-row"><span>شمارهٔ ملی</span><b dir="ltr">' + esc(fa(p.nid)) + '</b></div>' : '') +
+    var warn = d.status === 'inactive';
+    var photo = (p.photo && /^https?:\/\//i.test(p.photo)) ? '<img src="' + esc(p.photo) + '" alt="">' : '<span class="ppl-ph0">👤</span>';
+    var origin = p.origin_city ? 'حوزهٔ علمیهٔ ' + p.origin_city : '';
+    var map = (typeof p.lat === 'number' && typeof p.lng === 'number') ? 'https://www.google.com/maps/search/?api=1&query=' + p.lat + ',' + p.lng : '';
+    var phone = String(p.phone || '').replace(/[^\d+]/g, '');
+    var h = '<div class="ppl-idc ' + (warn ? 'warn' : '') + '">' +
+      '<div class="ppl-idc-top"><span>' + (warn ? '⚠️ کارت فعلاً غیرفعال است' : '✅ هویت تأیید شد') + '</span><b>کارت شناسایی ' + esc(d.type_label || '') + '</b></div>' +
+      '<div class="ppl-idc-body"><div class="ppl-idc-ph">' + photo + '</div><div class="ppl-idc-main"><div class="ppl-idc-name">' + esc(p.name) + '</div>' +
+      (p.father ? '<div class="ppl-idc-sub">فرزند ' + esc(p.father) + '</div>' : '') +
+      (p.nid ? '<div class="ppl-idc-sub" dir="ltr" style="text-align:right">' + esc(fa(p.nid)) + '</div>' : '') +
+      '</div></div>' +
+      '<div class="ppl-idc-rows">' +
+      (p.hozeh ? '<div class="ppl-row"><span>حوزه</span><b>' + esc(p.hozeh) + '</b></div>' : '') +
+      (origin ? '<div class="ppl-row"><span>مبدأ (فارغ‌التحصیل / عضو)</span><b>' + esc(origin) + '</b></div>' : '') +
+      (loc ? '<div class="ppl-row"><span>محل فعلی</span><b>' + esc(loc) + '</b></div>' : '') +
+      '</div>' +
+      '<div class="ppl-appr ' + (p.approved ? 'yes' : 'no') + '">' + (p.approved ? '✅ مورد تأیید علمای منطقه' : '⚠️ تأییدیهٔ علمای منطقه ثبت نشده است') + (p.approved && p.approvers ? '<small>' + esc(p.approvers) + '</small>' : '') + '</div>' +
       (p.intro ? '<div class="ppl-intro"><span>معرفی</span><p>' + esc(p.intro) + '</p></div>' : '') +
-      (warn ? '<p class="muted-text small">این سفیر از سوی مجموعه غیرفعال شده است.</p>' : '') + '</div>';
+      '<div class="ppl-acts">' + (map ? '<a class="ppl-act" target="_blank" rel="noopener" href="' + esc(map) + '">📍 موقعیت روی نقشه</a>' : '') +
+      (phone ? '<a class="ppl-act" href="tel:' + esc(phone) + '">📞 ' + esc(fa(phone)) + '</a>' : '') + '</div>' +
+      (phone ? '<p class="ppl-hint">برای اطمینان از هویت، با همین شماره تماس بگیرید و مطابقت فرد را بپرسید؛ اگر پاسخ ندادند یا مشخصات نخواند، کارت را معتبر ندانید.</p>' : '') +
+      (warn ? '<p class="ppl-hint">این سفیر از سوی مجموعه غیرفعال شده است.</p>' : '') + '</div>';
+    r.innerHTML = h;
     try { r.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {}
   }
   function verify(text) {
-    setMsg('<p class="muted-text small center-block">در حال استعلام…</p>');
-    pplFetch('/identity/verify', { payload: text }).then(function (d) { setMsg(''); showResult(d); })
-      .catch(function (e) { setMsg(''); $('ppl-inq-res').innerHTML = '<p class="error-text center-block">' + esc(e.message) + '</p>'; });
+    inq.msg('<p class="muted-text small center-block">در حال استعلام…</p>');
+    pplFetch('/identity/verify', { payload: text }).then(function (d) { inq.msg(''); showResult(d); })
+      .catch(function (e) { inq.msg(''); $('ppl-inq-res').innerHTML = '<p class="error-text center-block">' + esc(e.message) + '</p>'; });
   }
-  function camFail(e) {
-    stopCam();
-    var n = e && e.name;
-    setMsg('<p class="error-text">' + (n === 'NotAllowedError' || n === 'SecurityError'
-      ? 'اجازهٔ دوربین داده نشد. در تنظیمات گوشی اجازهٔ «دوربین» را برای برنامه روشن کنید؛ یا از دکمهٔ «عکس QR» استفاده کنید.'
-      : 'دوربین باز نشد. از دکمهٔ «عکس QR» استفاده کنید.') + '</p>');
-  }
-  function startCam() {
-    setMsg(''); $('ppl-inq-res').innerHTML = '';
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { camFail({ name: 'x' }); return; }
-    loadJsQR().then(function () {
-      return navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
-    }).then(function (s) {
-      stream = s; var v = $('ppl-video'); v.srcObject = s; v.setAttribute('playsinline', 'true');
-      $('ppl-cam').classList.remove('hidden');
-      return v.play();
-    }).then(function () {
-      scanning = true;
-      var v = $('ppl-video'), c = document.createElement('canvas'), x = c.getContext('2d', { willReadFrequently: true }), last = 0;
-      (function tick(ts) {
-        if (!scanning) return;
-        raf = requestAnimationFrame(tick);
-        if (ts - last < 120 || v.readyState < 2 || !v.videoWidth) return;
-        last = ts;
-        var k = Math.min(1, 640 / v.videoWidth); c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k);
-        x.drawImage(v, 0, 0, c.width, c.height);
-        var im = x.getImageData(0, 0, c.width, c.height), q = window.jsQR(im.data, c.width, c.height, { inversionAttempts: 'attemptBoth' });
-        if (q && q.data) { stopCam(); try { if (navigator.vibrate) navigator.vibrate(60); } catch (e) {} verify(q.data); }
-      })(0);
-    }).catch(camFail);
-  }
-  function fromFile(f) {
-    if (!f) return;
-    setMsg('<p class="muted-text small center-block">در حال خواندن QR…</p>'); $('ppl-inq-res').innerHTML = '';
-    loadJsQR().then(function () {
-      return new Promise(function (ok, bad) {
-        var img = new Image(), u = URL.createObjectURL(f);
-        img.onload = function () { URL.revokeObjectURL(u); ok(img); }; img.onerror = function () { URL.revokeObjectURL(u); bad(new Error('img')); }; img.src = u;
-      });
-    }).then(function (img) {
-      var sizes = [1000, 640, 1600], res = null;
-      for (var i = 0; i < sizes.length && !res; i++) {
-        var k = Math.min(1, sizes[i] / Math.max(img.width, img.height)), c = document.createElement('canvas');
-        c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
-        var x = c.getContext('2d'); x.drawImage(img, 0, 0, c.width, c.height);
-        res = window.jsQR(x.getImageData(0, 0, c.width, c.height).data, c.width, c.height, { inversionAttempts: 'attemptBoth' });
-      }
-      if (res && res.data) { setMsg(''); verify(res.data); } else setMsg('<p class="error-text">QR در عکس پیدا نشد. نزدیک‌تر و واضح‌تر عکس بگیرید.</p>');
-    }).catch(function () { setMsg('<p class="error-text">خواندن عکس ممکن نشد.</p>'); });
-  }
+  var inq = makeScanner({ video: 'ppl-video', cam: 'ppl-cam', msg: 'ppl-inq-msg' }, verify);
+  window.pplInqStop = function () { inq.stop(); lnk.stop(); };
+  window.pplInqOpen = function () { inq.stop(); inq.msg(''); var r = $('ppl-inq-res'); if (r) r.innerHTML = ''; };
   var b1 = $('ppl-scan'), b2 = $('ppl-photo'), b3 = $('ppl-stop'), fi = $('ppl-file');
-  if (b1) b1.addEventListener('click', startCam);
-  if (b3) b3.addEventListener('click', stopCam);
-  if (b2) b2.addEventListener('click', function () { fi.value = ''; fi.click(); });
-  if (fi) fi.addEventListener('change', function () { fromFile(fi.files && fi.files[0]); });
-  document.addEventListener('visibilitychange', function () { if (document.hidden) stopCam(); });
-})();
+  if (b1) b1.addEventListener('click', function () { $('ppl-inq-res').innerHTML = ''; inq.start(); });
+  if (b3) b3.addEventListener('click', inq.stop);
+  if (b2) b2.addEventListener('click', function () { fi.value = ''; $('ppl-inq-res').innerHTML = ''; fi.click(); });
+  if (fi) fi.addEventListener('change', function () { inq.file(fi.files && fi.files[0]); });
 
+  /* ---------- سفیر: اتصال گوشی و ثبت موقعیت (هر ۲۴ ساعت) ---------- */
+  var TOK = 'aref_safir_tok', NAME = 'aref_safir_name', LATER = 'aref_safir_later', LAST = 'aref_safir_last';
+  var lsGet = function (k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } };
+  var lsSet = function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} };
+  var lsDel = function (k) { try { localStorage.removeItem(k); } catch (e) {} };
+  var pendingPayload = '';
+  var lnk = makeScanner({ video: 'pls-video', cam: 'pls-cam', msg: 'pls-msg' }, function (txt) {
+    if (!/^AREF:S:[A-Z0-9]{8,24}$/.test(txt)) { lnk.msg('<p class="error-text">این QR کارت سفیر عارفان جام نیست.</p>'); return; }
+    pendingPayload = txt; lnk.msg('<p class="ok-text">✅ QR کارت خوانده شد. شمارهٔ تلفن را وارد و «اتصال» را بزنید.</p>');
+  });
+  function getPos() {
+    return new Promise(function (ok, bad) {
+      if (!navigator.geolocation) { bad({ code: 2 }); return; }
+      navigator.geolocation.getCurrentPosition(function (p) { ok(p.coords); }, function (e) { bad(e); }, { enableHighAccuracy: true, timeout: 25000, maximumAge: 60000 });
+    });
+  }
+  function report(btn, outId) {
+    var out = $(outId || 'pls-out'); if (btn) btn.disabled = true;
+    if (out) out.innerHTML = '<p class="muted-text small">در حال گرفتن موقعیت…</p>';
+    return getPos().then(function (c) {
+      return pplFetch('/safir/report', { token: lsGet(TOK), lat: c.latitude, lng: c.longitude, acc: Math.round(c.accuracy || 0) });
+    }).then(function (d) {
+      if (d.unlinked) { lsDel(TOK); lsDel(NAME); safirRender(); return; }
+      lsSet(LAST, String(Date.now())); lsDel(LATER);
+      if (out) out.innerHTML = '<p class="ok-text">✅ موقعیت شما ثبت شد. سپاس.</p>';
+      safirRender(true);
+    }).catch(function (e) {
+      var m = (e && e.code === 1) ? 'اجازهٔ موقعیت مکانی داده نشد. در تنظیمات گوشی، «موقعیت مکانی» را برای برنامه روشن کنید.' : (e && e.code != null && !e.message ? 'موقعیت دریافت نشد؛ GPS را روشن کنید و دوباره امتحان کنید.' : (e && e.message) || 'ثبت موقعیت ناموفق بود.');
+      if (out) out.innerHTML = '<p class="error-text">' + esc(m) + '</p>';
+    }).then(function () { if (btn) btn.disabled = false; });
+  }
+  function safirRender(keepOut) {
+    var box = $('pls-box'); if (!box) return;
+    var tok = lsGet(TOK);
+    if (tok) {
+      var last = parseInt(lsGet(LAST), 10) || 0;
+      box.innerHTML = '<div class="ppl-me"><div class="ppl-me-h">✅ این گوشی به‌عنوان سفیر «' + esc(lsGet(NAME)) + '» وصل است</div>' +
+        '<p class="muted-text small">هر ۲۴ ساعت از شما خواسته می‌شود موقعیت فعلی‌تان را ثبت کنید تا مجموعه بداند در کدام منطقه هستید.' + (last ? '<br>آخرین ثبت روی همین گوشی: ' + esc(fa(new Date(last).toLocaleString('fa-IR'))) : '') + '</p>' +
+        '<button type="button" class="secondary-btn" id="pls-report">📍 ثبت موقعیت من الان</button> <button type="button" class="ghost-btn small-btn" id="pls-unlink">قطع اتصال</button>' +
+        '<div id="pls-out"></div></div>';
+      $('pls-report').addEventListener('click', function () { report(this); });
+      $('pls-unlink').addEventListener('click', function () { pplFetch('/safir/unlink', { token: lsGet(TOK) }).catch(function () {}); lsDel(TOK); lsDel(NAME); safirRender(); });
+      return;
+    }
+    pendingPayload = '';
+    box.innerHTML = '<div class="ppl-me"><div class="ppl-me-h">من سفیر هستم</div>' +
+      '<p class="muted-text small">برای اینکه مجموعه بتواند موقعیت شما را ببیند: QR کارت شناسایی خودتان را اسکن کنید و شمارهٔ تلفنی را که ثبت کرده‌اید وارد کنید.</p>' +
+      '<div class="ppl-btns"><button type="button" class="secondary-btn" id="pls-scan">📷 اسکن QR کارت من</button><button type="button" class="ghost-btn" id="pls-photo">🖼️ عکس QR</button></div>' +
+      '<input type="file" id="pls-file" accept="image/*" class="hidden">' +
+      '<div id="pls-cam" class="ppl-cam hidden"><video id="pls-video" muted playsinline></video><div class="ppl-frame"></div><button type="button" class="ghost-btn small-btn" id="pls-stop">بستن دوربین</button></div>' +
+      '<div id="pls-msg"></div>' +
+      '<input type="tel" id="pls-phone" inputmode="tel" dir="ltr" placeholder="شمارهٔ تلفن ثبت‌شده (۰۹…)" style="width:100%;margin:8px 0">' +
+      '<button type="button" class="secondary-btn" id="pls-link" style="width:100%">🔗 اتصال این گوشی</button><div id="pls-out"></div></div>';
+    $('pls-scan').addEventListener('click', lnk.start);
+    $('pls-stop').addEventListener('click', lnk.stop);
+    $('pls-photo').addEventListener('click', function () { var f = $('pls-file'); f.value = ''; f.click(); });
+    $('pls-file').addEventListener('change', function () { lnk.file(this.files && this.files[0]); });
+    $('pls-link').addEventListener('click', function () {
+      var out = $('pls-out'), btn = this;
+      if (!pendingPayload) { out.innerHTML = '<p class="error-text">ابتدا QR کارت را اسکن کنید.</p>'; return; }
+      var ph = ($('pls-phone').value || '').trim(); if (!ph) { out.innerHTML = '<p class="error-text">شمارهٔ تلفن را وارد کنید.</p>'; return; }
+      btn.disabled = true; out.innerHTML = '<p class="muted-text small">در حال اتصال…</p>';
+      (typeof ensureDeviceId === 'function' ? ensureDeviceId() : Promise.resolve('')).then(function (dev) {
+        return pplFetch('/safir/link', { payload: pendingPayload, phone: ph, device_id: dev || '' });
+      }).then(function (d) {
+        if (!d.ok) { out.innerHTML = '<p class="error-text">' + esc(d.message || 'اتصال ناموفق بود.') + '</p>'; return; }
+        lsSet(TOK, d.token); lsSet(NAME, d.name || ''); safirRender();
+        report(null);
+      }).catch(function (e) { out.innerHTML = '<p class="error-text">' + esc(e.message) + '</p>'; })
+        .then(function () { btn.disabled = false; });
+    });
+  }
+  /* سررسید ۲۴ ساعتهٔ ثبت موقعیت: وقتی اپ باز شد یا به جلو آمد، اگر سفیر وصل است و موقع گزارش رسیده، پنجرهٔ پرسش نشان داده می‌شود */
+  var asking = false, checkedAt = 0;
+  function closeAsk() { var p = $('pls-ask'); if (p) p.remove(); asking = false; }
+  function ask(name) {
+    if (asking) return; asking = true;
+    var el = document.createElement('div'); el.id = 'pls-ask'; el.className = 'fk-pop-bg';
+    el.innerHTML = '<div class="fk-pop"><div class="fk-pop-h"><span class="fk-ic" style="background:#e1f5ea;color:#1e9e63">📍</span><b>الان کجا هستید؟</b></div>' +
+      '<p>' + esc(name) + ' عزیز، لطفاً موقعیت فعلی‌تان را ثبت کنید تا مجموعه از محل حضور شما باخبر باشد.</p>' +
+      '<div id="pls-ask-out"></div><button type="button" class="secondary-btn" id="pls-ask-ok" style="width:100%">📍 ثبت موقعیت من</button>' +
+      '<button type="button" class="ghost-btn" id="pls-ask-later" style="width:100%;margin-top:8px">بعداً یادآوری کن</button></div>';
+    document.body.appendChild(el);
+    $('pls-ask-later').addEventListener('click', function () { lsSet(LATER, String(Date.now())); closeAsk(); });
+    $('pls-ask-ok').addEventListener('click', function () { var b = this; report(b, 'pls-ask-out').then(function () { var o = $('pls-ask-out'); if (o && /ثبت شد/.test(o.textContent)) setTimeout(closeAsk, 1200); }); });
+  }
+  function dueCheck() {
+    var tok = lsGet(TOK); if (!tok || asking) return;
+    if (Date.now() - checkedAt < 10 * 60 * 1000) return; checkedAt = Date.now();
+    var later = parseInt(lsGet(LATER), 10) || 0; if (later && Date.now() - later < 2 * 3600 * 1000) return;
+    pplFetch('/safir/status', { token: tok }).then(function (d) {
+      if (d.unlinked) { lsDel(TOK); lsDel(NAME); return; }
+      if (d.ok && d.due) ask(d.name || lsGet(NAME));
+    }).catch(function () {});
+  }
+  setTimeout(dueCheck, 6000);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) dueCheck(); });
+  document.addEventListener('visibilitychange', function () { if (document.hidden) { inq.stop(); lnk.stop(); } });
+
+})();
 
 /* عنوان بالای اپ: تک‌خط و خودکار کوچک‌شونده (مستقل از اندازهٔ فونت گوشی) */
 (function () {
