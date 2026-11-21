@@ -1516,9 +1516,17 @@ let selectedDate = new Date();
 let calendarViewYear, calendarViewMonth;
 let calendarEvents = [];
 
-async function loadCalendarEvents() {
-  try { calendarEvents = await apiFetch('/events'); renderCalendarWidget(); } catch (e) { calendarEvents = []; }
+let calendarEventsAt = 0;
+async function loadCalendarEvents(force) {
+  // خطا یا جواب نامعتبر مناسبت‌های نمایش‌داده‌شده را پاک نمی‌کند؛ فقط موفقیت جایگزین می‌شود
+  try {
+    const d = await apiFetch('/events', force ? { force: true } : {});
+    if (Array.isArray(d)) { calendarEvents = d; calendarEventsAt = Date.now(); renderCalendarWidget(); }
+  } catch (e) { /* همان فهرست قبلی می‌ماند */ }
 }
+// برگشتن به اپ یا وصل‌شدن اینترنت: مناسبت‌های پیشخوان دوباره گرفته می‌شود (حداکثر هر ۵ دقیقه)، نه فقط هنگام باز شدن اپ
+document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - calendarEventsAt > 5 * 60 * 1000) loadCalendarEvents(true); });
+window.addEventListener('online', () => { if (Date.now() - calendarEventsAt > 60 * 1000) loadCalendarEvents(true); });
 function findEventsForJalaliDate(jy, jm, jd) {
   return calendarEvents.filter((ev) =>
     Number(ev.jalali_month) === jm && Number(ev.jalali_day) === jd &&
@@ -17899,22 +17907,13 @@ bnrLoad();
       { k: 'exam', ic: '📝', c: '#f08a00', bg: '#fff3d1', t: 'آزمون آنلاین', s: 'برگزاری آزمون‌های آنلاین',
         d: 'معلمان آزمون تستی از بانک سؤال می‌سازند؛ دانش‌آموزان در زمان مشخص آنلاین شرکت می‌کنند و پاسخ‌ها خودکار تصحیح می‌شود. نتیجه و آمار آزمون برای معلم و مدیر و نمرهٔ هر دانش‌آموز برای خودش و اولیا قابل مشاهده است.' },
     ];
-    const FK_ROLE_CARDS = [
-      { t: 'مدیر', f: ['مشاهدهٔ آزمون‌های برگزارشده و نتایج', 'بانک سؤال و ساخت آزمون', 'گزارش حضور و غیاب', 'تعیین برنامهٔ هفتگی کلاس‌ها', 'ارسال اطلاعیه به دانش‌آموزان و اولیا', 'کارنامه، امتیازات و نمودار پیشرفت'] },
-      { t: 'معاون', f: ['مشاهدهٔ آزمون‌ها و گزارش‌ها', 'ثبت حضور و غیاب و نمره', 'تعیین برنامهٔ هفتگی کلاس‌ها', 'ارسال اطلاعیه به اولیا', 'ثبت امتیاز و موارد انضباطی', 'کارنامه و نمودار پیشرفت'] },
-      { t: 'معلم', f: ['برگزاری آزمون و کلاس آنلاین', 'ثبت حضور و غیاب دانش‌آموزان', 'ثبت نمره و امتیاز', 'ارسال اطلاعیه به کلاس و اولیا', 'گزارش نمرات و روند پیشرفت', 'مشاهدهٔ برنامهٔ هفتگی'] },
-      { t: 'دانش‌آموز', f: ['ورود به کلاس‌های آنلاین', 'شرکت در آزمون‌های آنلاین', 'مشاهدهٔ حضور و غیاب و امتیازات', 'دریافت کارنامه تحصیلی', 'نمودار پیشرفت و تحلیل روند', 'مشاهدهٔ برنامهٔ هفتگی و اطلاعیه‌ها'] },
-      { t: 'ولی / سرپرست', f: ['مشاهدهٔ وضعیت درسی فرزند', 'اعلان حضور و غیاب، نمره و امتیاز', 'کارنامه و نمودار پیشرفت فرزند', 'اطلاعیه‌ها و برنامهٔ هفتگی', 'شهریه و سرویس مدرسه'] },
-    ];
     const fkTile = (t, attr) => '<button type="button" class="fk-tile" ' + attr + '="' + t.k + '"><span class="fk-ic" style="background:' + t.bg + ';color:' + t.c + '">' + t.ic + '</span><b>' + esc(t.t) + '</b><small>' + esc(t.s) + '</small></button>';
     const fkFind = (k) => FK_TILES.filter((x) => x.k === k)[0];
-    const fkRoleCards = () => '<div class="fk-roles">' + FK_ROLE_CARDS.map((r) => '<div class="fk-role"><h4>' + esc(r.t) + '</h4><ul>' + r.f.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ul></div>').join('') + '</div>';
 
     /* ----- قبل از ورود ----- */
     function fkRenderGate() {
       const g = $('stu-gate'); if (!g) return;
-      g.innerHTML = '<div class="section-block"><h3>خدمات مدرسه</h3><p class="muted-text small">یکی از بخش‌ها را انتخاب کنید تا توضیحش را ببینید؛ برای استفاده باید وارد حساب خود شوید.</p><div class="fk-grid">' + FK_TILES.map((t) => fkTile(t, 'data-fk')).join('') + '</div></div>' +
-        '<div class="section-block"><h3>امکانات هر نقش</h3>' + fkRoleCards() + '</div>';
+      g.innerHTML = '<div class="section-block"><h3>خدمات مدرسه</h3><p class="muted-text small">یکی از بخش‌ها را انتخاب کنید تا توضیحش را ببینید؛ برای استفاده باید وارد حساب خود شوید.</p><div class="fk-grid">' + FK_TILES.map((t) => fkTile(t, 'data-fk')).join('') + '</div></div>';
     }
     function fkClosePop() { const p = $('fk-pop'); if (p) p.remove(); }
     function fkPopup(t) {
@@ -22120,8 +22119,8 @@ function qcfSyncFs() {
   function fit() {
     if (busy) return; busy = true;
     try {
-      var size = 15; el.style.fontSize = size + 'px';
-      while (el.scrollWidth > el.clientWidth + 1 && size > 8) { size -= 0.5; el.style.fontSize = size + 'px'; }
+      var size = 19; el.style.fontSize = size + 'px';
+      while (el.scrollWidth > el.clientWidth + 1 && size > 10) { size -= 0.5; el.style.fontSize = size + 'px'; }
     } catch (e) {}
     busy = false;
   }

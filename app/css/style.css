@@ -5942,4 +5942,7 @@ body.dark-mode .qs-ar .qf-r, body.dark-mode .ayah-arabic .qf-r { color: #ff6b6b;
 .ppl-intro p { margin: 4px 0 0; line-height: 1.8; font-size: 13px; }
 
 /* عنوان بالای اپ: همیشه یک خط؛ اندازه با JS (fitTopbarTitle) طوری کم می‌شود که حتی با بزرگ‌بودن فونت گوشی جا شود */
-.topbar .topbar-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; font-size: 15px; line-height: 1.4; }
+/* ردیف اول: نام برنامه تمام‌عرض و تک‌خط؛ ردیف دوم: منو، لوگو و بقیهٔ آیکون‌ها */
+.topbar { flex-wrap: wrap; row-gap: 8px; }
+.topbar .topbar-title { order: -1; flex: 0 0 100%; width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; font-size: 18px; line-height: 1.5; }
+.topbar .topbar-bell-btn { margin-inline-start: auto; }
