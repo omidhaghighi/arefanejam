@@ -20,8 +20,8 @@ html,body{margin:0;padding:0;background:#FDFDFD}
 html.intro-on body>*:not(#intro-splash){visibility:hidden!important}
 </style>
 <link rel="preload" as="image" href="intro/intro-logo.png">
-<link rel="stylesheet" href="css/style.css?v=173" media="print" onload="this.media='all';window.__cssOk=1" onerror="window.__cssOk=1">
-<noscript><link rel="stylesheet" href="css/style.css?v=173"></noscript>
+<link rel="stylesheet" href="css/style.css?v=176" media="print" onload="this.media='all';window.__cssOk=1" onerror="window.__cssOk=1">
+<noscript><link rel="stylesheet" href="css/style.css?v=176"></noscript>
 <script>try{var __mc=parseInt(localStorage.getItem('arefanejam_more_cols'),10);if(__mc>=2&&__mc<=5)document.documentElement.setAttribute('data-more-cols',String(__mc));}catch(e){}</script>
 </head>
 <body>
@@ -1481,7 +1481,41 @@ html.intro-on body>*:not(#intro-splash){visibility:hidden!important}
     <section id="tab-people-staff" class="tab-panel">
       <div class="section-block">
         <h3>پرسنل</h3>
-        <p class="muted-text small">این بخش به‌زودی فعال می‌شود.</p>
+        <p class="muted-text small">یکی از بخش‌ها را انتخاب کنید.</p>
+      </div>
+      <div class="menu-grid">
+        <button data-ikey="sub:people-staff-mkt" class="menu-tile tile-people" data-goto="people-staff-mkt">
+          <span class="menu-tile-badge">🏫</span>
+          <span class="menu-tile-label">پرسنل مکاتب</span>
+        </button>
+        <button data-ikey="sub:people-staff-hifz" class="menu-tile tile-people" data-goto="people-staff-hifz">
+          <span class="menu-tile-badge">📖</span>
+          <span class="menu-tile-label">پرسنل دارالحفظ</span>
+        </button>
+      </div>
+    </section>
+
+    <section id="tab-people-staff-mkt" class="tab-panel">
+      <div class="section-block">
+        <h3>پرسنل مکاتب</h3>
+        <div class="ppl-info">
+          <div class="ppl-info-ic">🔒</div>
+          <p>اطلاعات پرسنل مکاتب محرمانه است و فهرست عمومی ندارد.</p>
+          <p class="muted-text small">برای اطمینان از هویت، QR کارت او را در بخش «استعلام» اسکن کنید. امکانات بیشتر این بخش به‌زودی اضافه می‌شود.</p>
+          <button type="button" class="secondary-btn" data-goto="people-inquiry">🔎 رفتن به استعلام</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-people-staff-hifz" class="tab-panel">
+      <div class="section-block">
+        <h3>پرسنل دارالحفظ</h3>
+        <div class="ppl-info">
+          <div class="ppl-info-ic">🔒</div>
+          <p>اطلاعات پرسنل دارالحفظ محرمانه است و فهرست عمومی ندارد.</p>
+          <p class="muted-text small">برای اطمینان از هویت، QR کارت او را در بخش «استعلام» اسکن کنید. امکانات بیشتر این بخش به‌زودی اضافه می‌شود.</p>
+          <button type="button" class="secondary-btn" data-goto="people-inquiry">🔎 رفتن به استعلام</button>
+        </div>
       </div>
     </section>
 
@@ -2271,7 +2305,7 @@ html.intro-on body>*:not(#intro-splash){visibility:hidden!important}
    تا وقتی کلیپ تمام شد اپ آماده باشد. اگر صفحهٔ شروعی نباشد، بی‌درنگ بارگذاری می‌شوند.
    window.__arefScriptsDone: هر دو اسکریپت تمام شده‌اند (موفق یا خطا) — صفحهٔ شروع برای اپ خراب‌شده بی‌نهایت منتظر نمی‌ماند. */
 (function () {
-  var list = ['js/native-bridge.js?v=49', 'js/app.js?v=263'], i = 0;
+  var list = ['js/native-bridge.js?v=49', 'js/app.js?v=266'], i = 0;
   function next() {
     if (i >= list.length) { window.__arefScriptsDone = true; return; }
     var el = document.createElement('script'); el.src = list[i++];

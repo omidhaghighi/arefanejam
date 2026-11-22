@@ -5995,3 +5995,39 @@ body.dark-mode .qs-ar .qf-r, body.dark-mode .ayah-arabic .qf-r { color: #ff6b6b;
 .sec-row.is-done { opacity: .75; }
 .sv-sent { color: #0a7a2f; font-size: 12px; }
 .sv-unsent { color: #b36b00; font-size: 12px; }
+
+/* کارنامه به‌تفکیک کلاس (مطابق کارنامهٔ آموزش و پرورش) */
+.fk-class { border: 1px solid var(--line); border-radius: 14px; padding: 8px 8px 4px; margin: 10px 0; }
+.fk-class-h { font-weight: 700; margin-bottom: 4px; }
+.fk-tbl th { font-size: 11px; opacity: .8; }
+.fk-tbl td small { opacity: .65; }
+.fk-det { font-size: 11.5px; line-height: 1.9; }
+.fk-lv { font-size: 12px; white-space: nowrap; }
+.fk-total { font-size: 15px; text-align: center; border: 1px solid var(--line); }
+@media print { .fk-class { break-inside: avoid; } }
+
+/* مرخصی دانش‌آموزان در حضور و غیاب */
+.stu-sheet-leave { opacity: .9; }
+.stu-leave-badge { background: rgba(10,165,192,.12); border: 1px solid rgba(10,165,192,.4); border-radius: 12px; padding: 6px 10px; font-size: 13px; }
+.stu-leave-badge small { opacity: .7; }
+.stu-leave-note { background: rgba(10,165,192,.1); border-radius: 12px; padding: 8px 10px; font-size: 13px; margin: 6px 0; }
+
+/* کارنامهٔ مدرسه‌ای */
+.fk-school { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: var(--card, #fff); }
+.fk-sh-top { display: flex; justify-content: space-between; align-items: center; gap: 6px; border-bottom: 1px solid var(--line); padding-bottom: 8px; font-size: 11px; line-height: 1.7; }
+.fk-sh-c { text-align: center; font-size: 15px; }
+.fk-sh-l, .fk-sh-r { flex: 1; }
+.fk-sh-r { text-align: left; }
+.fk-sh-info { width: 100%; border-collapse: collapse; margin: 8px 0; table-layout: auto; }
+.fk-sh-info th, .fk-sh-info td, .fk-sh th, .fk-sh td { border: 1px solid var(--line); padding: 5px 4px; text-align: center; font-size: 12px; }
+.fk-sh th, .fk-sh-info th { background: rgba(127,127,127,.12); font-weight: 600; }
+.fk-sh-cls { font-weight: 600; font-size: 13px; background: rgba(127,127,127,.12); padding: 6px 8px; border-radius: 8px; margin: 8px 0 6px; }
+.fk-sh-wrap { overflow-x: auto; }
+.fk-sh { border-collapse: collapse; min-width: 430px; width: 100%; }
+.fk-sh td.fk-n { text-align: right; white-space: nowrap; }
+.fk-sh td.fk-pt { background: rgba(34,170,90,.12); }
+.fk-sh .neg, .fk-sh td.neg { color: var(--danger, #d6384f); font-weight: 600; }
+.fk-sh-desc { border: 1px solid var(--line); border-radius: 6px; padding: 8px; font-size: 12px; margin-top: 8px; min-height: 40px; }
+.fk-sh-desc span { opacity: .7; }
+.fk-sh-sign { display: flex; justify-content: space-around; margin-top: 12px; padding-bottom: 34px; font-size: 12px; opacity: .75; text-align: center; }
+@media print { .fk-sh-wrap { overflow: visible; } .fk-sh { min-width: 0; } }

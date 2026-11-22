@@ -16843,11 +16843,14 @@ bnrLoad();
       let h = '<div class="stu-topbar"><button type="button" class="ghost-btn small-btn" data-stu="cancel">‹ بازگشت</button></div><div class="stu-card stu-sheet">';
       h += '<h3>حضور و غیاب' + (sh.name ? ' — ' + esc(sh.name) : '') + '</h3>';
       h += '<div class="stu-datebar"><button type="button" class="ghost-btn small-btn" data-stu="sheet-prev">›</button><b>' + esc(jal(sh.date, true)) + '</b><button type="button" class="ghost-btn small-btn" data-stu="sheet-next"' + (atToday ? ' disabled' : '') + '>‹</button></div>';
+      const nLv = sh.students.filter((x) => x.leave).length;
+      if (nLv) h += '<p class="stu-leave-note">🏖️ ' + fa(nLv) + ' دانش‌آموز در این روز مرخصی‌اند و حضور و غیابشان لازم نیست.</p>';
       if (!sh.students.length) h += '<p class="muted-text small">دانش‌آموزی زیر نظر این بخش تعریف نشده است.</p>';
       else {
         h += '<div class="stu-sheet-tools"><button type="button" class="ghost-btn small-btn" data-stu="sheet-all">✅ همه حاضر</button></div><div class="stu-sheet-list">';
         sh.students.forEach((x) => {
           const dr = sh.draft[x.id] || { status: '', note: '' };
+          if (x.leave) { h += '<div class="stu-sheet-row stu-sheet-leave"><div class="stu-sheet-name">' + esc(x.full_name) + '</div><div class="stu-leave-badge">🏖️ ' + esc(x.leave) + ' <small>(نیازی به ثبت حضور نیست)</small></div></div>'; return; }
           h += '<div class="stu-sheet-row"><div class="stu-sheet-name">' + esc(x.full_name) + '</div><div class="stu-sheet-btns">';
           Object.keys(ATT).forEach((k) => { h += '<button type="button" class="stu-st stu-att-' + k + (dr.status === k ? ' on' : '') + '" data-stu="sheet-set" data-id="' + x.id + '" data-s="' + k + '" title="' + ATT[k][0] + '">' + ATT[k][1] + '<small>' + ATT[k][0] + '</small></button>'; });
           h += '</div>' + ((dr.status && dr.status !== 'present') ? '<input type="text" class="stu-note" data-id="' + x.id + '" maxlength="120" placeholder="توضیح (اختیاری)" value="' + esc(dr.note) + '">' : '') + '</div>';
@@ -16861,7 +16864,7 @@ bnrLoad();
     async function saveSheet() {
       const sh = S.sheet; if (!sh) return;
       const err = $('stu-sheet-err'); err.textContent = '';
-      const items = sh.students.map((x) => ({ student_id: x.id, status: (sh.draft[x.id] || {}).status || '', note: (sh.draft[x.id] || {}).note || '' })).filter((i) => i.status);
+      const items = sh.students.filter((x) => !x.leave).map((x) => ({ student_id: x.id, status: (sh.draft[x.id] || {}).status || '', note: (sh.draft[x.id] || {}).note || '' })).filter((i) => i.status);
       if (!items.length) { err.textContent = 'وضعیتی انتخاب نشده است.'; return; }
       const btn = $('stu-sheet-save'); btn.disabled = true;
       try {
@@ -17246,6 +17249,7 @@ bnrLoad();
       if (inRoles(['head', 'manager', 'deputy', 'dean', 'teacher', 'mkt_teacher', 'hifz_teacher'])) add('sv-stl', '🎓', 'وضعیت درسی دانش‌آموزان', 'حضور و غیاب، نمرات، آزمون‌ها، انضباطی');
       if (inRoles(['student', 'head', 'manager']) || canExam() || canRev()) add('sv-ex', '📝', 'آزمون آنلاین', r === 'student' ? 'آزمون‌های من' : (isMgr() ? 'بانک سوال، تأیید پیشنهادها، رشته‌ها' : (canExam() ? 'ساخت آزمون، بانک سوال، پیشنهاد سوال' + (canRev() ? '، تأیید سوال‌ها' : '') : 'تأیید یا رد سوال‌های بانک')));
       if (inRoles(['head', 'manager', 'deputy', 'teacher', 'mkt_teacher', 'hifz_teacher'])) add('sv-gr', '🧮', 'ثبت نمره', 'ثبت نمرهٔ کل کلاس و اعلام به اولیا');
+      if (inRoles(['head', 'manager', 'deputy', 'dean', 'teacher', 'mkt_teacher', 'hifz_teacher'])) add('sv-lv', '🏖️', 'مرخصی دانش‌آموزان', inRoles(['head', 'manager', 'deputy']) ? 'ثبت مرخصی؛ معلم در حضور و غیاب مطلع می‌شود' : 'دانش‌آموزان مرخصی');
       if (inRoles(['head', 'manager', 'deputy', 'dean'])) add('sv-dc', '⚖️', 'موارد انضباطی', 'تشویق، تذکر و تخلف با اعلان به اولیا');
       if (inRoles(['head', 'manager', 'accountant'])) add('sv-fee', '💰', 'شهریه و حسابداری', 'ثبت هزینه و پرداخت، مانده حساب');
       if (inRoles(['head', 'manager', 'deputy', 'driver'])) add('sv-bus', '🚌', 'سرویس مدرسه', r === 'driver' ? 'دانش‌آموزان من و اعلان به اولیا' : 'تخصیص دانش‌آموز به راننده');
@@ -17361,27 +17365,39 @@ bnrLoad();
     };
 
     /* ---------- ثبت نمره ---------- */
+    let GRC = [], GRL = [];
+    function grFilter() {   // فقط دانش‌آموزان کلاسِ انتخاب‌شده
+      const sel = document.getElementById('sv-g-cls'); if (!sel) return;
+      const c = GRC.find((x) => String(x.id) === sel.value); const set = new Set((c && c.sids) || []);
+      document.querySelectorAll('#stu-main .sv-row[data-sid]').forEach((row) => { row.style.display = set.has(parseInt(row.getAttribute('data-sid'), 10)) ? '' : 'none'; });
+    }
     SVA['sv-gr'] = async () => {
       svLoading('🧮 ثبت نمره', 'sv-home');
       const list = await svStudents(true);
       let fl = [];
       if (isTeach() && canExam()) { try { fl = (await stuFetch('/exams/fields', {})).fields || []; } catch (e) { fl = []; } }
       if (!list.length) { svShell('🧮 ثبت نمره', 'sv-home', '<p class="muted-text small">دانش‌آموزی برای ثبت نمره ندارید.</p>'); return; }
-      let h = field('درس', '<input type="text" id="sv-g-sub" list="sv-g-dl" maxlength="90" value="' + esc(fl[0] ? fl[0].name : '') + '"><datalist id="sv-g-dl">' + fl.map((x) => '<option value="' + esc(x.name) + '">').join('') + '</datalist>');
+      let cl = []; try { cl = (await stuFetch('/sp/classes', {})).classes || []; } catch (e) { cl = []; }
+      GRC = cl;
+      let h = cl.length ? field('کلاس', '<select id="sv-g-cls">' + cl.map((c) => '<option value="' + c.id + '">' + esc(c.name) + '</option>').join('') + '</select>') + '<p class="muted-text small">نمرهٔ هر کلاس جدا ثبت و در کارنامه جدا دیده می‌شود. فقط دانش‌آموزان همان کلاس نمایش داده می‌شوند.</p>' : '';
+      h += field('درس', '<input type="text" id="sv-g-sub" list="sv-g-dl" maxlength="90" value="' + esc(fl[0] ? fl[0].name : '') + '"><datalist id="sv-g-dl">' + fl.map((x) => '<option value="' + esc(x.name) + '">').join('') + '</datalist>');
       h += field('عنوان (میان‌ترم، کوییز، تکلیف…)', '<input type="text" id="sv-g-title" maxlength="150">');
       h += field('بیشترین نمره', '<input type="text" inputmode="decimal" id="sv-g-max" value="20">');
       h += field('تاریخ', '<input type="date" id="sv-g-date" value="' + todayStr() + '">');
       h += '<p class="muted-text small">نمرهٔ هر دانش‌آموز را بنویسید (خالی بماند = ثبت نمی‌شود). بعد از ثبت، اولیای دانش‌آموز مطلع می‌شوند.</p><div class="sv-rows">';
-      list.forEach((s) => { h += '<label class="sv-row"><span>' + esc(s.name) + '</span><input type="text" inputmode="decimal" class="sv-g-sc" data-id="' + s.id + '"></label>'; });
+      GRL = list;
+      list.forEach((s) => { h += '<label class="sv-row" data-sid="' + s.id + '"><span>' + esc(s.name) + '</span><input type="text" inputmode="decimal" class="sv-g-sc" data-id="' + s.id + '"></label>'; });
       h += '</div>' + svBtn('sv-gr-save', 'ثبت نمره‌ها', '', 'secondary-btn sv-wide');
       svShell('🧮 ثبت نمره', 'sv-home', h);
+      grFilter();
+      const gs = document.getElementById('sv-g-cls'); if (gs) gs.addEventListener('change', grFilter);
     };
     SVA['sv-gr-save'] = async (t) => {
       const items = [];
       document.querySelectorAll('#stu-main .sv-g-sc').forEach((i) => { const v = latin(i.value); if (v !== '') items.push({ student_id: parseInt(i.getAttribute('data-id'), 10), score: v }); });
       t.disabled = true;
       try {
-        const r = await stuFetch('/grades/bulk', { subject: gv('sv-g-sub'), title: gv('sv-g-title'), max: latin(gv('sv-g-max')), date: gv('sv-g-date'), items });
+        const r = await stuFetch('/grades/bulk', { class_id: parseInt(gv('sv-g-cls'), 10) || 0, subject: gv('sv-g-sub'), title: gv('sv-g-title'), max: latin(gv('sv-g-max')), date: gv('sv-g-date'), items });
         svShell('🧮 ثبت نمره', 'sv-home', '<p class="sv-okmsg">✅ نمرهٔ ' + fa(r.saved) + ' دانش‌آموز ثبت شد و به اولیا اعلام شد.</p>' + svBtn('sv-gr', 'ثبت نمرهٔ دیگر', '', 'secondary-btn sv-wide'));
       } finally { t.disabled = false; }
     };
@@ -17423,6 +17439,38 @@ bnrLoad();
         await SVA['sv-dc']();
         try { await appAlert('sv_sent', null, { text: fa(r.sent) + ' مورد برای اولیا ارسال شد.', title: 'ارسال شد', icon: '📤', tone: 'ok' }); } catch (e) {}
       } finally { t.disabled = false; }
+    };
+    /* ---------- مرخصی ---------- */
+    SVA['sv-lv'] = async () => {
+      svLoading('🏖️ مرخصی دانش‌آموزان', 'sv-home');
+      const [list, ld] = await Promise.all([svStudents(true), stuFetch('/leave/list', {})]);
+      let h = '';
+      if (ld.can_edit) {
+        h += '<div class="stu-card">' + field('دانش‌آموز', '<select id="sv-l-st">' + list.map((x) => '<option value="' + x.id + '">' + esc(x.name) + '</option>').join('') + '</select>');
+        h += field('از تاریخ', '<input type="date" id="sv-l-from" value="' + todayStr() + '">') + field('تا تاریخ', '<input type="date" id="sv-l-to" value="' + todayStr() + '">');
+        h += field('دلیل (اختیاری)', '<input type="text" id="sv-l-rs" maxlength="180" placeholder="مثلاً بیماری، سفر">');
+        h += svBtn('sv-lv-save', '✅ تأیید و ثبت مرخصی', '', 'secondary-btn sv-wide') + '<p class="muted-text small">روزهای مرخصی در حضور و غیاب «مرخصی» می‌شود؛ معلم آن دانش‌آموز را نمی‌بیند که لازم باشد ثبت کند و اولیا مطلع می‌شوند.</p></div>';
+      }
+      h += '<h4>مرخصی‌های جاری و آینده</h4>';
+      if (!ld.items.length) h += '<p class="muted-text small">مرخصی ثبت نشده است.</p>';
+      ld.items.forEach((x) => {
+        h += '<div class="sv-item"><b>' + (x.now ? '🟢 ' : '') + esc(x.name) + '</b><small>' + (x.class ? esc(x.class) + ' · ' : '') + (x.from === x.to ? esc(jal(x.from)) : 'از ' + esc(jal(x.from)) + ' تا ' + esc(jal(x.to))) + '</small>' + (x.reason ? '<small>' + esc(x.reason) + '</small>' : '') + (x.by ? '<small>ثبت: ' + esc(x.by) + '</small>' : '') + (ld.can_edit ? '<div class="stu-actions">' + svBtn('sv-lv-del', '🗑️ لغو مرخصی', svId(x.id), 'danger-btn small-btn') + '</div>' : '') + '</div>';
+      });
+      svShell('🏖️ مرخصی دانش‌آموزان', 'sv-home', h);
+    };
+    SVA['sv-lv-save'] = async (t) => {
+      const sid = parseInt(gv('sv-l-st'), 10) || 0;
+      if (!sid) return;
+      t.disabled = true;
+      try {
+        await stuFetch('/leave/save', { student_id: sid, from: gv('sv-l-from'), to: gv('sv-l-to'), reason: gv('sv-l-rs') });
+        await SVA['sv-lv']();
+      } finally { t.disabled = false; }
+    };
+    SVA['sv-lv-del'] = async (t, id) => {
+      if (!(await svAsk('این مرخصی لغو شود؟ حضور و غیاب آن روزها پاک می‌شود تا معلم دوباره ثبت کند.', 'لغو مرخصی'))) return;
+      await stuFetch('/leave/delete', { id });
+      await SVA['sv-lv']();
     };
     SVA['sv-dc-del'] = async (t, id) => {
       if (!(await svAsk('این مورد حذف شود؟', 'حذف'))) return;
@@ -17921,7 +17969,7 @@ bnrLoad();
         const nd = fmtD(dt); if (nd > S.sheet.today) return;
         openSheet(S.sheet.scope, nd, S.sheet.cls);
       }
-      else if (act === 'sheet-all') { if (S.sheet) { S.sheet.students.forEach((x) => { S.sheet.draft[x.id] = { status: 'present', note: '' }; }); renderSheet(); } }
+      else if (act === 'sheet-all') { if (S.sheet) { S.sheet.students.forEach((x) => { if (!x.leave) S.sheet.draft[x.id] = { status: 'present', note: '' }; }); renderSheet(); } }
       else if (act === 'sheet-set') {
         if (!S.sheet) return; const id = parseInt(t.getAttribute('data-id'), 10); const st = t.getAttribute('data-s');
         const dr = S.sheet.draft[id] || (S.sheet.draft[id] = { status: '', note: '' });
@@ -18170,7 +18218,7 @@ bnrLoad();
       if (d.can_write && !fkIsOwnView()) h += svBtn('sv-fk-pt-new', '➕ ثبت امتیاز برای این دانش‌آموز', ' data-s="' + FK.ptSid + '"', 'secondary-btn sv-wide');
       if (!d.items.length) h += '<p class="muted-text small">در این بازه امتیازی ثبت نشده است.</p>';
       d.items.forEach((r) => {
-        h += '<div class="sv-item"><b>' + (FK_CAT[r.cat] || '') + ' <span class="fk-pts ' + (r.pts < 0 ? 'neg' : '') + '">' + fkPts(r.pts) + '</span></b><small>' + esc(jal(r.p_date)) + (r.by ? ' · ' + esc(r.by) : '') + '</small>' + (r.reason ? '<p style="margin:4px 0 0">' + esc(r.reason) + '</p>' : '') + (r.can_del ? '<div class="stu-actions">' + svBtn('sv-fk-pt-del', '🗑️ حذف', svId(r.id), 'danger-btn small-btn') + '</div>' : '') + '</div>';
+        h += '<div class="sv-item"><b>' + (FK_CAT[r.cat] || '') + (r.subject ? ' · ' + esc(r.subject) : '') + ' <span class="fk-pts ' + (r.pts < 0 ? 'neg' : '') + '">' + fkPts(r.pts) + '</span></b><small>' + esc(jal(r.p_date)) + (r.by ? ' · ' + esc(r.by) : '') + '</small>' + (r.reason ? '<p style="margin:4px 0 0">' + esc(r.reason) + '</p>' : '') + (r.can_del ? '<div class="stu-actions">' + svBtn('sv-fk-pt-del', '🗑️ حذف', svId(r.id), 'danger-btn small-btn') + '</div>' : '') + '</div>';
       });
       svShell('🏅 امتیازات (' + FK_RANGE[FK.range] + ')', fkIsOwnView() ? fkBack : 'sv-fk-pt-back', h);
     }
@@ -18182,6 +18230,7 @@ bnrLoad();
       let h = '<div class="sv-btns">' + svBtn('sv-fk-all', 'انتخاب همه', ' data-on="1"') + svBtn('sv-fk-all', 'هیچ‌کدام', ' data-on="0"') + '</div>';
       h += '<div class="sv-chks">' + svChecks(list, 'fk-pt-s', (s) => s.id === pre) + '</div>';
       h += field('نوع', '<select id="fk-pt-c"><option value="study">📚 تحصیلی</option><option value="discipline">⚖️ انضباط</option><option value="extra">🎨 فوق‌برنامه</option></select>');
+      h += field('درس (اختیاری؛ برای نمایش در کارنامه)', '<input type="text" id="fk-pt-sub" maxlength="80" list="fk-sub-dl" placeholder="مثلاً قرآن"><datalist id="fk-sub-dl">' + ['قرآن', 'حفظ', 'تجوید', 'احکام', 'عقاید', 'اخلاق', 'سیره'].map((x) => '<option value="' + x + '">').join('') + '</datalist>');
       h += field('امتیاز (مثبت یا منفی، مثلاً ۵ یا ‎-۳)', '<input type="text" inputmode="numeric" id="fk-pt-n" dir="ltr" placeholder="5">');
       h += field('دلیل (اختیاری)', '<input type="text" id="fk-pt-r" maxlength="300">');
       h += '<p class="muted-text small">برای اولیای هر دانش‌آموز اعلان ارسال می‌شود.</p>';
@@ -18196,7 +18245,7 @@ bnrLoad();
       if (!n) throw new Error('امتیاز را به‌صورت عدد وارد کنید.');
       t.disabled = true;
       try {
-        await stuFetch('/sp/points/save', { student_ids: ids, cat: gv('fk-pt-c'), pts: n, reason: gv('fk-pt-r') });
+        await stuFetch('/sp/points/save', { student_ids: ids, cat: gv('fk-pt-c'), pts: n, subject: gv('fk-pt-sub'), reason: gv('fk-pt-r') });
         if (FK.ptSid) await SVA['sv-fk-pt'](null, 0); else await SVA['sv-fk-pt'](null, 0);
       } finally { t.disabled = false; }
     };
@@ -18219,34 +18268,58 @@ bnrLoad();
     let fkCardText = '';
     SVA['sv-fk-cd-go'] = async () => {
       svLoading('📊 کارنامه', fkIsOwnView() ? fkBack : 'sv-fk-cd');
-      const body = { student_id: FK.cardSid };
-      if (FK.cardDays) { const dt = new Date(); dt.setDate(dt.getDate() - FK.cardDays); body.from = fmtD(dt); }
-      const d = await stuFetch('/sp/card', body);
+      const td = new Date(), tj = gregorianToJalali(td.getFullYear(), td.getMonth() + 1, td.getDate());
+      const ay = tj[1] >= 7 ? tj[0] : tj[0] - 1;
+      const g2s = (j) => { const g = jalaliToGregorian(j[0], j[1], j[2]); return g[0] + '-' + String(g[1]).padStart(2, '0') + '-' + String(g[2]).padStart(2, '0'); };
+      const R1 = [g2s([ay, 7, 1]), g2s([ay, 10, 30])], R2 = [g2s([ay, 11, 1]), g2s([ay + 1, 6, 31])];
+      const q = (f, t) => stuFetch('/sp/card', { student_id: FK.cardSid, from: f, to: t });
+      const [d, d1, d2] = await Promise.all([q(R1[0], R2[1]), q(R1[0], R1[1]), q(R2[0], R2[1])]);
       const a = d.attendance, lines = [];
-      let h = '<div class="sv-btns">' + FK_PERIOD.map((p) => svBtn('sv-fk-cd-p', p[1], ' data-d="' + p[0] + '"', FK.cardDays === p[0] ? 'secondary-btn small-btn' : 'ghost-btn small-btn')).join('') + '</div>';
-      h += '<div class="fk-card-print">';
-      h += '<div class="fk-card-head"><b>کارنامه تحصیلی</b>' + (d.org ? '<small>' + esc(d.org) + '</small>' : '') + '</div>';
-      h += '<div class="stu-rows">' + row('دانش‌آموز', d.student.name) + row('کلاس', d.student.class) + row('تاریخ صدور', jal(d.today)) + row('بازه', d.from ? ('از ' + jal(d.from)) : 'همهٔ نمره‌های ثبت‌شده') + '</div>';
+      const ps = (x, k) => (x.pts_by_subject && x.pts_by_subject[k] !== undefined ? Number(x.pts_by_subject[k]) : null);
+      const findSj = (x, cid, name) => { const c = (x.classes || []).filter((y) => y.id === cid)[0]; return c ? (c.subjects || []).filter((z) => z.subject === name)[0] : null; };
+      const cell = (v) => (v === null || v === undefined ? '-' : fkNum(v));
+      const cellN = (v) => (v === null || v === undefined ? '-' : '<span class="' + (v < 10 ? 'neg' : '') + '">' + fkNum(v) + '</span>');
+      let h = '<div class="fk-card-print fk-school">';
+      h += '<div class="fk-sh-top"><div class="fk-sh-l">' + (d.org ? esc(d.org) + '<br>' : '') + 'سال تحصیلی ' + fa(ay) + '-' + fa(ay + 1) + '</div><div class="fk-sh-c"><b>کارنامهٔ تحصیلی</b></div><div class="fk-sh-r">' + (d.student.class ? 'کلاس: ' + esc(d.student.class) + '<br>' : '') + 'تاریخ صدور: ' + esc(jal(d.today)) + '</div></div>';
+      h += '<table class="fk-sh-info"><tr><th>نام و نام خانوادگی</th><td>' + esc(d.student.name) + '</td></tr></table>';
       lines.push('کارنامه تحصیلی — ' + d.student.name + (d.student.class ? ' (' + d.student.class + ')' : ''));
-      if (!d.subjects.length) h += '<p class="muted-text small">هنوز نمره‌ای ثبت نشده است.</p>';
-      else {
-        h += '<table class="fk-tbl"><thead><tr><th>درس</th><th>تعداد</th><th>میانگین (از ۲۰)</th></tr></thead><tbody>';
-        d.subjects.forEach((s) => { h += '<tr><td>' + esc(s.subject) + '</td><td>' + fa(s.count) + '</td><td class="' + (s.avg < 10 ? 'neg' : '') + '"><b>' + fkNum(s.avg) + '</b></td></tr>'; lines.push(s.subject + ': ' + fkNum(s.avg)); });
-        h += '</tbody></table>';
-        h += '<div class="fk-overall">معدل کل: <b>' + fkNum(d.overall) + '</b> از ۲۰</div>';
-        lines.push('معدل کل: ' + fkNum(d.overall));
+      const used = {};
+      if (!d.classes.length) h += '<p class="muted-text small">هنوز نمره‌ای ثبت نشده است.</p>';
+      d.classes.forEach((c) => {
+        h += '<div class="fk-sh-cls">🏫 ' + esc(c.name) + '</div><div class="fk-sh-wrap"><table class="fk-sh"><thead><tr><th rowspan="2">ردیف</th><th rowspan="2">درس</th><th colspan="2">نوبت اول</th><th colspan="2">نوبت دوم</th><th rowspan="2">نمرهٔ سالانه</th><th rowspan="2">وضعیت</th></tr><tr><th>امتیاز</th><th>نمره</th><th>امتیاز</th><th>نمره</th></tr></thead><tbody>';
+        c.subjects.forEach((sj, i) => {
+          used[sj.subject] = 1;
+          const s1 = findSj(d1, c.id, sj.subject), s2 = findSj(d2, c.id, sj.subject);
+          h += '<tr><td>' + fa(i + 1) + '</td><td class="fk-n">' + esc(sj.subject) + '</td><td class="fk-pt">' + cell(ps(d1, sj.subject)) + '</td><td>' + cellN(s1 ? s1.avg : null) + '</td><td class="fk-pt">' + cell(ps(d2, sj.subject)) + '</td><td>' + cellN(s2 ? s2.avg : null) + '</td><td><b>' + cellN(sj.avg) + '</b></td><td class="' + (sj.pass ? '' : 'neg') + '">' + esc(sj.level) + '</td></tr>';
+          lines.push(sj.subject + ': نوبت اول ' + cell(s1 ? s1.avg : null) + ' (امتیاز ' + cell(ps(d1, sj.subject)) + ') | نوبت دوم ' + cell(s2 ? s2.avg : null) + ' (امتیاز ' + cell(ps(d2, sj.subject)) + ') | سالانه ' + fkNum(sj.avg) + ' (' + sj.level + ')');
+        });
+        h += '</tbody><tfoot><tr><th colspan="2">جمع میانگین‌ها</th><th colspan="4"></th><th>' + fkNum(c.sum_avgs) + '</th><th></th></tr><tr><th colspan="2">معدل</th><th colspan="4"></th><th>' + fkNum(c.avg) + '</th><th>' + esc(c.level) + '</th></tr></tfoot></table></div>';
+        lines.push('معدل ' + c.name + ': ' + fkNum(c.avg));
+      });
+      const bs = d.pts_by_subject || {}, extra = Object.keys(bs).filter((k) => !used[k] && Number(bs[k]) !== 0);
+      if (extra.length) {
+        h += '<div class="fk-sh-cls">🏅 امتیازهای بدون نمره / سایر</div><table class="fk-sh"><thead><tr><th>مورد</th><th>امتیاز کل سال</th></tr></thead><tbody>' + extra.map((k) => '<tr><td class="fk-n">' + esc(k || 'سایر امتیازها (بدون درس)') + '</td><td class="fk-pt">' + fkPts(Number(bs[k])) + '</td></tr>').join('') + '</tbody></table>';
       }
-      h += '<h4>حضور و غیاب</h4><div class="stu-att-sum">' + Object.keys(ATT).map((k) => '<div class="stu-att-cnt stu-att-' + k + '"><b>' + fa(a[k] || 0) + '</b><small>' + ATT[k][0] + '</small></div>').join('') + '</div>';
-      h += '<div class="fk-overall">جمع امتیازات: <b>' + fkPts(d.points) + '</b></div>';
-      if (d.exams.length) {
-        h += '<h4>آزمون‌های آنلاین</h4>';
-        d.exams.forEach((e) => { h += '<div class="stu-row"><span class="stu-row-l">' + esc(e.title) + '</span><span class="stu-row-v">' + fa(e.score) + ' از ' + fa(e.total) + ' (' + fa(e.pct) + '٪)</span></div>'; });
+      if (d.overall !== null && d.overall !== undefined) {
+        h += '<div class="fk-overall fk-total">معدل کل: <b>' + fkNum(d.overall) + '</b> از ۲۰ — ' + esc(d.level) + '</div>';
+        lines.push('معدل کل: ' + fkNum(d.overall) + ' (' + d.level + ')');
       }
-      h += '</div>';
-      h += '<div class="stu-actions">' + svBtn('sv-fk-print', '🖨️ چاپ / ذخیره PDF') + svBtn('sv-fk-copy', '📋 کپی متن') + '</div>';
-      lines.push('جمع امتیازات: ' + fkPts(d.points)); lines.push('غیبت: ' + fa(a.absent || 0) + '، تأخیر: ' + fa(a.late || 0));
+      h += '<table class="fk-sh-info fk-sh-sum"><tr><th>غیبت</th><td>' + fa(a.absent || 0) + '</td><th>تأخیر</th><td>' + fa(a.late || 0) + '</td><th>مرخصی</th><td>' + fa(a.excused || 0) + '</td></tr><tr><th>کل امتیاز</th><td>' + fkPts(d.points) + '</td><th>رتبهٔ امتیاز در کلاس</th><td colspan="3">' + (d.rank ? fa(d.rank) + ' از ' + fa(d.rank_of) : '-') + '</td></tr></table>';
+      const lv = d.level, desc = !lv ? '' : (d.overall >= 16 ? 'عملکرد دانش‌آموز بسیار خوب است؛ ادامه دهد.' : d.overall >= 12 ? 'عملکرد قابل قبول است؛ با تلاش بیشتر می‌تواند پیشرفت کند.' : 'نیاز به تلاش و پیگیری بیشتر دارد؛ همکاری اولیا توصیه می‌شود.');
+      if (desc) h += '<div class="fk-sh-desc"><span>توصیف مربی:</span> ' + esc(desc) + '</div>';
+      h += '<div class="fk-sh-sign"><div>مهر و امضای مدیر</div><div>امضای معاون</div><div>امضای اولیا</div></div></div>';
+      h += '<div class="stu-actions">' + svBtn('sv-fk-print', '🖨️ چاپ / ذخیره PDF') + svBtn('sv-fk-copy', '📋 کپی متن') + (d.can_send ? svBtn('sv-fk-send', '📤 ارسال کارنامه به والدین', '', 'secondary-btn') : '') + '</div>';
+      lines.push('جمع امتیازات: ' + fkPts(d.points) + (d.rank ? ' | رتبه ' + d.rank + ' از ' + d.rank_of : '')); lines.push('غیبت: ' + fa(a.absent || 0) + '، تأخیر: ' + fa(a.late || 0) + '، مرخصی: ' + fa(a.excused || 0));
       fkCardText = lines.join('\n');
       svShell('📊 کارنامه', fkIsOwnView() ? fkBack : 'sv-fk-cd', h);
+    };
+    SVA['sv-fk-send'] = async (t) => {
+      if (!(await svAsk('کارنامهٔ این دانش‌آموز برای والدینش ارسال شود؟', 'ارسال کارنامه'))) return;
+      t.disabled = true;
+      try {
+        const r = await stuFetch('/sp/card_send', { student_id: FK.cardSid });
+        try { await appAlert('fk_sent', null, { text: 'کارنامه برای اولیا ارسال شد.', title: 'ارسال شد', icon: '📤', tone: 'ok' }); } catch (e) {}
+      } finally { t.disabled = false; }
     };
     SVA['sv-fk-print'] = async () => { try { window.print(); } catch (e) { throw new Error('چاپ در این دستگاه پشتیبانی نمی‌شود؛ از «کپی متن» استفاده کنید.'); } };
     SVA['sv-fk-copy'] = async () => {
@@ -22123,12 +22196,12 @@ function qcfSyncFs() {
       (origin ? '<div class="ppl-row"><span>مبدأ (فارغ‌التحصیل / عضو)</span><b>' + esc(origin) + '</b></div>' : '') +
       (loc ? '<div class="ppl-row"><span>محل فعلی</span><b>' + esc(loc) + '</b></div>' : '') +
       '</div>' +
-      '<div class="ppl-appr ' + (p.approved ? 'yes' : 'no') + '">' + (p.approved ? '✅ مورد تأیید علمای منطقه' : '⚠️ تأییدیهٔ علمای منطقه ثبت نشده است') + (p.approved && p.approvers ? '<small>' + esc(p.approvers) + '</small>' : '') + '</div>' +
+      (d.type === 'staff' ? '' : '<div class="ppl-appr ' + (p.approved ? 'yes' : 'no') + '">' + (p.approved ? '✅ مورد تأیید علمای منطقه' : '⚠️ تأییدیهٔ علمای منطقه ثبت نشده است') + (p.approved && p.approvers ? '<small>' + esc(p.approvers) + '</small>' : '') + '</div>') +
       (p.intro ? '<div class="ppl-intro"><span>معرفی</span><p>' + esc(p.intro) + '</p></div>' : '') +
       '<div class="ppl-acts">' + (map ? '<a class="ppl-act" target="_blank" rel="noopener" href="' + esc(map) + '">📍 موقعیت روی نقشه</a>' : '') +
       (phone ? '<a class="ppl-act" href="tel:' + esc(phone) + '">📞 ' + esc(fa(phone)) + '</a>' : '') + '</div>' +
       (phone ? '<p class="ppl-hint">برای اطمینان از هویت، با همین شماره تماس بگیرید و مطابقت فرد را بپرسید؛ اگر پاسخ ندادند یا مشخصات نخواند، کارت را معتبر ندانید.</p>' : '') +
-      (warn ? '<p class="ppl-hint">این سفیر از سوی مجموعه غیرفعال شده است.</p>' : '') + '</div>';
+      (warn ? '<p class="ppl-hint">این کارت از سوی مجموعه غیرفعال شده است.</p>' : '') + '</div>';
     r.innerHTML = h;
     try { r.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {}
   }
