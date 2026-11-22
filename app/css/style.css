@@ -5981,3 +5981,17 @@ body.dark-mode .qs-ar .qf-r, body.dark-mode .ayah-arabic .qf-r { color: #ff6b6b;
 .ppl-me-h { font-weight: 700; margin-bottom: 6px; }
 .ppl-me .ppl-btns { margin: 8px 0; }
 .ok-text { color: #1e9e63; font-weight: 700; }
+
+/* امنیت حساب: کارت فشرده، تب‌ها، ردیف‌های بازشونده */
+.sec-card { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--card-bg); }
+.sec-card.is-new { border-color: rgba(220,60,60,.55); background: rgba(220,60,60,.08); }
+.sec-card-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sec-card-main small { opacity: .8; font-size: 12px; line-height: 1.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sec-tabs { display: flex; gap: 8px; margin-bottom: 8px; }
+.sec-tabs .is-on { background: var(--accent, #0f4c5c); color: #fff; }
+.sec-row { border: 1px solid var(--line); border-radius: 12px; margin-top: 8px; padding: 8px 10px; background: var(--card-bg); }
+.sec-row > summary { display: flex; flex-direction: column; gap: 2px; cursor: pointer; font-size: 13px; font-weight: 600; }
+.sec-row > summary small { font-weight: 400; opacity: .7; }
+.sec-row.is-done { opacity: .75; }
+.sv-sent { color: #0a7a2f; font-size: 12px; }
+.sv-unsent { color: #b36b00; font-size: 12px; }

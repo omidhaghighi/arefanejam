@@ -954,6 +954,12 @@ function handleHardwareBack() {
     if (typeof qpMenuIsOpen === 'function' && qpMenuIsOpen()) { qpMenuClose(); return; }
     const lb = document.getElementById('gallery-lightbox');
     if (lb && !lb.classList.contains('hidden')) { closeGalleryLightbox(); return; }
+    if (currentTab === 'students') {   // دانش‌آموزان: هر برگشت فقط یک مرحله (دکمهٔ «‹ بازگشت» همان صفحه)
+      const rg = document.getElementById('stu-reg');
+      if (rg && !rg.classList.contains('hidden')) { const b = document.getElementById('stu-r-back') || document.getElementById('stu-c-back') || document.getElementById('stu-s-back'); if (b) { b.click(); return; } }
+      const mn = document.getElementById('stu-main');
+      if (mn && !mn.classList.contains('hidden')) { const b = mn.querySelector('.stu-topbar button[data-stu]'); if (b) { b.click(); return; } }
+    }
     if (currentTab === 'contest' && typeof cnInGame === 'function' && cnInGame()) { cnConfirmExit(); return; }
     if (currentTab === 'contest' && (cnS.phase === 'fl' || cnS.phase === 'review' || cnS.phase === 'season' || cnS.phase === 'prac' || cnS.phase === 'panel' || cnS.phase === 'help' || cnS.phase === 'prof' || cnS.phase === 'tnl' || cnS.phase === 'tnb')) { if ((cnS.phase === 'tnb') && cnS.tnList) { cnTnHome(); return; } cnOpen(); return; }
     if (currentTab === 'game-ayah' && typeof gaGame !== 'undefined' && gaGame) { gaOpen(); return; }
@@ -16692,7 +16698,7 @@ bnrLoad();
         const par = findUser(u.parent_id);
         h += '<div class="stu-topbar"><button type="button" class="ghost-btn small-btn" data-stu="up">‹ ' + esc(par ? par.full_name : 'بازگشت') + '</button></div>';
       }
-      if (meView && WATCHED.indexOf(S.me.role) !== -1) h += '<div class="section-block' + (S.me.alerts_unread > 0 ? '' : ' hidden') + '" id="stu-alert-box"></div>';
+      if (meView && WATCHED.indexOf(S.me.role) !== -1) h += '<div class="section-block" id="stu-alert-box"></div>';
       // کارت اطلاعات
       h += '<div class="stu-card">';
       h += '<div class="stu-avatar stu-av-' + esc(u.role) + '">' + esc((u.full_name || '؟').trim().charAt(0)) + '</div>';
@@ -17102,20 +17108,53 @@ bnrLoad();
         const d = await stuFetch('/students/alerts', box ? { mark_read: 0 } : {});
         S.alerts = d.alerts || [];
         const b2 = $('stu-alert-box');
+        S.devices = d.devices || []; S.staffDevices = d.staff || [];
         if (b2) {
-          const open = S.alerts.filter((a) => !a.answer || !a.read);
-          if (!S.alerts.length) b2.innerHTML = '';
-          else b2.innerHTML = '<h3>🛡️ هشدارهای امنیتی' + (open.length ? ' (' + fa(open.length) + ')' : '') + '</h3>' + S.alerts.slice(0, 8).map((a) => alertHtml(a)).join('') + '<button type="button" class="ghost-btn small-btn" data-stu="al-read">علامت‌گذاری همه به‌عنوان خوانده‌شده</button>';
-          b2.classList.toggle('hidden', !S.alerts.length);
+          const open = S.alerts.filter((a) => !a.answer && a.kind !== 'brute' && !a.read);
+          const last = S.alerts[0];
+          b2.innerHTML = '<div class="sec-card' + (open.length ? ' is-new' : '') + '"><div class="sec-card-main"><b>🛡️ امنیت حساب</b><small>' + (open.length ? '🔔 ' + fa(open.length) + ' هشدار جدید' + (last ? ' — ' + esc(String(last.text).split('\n')[0]) : '') : 'هشدار جدیدی نیست') + '</small></div>' + svBtn('sec-open', open.length ? 'مشاهده' : 'سوابق ورود', '', open.length ? 'secondary-btn small-btn' : 'ghost-btn small-btn') + '</div>';
+          // آلارمِ داخل برنامه: برای هر «ورود از دستگاه جدید»ِ تازه فقط یک بار
+          try {
+            const seen = parseInt(localStorage.getItem('arefanejam_sec_seen') || '0', 10) || 0;
+            const fresh = S.alerts.filter((a) => a.kind === 'login' && !a.read && a.id > seen);
+            if (fresh.length) {
+              localStorage.setItem('arefanejam_sec_seen', String(Math.max.apply(null, fresh.map((a) => a.id))));
+              appAlert('stu_login_alarm', null, { text: String(fresh[0].text).split('\n').slice(0, 3).join('\n') + (fresh.length > 1 ? '\n(و ' + fa(fresh.length - 1) + ' ورود دیگر)' : ''), title: '🔔 ورود از دستگاه جدید', icon: '🚨', tone: 'warn' }).catch(() => {});
+            }
+          } catch (e3) {}
         }
         const t2 = $('stu-tgt-alert');
         if (t2) { const uid = parseInt(t2.getAttribute('data-uid'), 10); t2.innerHTML = S.alerts.filter((a) => a.kind === 'edit' && a.target_id === uid && !a.answer).map((a) => alertHtml(a, true)).join(''); }
       } catch (e) { /* بی‌صدا */ }
     }
+    /* صفحهٔ امنیت حساب: هشدارها (فشرده) + سوابق ورود از دستگاه‌های مختلف */
+    async function secScreen(tab) {
+      S.secTab = tab || S.secTab || 'al';
+      svLoading('🛡️ امنیت حساب', 'cancel');
+      const d = await stuFetch('/students/alerts', {});
+      S.alerts = d.alerts || []; S.devices = d.devices || []; S.staffDevices = d.staff || [];
+      let h = '<div class="sec-tabs">' + svBtn('sec-tab', '🔔 هشدارها' + (S.alerts.length ? ' (' + fa(S.alerts.length) + ')' : ''), ' data-t="al"', 'ghost-btn small-btn' + (S.secTab === 'al' ? ' is-on' : '')) + svBtn('sec-tab', '📱 سوابق ورود', ' data-t="dv"', 'ghost-btn small-btn' + (S.secTab === 'dv' ? ' is-on' : '')) + '</div>';
+      const devRow = (x, who) => '<div class="sv-item"><b>' + (x.blocked ? '⛔ ' : (x.trusted ? '✅ ' : '❔ ')) + esc(x.label || 'دستگاه') + (x.current ? ' <small>(همین دستگاه)</small>' : '') + '</b>' + (who ? '<small>حساب: ' + esc(who) + '</small>' : '') + '<small>IP: ' + esc(x.ip || '') + ' · ' + fa(x.logins) + ' بار ورود</small><small>اولین ورود: ' + esc(dtFa(x.first_seen)) + '</small><small>آخرین ورود: ' + esc(dtFa(x.last_seen)) + '</small></div>';
+      if (S.secTab === 'al') {
+        if (!S.alerts.length) h += '<p class="muted-text small">هشداری ثبت نشده است.</p>';
+        S.alerts.forEach((a) => {
+          const t = String(a.text).split('\n');
+          h += '<details class="sec-row' + (a.answer ? ' is-done' : '') + '"><summary><span>' + esc(t[0]) + '</span><small>' + esc(a.created_at) + (a.answer === 'ok' ? ' · ✔ تأیید شد' : a.answer === 'no' ? ' · ✖ مسدود شد' : '') + '</small></summary>' + alertHtml(a) + '</details>';
+        });
+        h += svBtn('al-read', 'علامت‌گذاری همه به‌عنوان خوانده‌شده', '', 'ghost-btn small-btn sv-wide');
+      } else {
+        h += '<h4>دستگاه‌های حساب شما</h4>';
+        if (!S.devices.length) h += '<p class="muted-text small">سابقه‌ای نیست.</p>';
+        S.devices.forEach((x) => { h += devRow(x, ''); });
+        if (S.staffDevices.length) { h += '<h4>ورودهای اخیر کارکنان مجموعه</h4>'; S.staffDevices.forEach((x) => { h += devRow(x, x.who); }); }
+      }
+      svShell('🛡️ امنیت حساب', 'cancel', h);
+    }
+
     async function answerAlert(id, ans) {
       try { const d = await stuFetch('/students/alerts/answer', { id: id, answer: ans }); try { await appAlert('stu_ok', null, { text: d.message || 'ثبت شد.', title: 'ثبت شد', icon: ans === 'ok' ? '✅' : '🛡️', tone: ans === 'ok' ? 'ok' : 'warn' }); } catch (e) {} }
       catch (e) { try { await appAlert('stu_err', null, { text: e.message || 'انجام نشد.', title: 'خطا', icon: '⚠️', tone: 'warn' }); } catch (e2) {} }
-      loadAlerts();
+      if ($('stu-alert-box')) loadAlerts(); else secScreen();
     }
 
     async function doDelete(u) {
@@ -17358,11 +17397,13 @@ bnrLoad();
         h += field('نوع', '<select id="sv-d-kind"><option value="praise">🌟 تشویق</option><option value="warning" selected>⚠️ تذکر</option><option value="violation">🚫 مورد انضباطی</option></select>');
         h += field('توضیح', '<textarea id="sv-d-body" rows="3" maxlength="480"></textarea>');
         h += field('تاریخ', '<input type="date" id="sv-d-date" value="' + todayStr() + '">');
-        h += svBtn('sv-dc-save', 'ثبت و اطلاع به اولیا', '', 'secondary-btn sv-wide');
+        h += svBtn('sv-dc-save', '📝 ثبت مورد (فقط برای مدیر)', '', 'secondary-btn sv-wide');
+        h += '<p class="muted-text small">ثبت فقط در فهرست مدیر می‌ماند. هر وقت لازم بود، «ارسال به اولیا» را بزنید تا همهٔ موارد این دانش‌آموز برای اولیایش فرستاده شود.</p>';
+        h += svBtn('sv-dc-send', '📤 ارسال موارد دانش‌آموز انتخاب‌شده به اولیا', '', 'ghost-btn sv-wide');
       }
       h += '<h4>آخرین موارد ثبت‌شده</h4>';
       if (!ld.items.length) h += '<p class="muted-text small">موردی ثبت نشده است.</p>';
-      ld.items.forEach((x) => { h += '<div class="sv-item"><b>' + (DISC_IC[x.kind] || '') + ' ' + esc(x.student) + ' — ' + esc(x.kind_label) + '</b><small>' + esc(x.body) + '</small><small>' + esc(jal(x.date)) + (x.by ? ' · ' + esc(x.by) : '') + '</small>' + (x.can_delete ? '<div class="stu-actions">' + svBtn('sv-dc-del', '🗑️ حذف', svId(x.id), 'danger-btn small-btn') + '</div>' : '') + '</div>'; });
+      ld.items.forEach((x) => { h += '<div class="sv-item"><b>' + (DISC_IC[x.kind] || '') + ' ' + esc(x.student) + ' — ' + esc(x.kind_label) + '</b><small>' + esc(x.body) + '</small><small>' + esc(jal(x.date)) + (x.by ? ' · ' + esc(x.by) : '') + '</small><small class="' + (x.sent ? 'sv-sent">✔ به اولیا ارسال شده' : 'sv-unsent">⏳ فقط برای مدیر؛ به اولیا ارسال نشده') + '</small><div class="stu-actions">' + (x.sent ? '' : svBtn('sv-dc-send', '📤 ارسال به اولیا', svId(x.sid), 'secondary-btn small-btn')) + (x.can_delete ? svBtn('sv-dc-del', '🗑️ حذف', svId(x.id), 'danger-btn small-btn') : '') + '</div></div>'; });
       svShell('⚖️ موارد انضباطی', 'sv-home', h);
     };
     SVA['sv-dc-save'] = async (t) => {
@@ -17370,6 +17411,17 @@ bnrLoad();
       try {
         await stuFetch('/disc/save', { student_id: parseInt(gv('sv-d-st'), 10) || 0, kind: gv('sv-d-kind'), body: gv('sv-d-body'), date: gv('sv-d-date') });
         await SVA['sv-dc']();
+      } finally { t.disabled = false; }
+    };
+    SVA['sv-dc-send'] = async (t, id) => {
+      const sid = id || parseInt(gv('sv-d-st'), 10) || 0;
+      if (!sid) return;
+      if (!(await svAsk('همهٔ موارد انضباطیِ ارسال‌نشدهٔ این دانش‌آموز برای اولیایش فرستاده شود؟', 'ارسال به اولیا'))) return;
+      t.disabled = true;
+      try {
+        const r = await stuFetch('/disc/send', { student_id: sid });
+        await SVA['sv-dc']();
+        try { await appAlert('sv_sent', null, { text: fa(r.sent) + ' مورد برای اولیا ارسال شد.', title: 'ارسال شد', icon: '📤', tone: 'ok' }); } catch (e) {}
       } finally { t.disabled = false; }
     };
     SVA['sv-dc-del'] = async (t, id) => {
@@ -17664,7 +17716,7 @@ bnrLoad();
       let h = '<h4>👨‍🏫 معلم‌های کلاس</h4>';
       h += pp.teachers.length ? '<div class="sv-checks">' + pp.teachers.map((x) => '<label class="sv-chk"><input type="checkbox" class="sv-ct" value="' + x.id + '"' + (inT[x.id] ? ' checked' : '') + '> ' + esc(x.name) + ' <small>(' + esc(x.role) + ')</small></label>').join('') + '</div>' : '<p class="muted-text small">معلمی در مجموعه تعریف نشده است.</p>';
       h += '<h4>🎓 دانش‌آموزان کلاس</h4><input type="text" id="sv-cls-find" class="sv-rn" placeholder="جست‌وجوی نام دانش‌آموز…" autocomplete="off">';
-      h += pp.students.length ? '<div class="sv-checks" id="sv-cls-sl">' + pp.students.map((x) => '<label class="sv-chk" data-n="' + esc(x.name) + '"><input type="checkbox" class="sv-cs" value="' + x.id + '"' + (inS[x.id] ? ' checked' : '') + '> ' + esc(x.name) + (x.class && !inS[x.id] ? ' <small>(الان در «' + esc(x.class) + '»؛ با انتخاب، منتقل می‌شود)</small>' : '') + '</label>').join('') + '</div>' : '<p class="muted-text small">دانش‌آموزی در مجموعه تعریف نشده است.</p>';
+      h += pp.students.length ? '<div class="sv-checks" id="sv-cls-sl">' + pp.students.map((x) => '<label class="sv-chk" data-n="' + esc(x.name) + '"><input type="checkbox" class="sv-cs" value="' + x.id + '"' + (inS[x.id] ? ' checked' : '') + '> ' + esc(x.name) + (x.class ? ' <small>(کلاس‌های دیگر: ' + esc(x.class) + ')</small>' : '') + '</label>').join('') + '</div>' : '<p class="muted-text small">دانش‌آموزی در مجموعه تعریف نشده است.</p>';
       h += '<p class="muted-text small">هر دانش‌آموز فقط در یک کلاس است. معلمِ هر کلاس، دانش‌آموزان همان کلاس را در حضور و غیاب و ثبت نمره می‌بیند.</p>' + svBtn('sv-cls-msave', 'ذخیرهٔ کلاس', svId(id), 'secondary-btn sv-wide');
       svShell('👥 ' + c.name, 'sv-cls', h);
     };
@@ -17851,7 +17903,9 @@ bnrLoad();
       const cur = (S.viewId == null) ? S.me : (findUser(S.viewId) || S.me);
       if (act === 'logout') doLogout();
       else if (act === 'al-ok' || act === 'al-no') answerAlert(parseInt(t.getAttribute('data-id'), 10), act === 'al-ok' ? 'ok' : 'no');
-      else if (act === 'al-read') { stuFetch('/students/alerts', { mark_read: 1 }).then(() => { S.me.alerts_unread = 0; loadAlerts(); }).catch(() => {}); }
+      else if (act === 'al-read') { stuFetch('/students/alerts', { mark_read: 1 }).then(() => { S.me.alerts_unread = 0; if ($('stu-alert-box')) loadAlerts(); else secScreen(); }).catch(() => {}); }
+      else if (act === 'sec-open') secScreen('al').catch(svErr);
+      else if (act === 'sec-tab') secScreen(t.getAttribute('data-t') || 'al').catch(svErr);
       else if (act === 'profile') renderForm('profile', S.me);
       else if (act === 'password') renderForm('password', S.me);
       else if (act === 'add') renderForm('add', cur);
