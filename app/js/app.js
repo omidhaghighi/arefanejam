@@ -829,7 +829,8 @@ function switchToTab(tabName, opts) {
   if (tabName === 'shariq') { try { shariqState.bank = false; } catch (e) {} if (typeof shariqSetView === 'function') shariqSetView('qa'); loadShariqCategories(); }
   if (tabName === 'shariq-mine') loadShariqMine();
   if (tabName === 'shariq-booking') { try { bkSetView('free'); loadBooking(); } catch (e) {} }
-  if (tabName === 'khatm') loadKhatmList();
+  if (tabName === 'khatm') loadKhatmList('quran');
+  if (tabName === 'khatm-dhikr') loadKhatmList('dhikr');
   if (tabName === 'khatm-mine') loadKhatmMine();
   if (tabName === 'khatm-view') loadKhatmView();
   if (tabName === 'feedback') loadFeedbackMain();
@@ -1256,7 +1257,7 @@ const APP_MSG_REG = {
   "tone": "warn",
   "icon": "📖",
   "title": "ختم ناتمام دارید",
-  "text": "شما یک ختم ناتمام دارید. تا زمانی که قرآنِ آن کامل خوانده نشود (همهٔ بخش‌ها برداشته و انجام شود) یا آن را نبندید، نمی‌توانید درخواست جدید ثبت کنید.",
+  "text": "شما یک ختم ناتمام دارید. تا زمانی که ختمِ آن کامل انجام نشود (همهٔ بخش‌ها برداشته و انجام شود) یا آن را نبندید، نمی‌توانید درخواست جدید ثبت کنید.",
   "ok": "باشه"
  },
  "khatm_join_ok": {
@@ -12513,7 +12514,9 @@ let khatmViewId = 0;
 let khatmViewData = null;
 let khatmSel = new Set();
 let khatmCreateUnit = 'juz';
+let khatmKind = 'quran';   // نوع ختمی که صفحهٔ «درخواست‌های من» نشان می‌دهد: quran | dhikr
 
+function khatmFmt(n) { return toPersianDigits(String(Math.max(0, Math.floor(Number(n) || 0))).replace(/\B(?=(\d{3})+(?!\d))/g, '٬')); }
 function khatmAgo(sec) {
   sec = Math.max(0, Number(sec) || 0);
   if (sec < 60) return 'همین الان';
@@ -12534,6 +12537,8 @@ function khatmSetNewsDot(mineNews) {
   if (tile) tile.classList.toggle('has-news', khatmMineNews || khatmInquiryPending);
   const dot = document.getElementById('khatm-mine-dot');
   if (dot) dot.classList.toggle('hidden', !khatmMineNews);
+  const dot2 = document.getElementById('khatm-dhikr-mine-dot');
+  if (dot2) dot2.classList.toggle('hidden', !khatmMineNews);
 }
 function khatmSetInquiry(on) {
   khatmInquiryPending = !!on;
@@ -12586,7 +12591,13 @@ function khatmAyahLoc(meta, g) {
   return null;
 }
 // برچسب بخش شمارهٔ k
-function khatmLabel(unit, per, k, meta) {
+function khatmLabel(unit, per, k, meta, r) {
+  if (unit === 'dhikr') {
+    // ختم ذکر: هر بخش = «per» بار (بخش آخر ممکن است کمتر باشد)
+    const P = Number(r && r.portions) || 0, TC = Number(r && r.total_count) || 0;
+    const cnt = (P && k === P && TC) ? Math.max(1, TC - (P - 1) * per) : per;
+    return 'بخش ' + toPersianDigits(k) + ': ' + khatmFmt(cnt) + ' بار' + ((r && r.dhikr) ? ' «' + r.dhikr + '»' : '');
+  }
   const T = KHATM_TOTALS[unit] || 0;
   const a = (k - 1) * per + 1;
   const b = Math.min(k * per, T);
@@ -12634,6 +12645,8 @@ function khatmApplyLabels(labels) {
   setT('khatm-new-btn', KHATM_L.btn_new);
   const mineBtn = document.getElementById('khatm-mine-btn');
   if (mineBtn) { const dot = document.getElementById('khatm-mine-dot'); mineBtn.textContent = KHATM_L.btn_mine + ' '; if (dot) mineBtn.appendChild(dot); }
+  const mineBtn2 = document.getElementById('khatm-dhikr-mine-btn');
+  if (mineBtn2) { const dot2 = document.getElementById('khatm-dhikr-mine-dot'); mineBtn2.textContent = KHATM_L.btn_mine + ' '; if (dot2) mineBtn2.appendChild(dot2); }
   setT('khatm-view-pick-btn', KHATM_L.btn_pick);
   setT('khatm-new-submit-btn', KHATM_L.btn_submit);
   try { if (typeof khatmUpdateConfirmState === 'function') khatmUpdateConfirmState(); } catch (e) {}
@@ -12644,27 +12657,36 @@ async function loadKhatmSettings() {
     const s = await apiFetch('/khatm/settings');
     khatmApplyLabels(s && s.labels);
     const tile = document.getElementById('khatm-more-tile');
-    if (tile) tile.classList.toggle('hidden', s && s.enabled === false);
-    if (s && s.nav_label) {
-      const l1 = document.getElementById('khatm-tile-label'); if (l1) l1.textContent = s.nav_label;
-      const l2 = document.getElementById('khatm-page-title'); if (l2) l2.textContent = s.nav_label;
+    const qOn = !(s && s.enabled === false), dOn = !(s && s.dhikr_enabled === false);
+    if (tile) tile.classList.toggle('hidden', !qOn && !dOn);
+    const hq = document.getElementById('khatm-hub-quran'); if (hq) hq.classList.toggle('hidden', !qOn);
+    const hd = document.getElementById('khatm-hub-dhikr'); if (hd) hd.classList.toggle('hidden', !dOn);
+    const setL = (id, t) => { const el = document.getElementById(id); if (el && t) el.textContent = t; };
+    if (s) {
+      setL('khatm-tile-label', s.hub_label); setL('khatms-title', s.hub_label);
+      setL('khatm-hub-quran-label', s.nav_label); setL('khatm-page-title', s.nav_label);
+      setL('khatm-hub-dhikr-label', s.dhikr_label); setL('khatm-dhikr-page-title', s.dhikr_label);
     }
   } catch (e) { /* بدون اینترنت: همان نام پیش‌فرض می‌ماند */ }
 }
 
 function khatmDescribe(r) {
+  if (r && r.unit === 'dhikr') {
+    return (r.dhikr ? '«' + r.dhikr + '» — ' : '') + 'جمع ' + khatmFmt(r.total_count) + ' بار — هر نفر ' + khatmFmt(r.per_person) + ' بار — ' + toPersianDigits(r.portions) + ' بخش';
+  }
   return 'هر نفر ' + toPersianDigits(r.per_person) + ' ' + (KHATM_UNIT_FA[r.unit] || '') + ' — ' + toPersianDigits(r.portions) + ' بخش';
 }
 
-async function loadKhatmList() {
-  const el = document.getElementById('khatm-list-content');
+async function loadKhatmList(kind) {
+  kind = kind === 'dhikr' ? 'dhikr' : 'quran';
+  const el = document.getElementById(kind === 'dhikr' ? 'khatm-dhikr-list-content' : 'khatm-list-content');
   el.innerHTML = '<p class="muted-text small" style="padding:0 18px">در حال بارگذاری...</p>';
   try {
     const device_id = await ensureDeviceId();
-    let rows = shariqAsArray(await shariqGet('/khatm/list?device_id=' + encodeURIComponent(device_id)));
+    let rows = shariqAsArray(await shariqGet('/khatm/list?device_id=' + encodeURIComponent(device_id) + '&kind=' + kind));
     // پشتیبان: ختم‌های باز خودِ این گوشی همیشه در فهرست دیده شوند (حتی اگر فهرست عمومی کم‌وکاست برگردد)
     try {
-      const mineRows = shariqAsArray(await shariqGet('/khatm/mine?device_id=' + encodeURIComponent(device_id)));
+      const mineRows = shariqAsArray(await shariqGet('/khatm/mine?device_id=' + encodeURIComponent(device_id) + '&kind=' + kind));
       const have = new Set(rows.map((r) => Number(r.id)));
       mineRows.forEach((m) => { if (m && m.status === 'open' && !have.has(Number(m.id))) rows.push(m); });
       rows.sort((a, b) => (Number(a.age) || 0) - (Number(b.age) || 0));
@@ -12672,7 +12694,7 @@ async function loadKhatmList() {
     khatmSetInquiry(rows.some((r) => Number(r.my_ask) > 0));
     el.innerHTML = '';
     if (!rows.length) {
-      el.innerHTML = '<div class="shariq-empty"><span class="shariq-empty-icon">📖</span>هنوز ختمی تعریف نشده است.<br>اولین ختم را شما ثبت کنید.</div>';
+      el.innerHTML = '<div class="shariq-empty"><span class="shariq-empty-icon">' + (kind === 'dhikr' ? '📿' : '📖') + '</span>هنوز ختمی تعریف نشده است.<br>اولین ختم را شما ثبت کنید.</div>';
       return;
     }
     rows.forEach((r, i) => {
@@ -12699,9 +12721,9 @@ async function loadKhatmList() {
       el.appendChild(card);
     });
   } catch (e) {
-    el.innerHTML = shariqErrorBox(e, 'khatm-retry-btn');
-    const b = document.getElementById('khatm-retry-btn');
-    if (b) b.addEventListener('click', loadKhatmList);
+    el.innerHTML = shariqErrorBox(e, 'khatm-retry-btn-' + kind);
+    const b = document.getElementById('khatm-retry-btn-' + kind);
+    if (b) b.addEventListener('click', () => loadKhatmList(kind));
   }
 }
 
@@ -12759,7 +12781,7 @@ function renderKhatmMyDone() {
   mine.forEach((t) => {
     const row = document.createElement('div');
     row.className = 'khatm-mydone-row' + (t.done ? ' is-done' : '');
-    row.innerHTML = `<span class="khatm-mydone-txt">${shariqEsc(khatmLabel(d.unit, d.per_person, t.p, meta))}</span>
+    row.innerHTML = `<span class="khatm-mydone-txt">${shariqEsc(khatmLabel(d.unit, d.per_person, t.p, meta, d))}</span>
       <button type="button" class="${t.done ? 'ghost-btn' : 'secondary-btn'} small-btn khatm-mydone-btn">${shariqEsc(t.done ? KHATM_L.btn_done_state : KHATM_L.btn_done)}</button>`;
     row.querySelector('.khatm-mydone-btn').addEventListener('click', () => khatmMarkDone([t.p], !t.done));
     box.appendChild(row);
@@ -12803,8 +12825,10 @@ async function loadKhatmView() {
     khatmSel = new Set((d.taken || []).filter((t) => t.mine).map((t) => t.p));
     document.getElementById('khatm-view-title').textContent = d.title || '';
     const noteEl = document.getElementById('khatm-view-note');
-    noteEl.textContent = d.note || '';
-    noteEl.classList.toggle('hidden', !d.note);
+    const dhikrLine = (d.kind === 'dhikr' && d.dhikr) ? 'ذکر: «' + d.dhikr + '»' : '';
+    noteEl.textContent = [dhikrLine, d.note || ''].filter(Boolean).join('\n');
+    noteEl.style.whiteSpace = 'pre-line';
+    noteEl.classList.toggle('hidden', !(d.note || dhikrLine));
     const total = Number(d.portions) || 1;
     khatmViewMeta = meta;
     khatmRenderViewInfo();
@@ -12821,7 +12845,7 @@ async function loadKhatmView() {
       tile.type = 'button';
       tile.className = 'khatm-tile' + (other ? ' is-taken' : '') + (khatmSel.has(k) ? ' is-sel' : '');
       tile.dataset.p = String(k);
-      const label = khatmLabel(d.unit, d.per_person, k, meta);
+      const label = khatmLabel(d.unit, d.per_person, k, meta, d);
       tile.innerHTML = `<span class="khatm-box">${other || khatmSel.has(k) ? '✓' : ''}</span>
         <span class="khatm-tile-txt">${shariqEsc(label)}${other ? `<span class="khatm-tile-by">${t.done ? '✅ انجام شد' : (t.name ? shariqEsc(t.name) : 'برداشته شده')}</span>` : ''}</span>`;
       if (!other && d.status === 'open') {
@@ -12849,10 +12873,11 @@ async function loadKhatmMine() {
   el.innerHTML = '<p class="muted-text small" style="padding:0 18px">در حال بارگذاری...</p>';
   try {
     const device_id = await ensureDeviceId();
-    const rows = shariqAsArray(await shariqGet('/khatm/mine?device_id=' + encodeURIComponent(device_id)));
+    const rows = shariqAsArray(await shariqGet('/khatm/mine?device_id=' + encodeURIComponent(device_id) + '&kind=' + khatmKind));
     const meta = await khatmMeta();
-    // هرچه الان دیده شد «دیده‌شده» حساب می‌شود و نقطهٔ قرمز خاموش می‌شود
-    const seen = {};
+    const mt = document.getElementById('khatm-mine-title'); if (mt) mt.textContent = khatmKind === 'dhikr' ? 'درخواست‌های من (ختم ذکر)' : 'درخواست‌های من';
+    // هرچه الان دیده شد «دیده‌شده» حساب می‌شود و نقطهٔ قرمز خاموش می‌شود (ادغام با دیده‌شده‌های نوع دیگر)
+    const seen = khatmSeenGet();
     rows.forEach((r) => { seen[r.id] = Number(r.accept_count) || 0; });
     khatmSeenSet(seen);
     khatmSetNewsDot(false);
@@ -12882,7 +12907,7 @@ async function loadKhatmMine() {
         const nm = g.name ? shariqEsc(g.name) : 'شرکت‌کنندهٔ ' + toPersianDigits(idx + 1);
         const gDone = g.parts.filter((t) => t.done).length;
         const gAsked = g.parts.some((t) => t.asked);
-        const parts = g.parts.map((t) => (t.done ? '✅ ' : '⏳ ') + shariqEsc(khatmLabel(r.unit, r.per_person, t.p, meta))).join('<br>');
+        const parts = g.parts.map((t) => (t.done ? '✅ ' : '⏳ ') + shariqEsc(khatmLabel(r.unit, r.per_person, t.p, meta, r))).join('<br>');
         const status = gDone === g.parts.length
           ? '<span class="khatm-badge">✅ ختم خود را انجام داد</span>'
           : '<span class="khatm-badge is-wait">' + toPersianDigits(gDone) + ' از ' + toPersianDigits(g.parts.length) + ' انجام شده' + (gAsked ? ' — استعلام شد' : '') + '</span>';
@@ -12950,12 +12975,12 @@ async function khatmCheckNews() {
     const device_id = await ensureDeviceId();
     // ۱) آیا درخواست‌دهنده‌ای از من «انجام دادید؟» پرسیده؟
     try {
-      const list = shariqAsArray(await shariqGet('/khatm/list?device_id=' + encodeURIComponent(device_id)));
+      const list = shariqAsArray(await shariqGet('/khatm/list?device_id=' + encodeURIComponent(device_id) + '&kind=all'));
       khatmSetInquiry(list.some((r) => Number(r.my_ask) > 0));
     } catch (e) { /* بی‌صدا */ }
     // ۲) آیا کسی بخشی از ختم من را برداشته یا انجام داده؟
     if (localStorage.getItem(KHATM_HAS_KEY) !== '1') return;
-    const rows = shariqAsArray(await shariqGet('/khatm/mine?device_id=' + encodeURIComponent(device_id)));
+    const rows = shariqAsArray(await shariqGet('/khatm/mine?device_id=' + encodeURIComponent(device_id) + '&kind=all'));
     const seen = khatmSeenGet();
     const news = rows.some((r) => (Number(r.accept_count) || 0) > (Number(seen[r.id]) || 0));
     khatmSetNewsDot(news);
@@ -12993,16 +13018,17 @@ function khatmUpdatePreview() {
 (function setupKhatmUi() {
   try {
     const $ = (id) => document.getElementById(id);
-    $('khatm-mine-btn').addEventListener('click', () => switchToTab('khatm-mine', { push: true }));
+    $('khatm-mine-btn').addEventListener('click', () => { khatmKind = 'quran'; switchToTab('khatm-mine', { push: true }); });
 
     // ثبت درخواست جدید
     $('khatm-new-btn').addEventListener('click', async () => {
       // فقط یک ختمِ ناتمام: اگر ختم باز و کامل‌نشده‌ای دارد، همین‌جا جلویش گرفته می‌شود (بدون اینترنت، سرور هم بررسی می‌کند)
       try {
         const device_id = await ensureDeviceId();
-        const mine = shariqAsArray(await shariqGet('/khatm/mine?device_id=' + encodeURIComponent(device_id)));
+        const mine = shariqAsArray(await shariqGet('/khatm/mine?device_id=' + encodeURIComponent(device_id) + '&kind=quran'));
         if (mine.some((r) => r.status === 'open' && !r.completed)) {
           await appAlert('khatm_has_open');
+          khatmKind = 'quran';
           switchToTab('khatm-mine', { push: true });
           return;
         }
@@ -13098,6 +13124,106 @@ function khatmUpdatePreview() {
         appAlertErr('khatm_set_fail', e);
         khatmUpdateConfirmState();
       } finally { btn.dataset.busy = '0'; }
+    });
+  } catch (e) { /* خطای این بخش نباید اجرای بقیهٔ اپ را متوقف کند */ }
+})();
+
+/* ---------- ختم ذکر (مثل ختم قرآن؛ ذکر از همان فهرست تسبیح دیجیتال) ---------- */
+let khatmdDhikrs = null;
+async function khatmdLoadDhikrs() {
+  if (khatmdDhikrs && khatmdDhikrs.length) return khatmdDhikrs;
+  try {
+    const rows = await apiFetch('/dhikrs');
+    if (Array.isArray(rows) && rows.length) { khatmdDhikrs = rows; return rows; }
+  } catch (e) { /* بدون اینترنت و بدون نسخهٔ ذخیره‌شده: فقط «ذکر دیگر» */ }
+  return khatmdDhikrs || [];
+}
+function khatmdSelectedName() {
+  const sel = document.getElementById('khatmd-select');
+  if (!sel) return '';
+  if (sel.value === '__custom') return (document.getElementById('khatmd-custom').value || '').trim();
+  const d = (khatmdDhikrs || [])[parseInt(sel.value, 10)];
+  return d ? String(d.title || '').trim() : '';
+}
+function khatmdUpdatePreview() {
+  const $ = (id) => document.getElementById(id);
+  const sel = $('khatmd-select');
+  const custom = sel.value === '__custom';
+  $('khatmd-custom').classList.toggle('hidden', !custom);
+  const d = custom ? null : (khatmdDhikrs || [])[parseInt(sel.value, 10)];
+  const ar = $('khatmd-arabic');
+  ar.textContent = d ? (d.arabic_text || '') : '';
+  ar.classList.toggle('hidden', !(d && d.arabic_text));
+  const total = parseInt($('khatmd-total').value, 10) || 0;
+  const per = parseInt($('khatmd-per').value, 10) || 0;
+  const pv = $('khatmd-preview');
+  const submit = $('khatmd-submit-btn');
+  const bad = (t) => { pv.textContent = t; pv.classList.add('is-bad'); submit.disabled = true; };
+  if (total < 1 || total > 1000000000) return bad('تعداد کل را بین ۱ و ۱٬۰۰۰٬۰۰۰٬۰۰۰ بنویسید.');
+  if (per < 1 || per > total) return bad('تعداد هر نفر باید بین ۱ و ' + khatmFmt(total) + ' باشد.');
+  const portions = Math.ceil(total / per);
+  if (portions > KHATM_MAX_PORTIONS) return bad('با این عدد ذکر به ' + toPersianDigits(portions) + ' بخش تقسیم می‌شود که زیاد است (حداکثر ' + toPersianDigits(KHATM_MAX_PORTIONS) + '). عدد «هر نفر» را بزرگ‌تر بنویسید.');
+  const last = total - (portions - 1) * per;
+  pv.classList.remove('is-bad'); submit.disabled = false;
+  pv.textContent = 'مجموع ' + khatmFmt(total) + ' بار به ' + toPersianDigits(portions) + ' بخش تقسیم می‌شود؛ هر نفر ' + khatmFmt(per) + ' بار'
+    + (last !== per ? ' (بخش آخر ' + khatmFmt(last) + ' بار)' : '') + '.';
+}
+(function setupKhatmDhikrUi() {
+  try {
+    const $ = (id) => document.getElementById(id);
+    $('khatm-dhikr-mine-btn').addEventListener('click', () => { khatmKind = 'dhikr'; switchToTab('khatm-mine', { push: true }); });
+    $('khatm-dhikr-new-btn').addEventListener('click', async () => {
+      try {
+        const device_id = await ensureDeviceId();
+        const mine = shariqAsArray(await shariqGet('/khatm/mine?device_id=' + encodeURIComponent(device_id) + '&kind=dhikr'));
+        if (mine.some((r) => r.status === 'open' && !r.completed)) {
+          await appAlert('khatm_has_open');
+          khatmKind = 'dhikr';
+          switchToTab('khatm-mine', { push: true });
+          return;
+        }
+      } catch (e) { /* بدون اینترنت: سرور هنگام ثبت بررسی می‌کند */ }
+      const list = await khatmdLoadDhikrs();
+      const sel = $('khatmd-select');
+      sel.innerHTML = '';
+      const add = (v, t) => { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); };
+      add('', '— ذکر را انتخاب کنید —');
+      list.forEach((d, i) => add(String(i), d.title));
+      add('__custom', '✍️ ذکر دیگر (خودم می‌نویسم)');
+      sel.value = '';
+      $('khatmd-custom').value = ''; $('khatmd-title').value = ''; $('khatmd-note').value = '';
+      $('khatmd-name').value = localStorage.getItem(KHATM_NAME_KEY) || '';
+      $('khatmd-total').value = '1000'; $('khatmd-per').value = '100';
+      $('khatmd-error').classList.add('hidden');
+      khatmdUpdatePreview();
+      $('khatmd-new-modal').classList.remove('hidden');
+    });
+    ['khatmd-select', 'khatmd-total', 'khatmd-per', 'khatmd-custom'].forEach((id) => {
+      $(id).addEventListener(id === 'khatmd-select' ? 'change' : 'input', khatmdUpdatePreview);
+    });
+    $('khatmd-cancel-btn').addEventListener('click', () => $('khatmd-new-modal').classList.add('hidden'));
+    $('khatmd-submit-btn').addEventListener('click', async () => {
+      const errEl = $('khatmd-error');
+      const dhikr = khatmdSelectedName();
+      if (!dhikr) { errEl.textContent = 'ذکر را از فهرست انتخاب کنید یا بنویسید.'; errEl.classList.remove('hidden'); return; }
+      const total_count = parseInt($('khatmd-total').value, 10) || 0;
+      const per = parseInt($('khatmd-per').value, 10) || 0;
+      const title = $('khatmd-title').value.trim() || ('ختم ذکر «' + dhikr + '»');
+      const note = $('khatmd-note').value.trim();
+      const name = $('khatmd-name').value.trim();
+      const btn = $('khatmd-submit-btn');
+      btn.disabled = true;
+      try {
+        const device_id = await ensureDeviceId();
+        await apiFetch('/khatm/create', { method: 'POST', body: JSON.stringify({ device_id, kind: 'dhikr', dhikr, total_count, per_person: per, title, note, name }) });
+        try { localStorage.setItem(KHATM_HAS_KEY, '1'); if (name) localStorage.setItem(KHATM_NAME_KEY, name); } catch (e) {}
+        $('khatmd-new-modal').classList.add('hidden');
+        loadKhatmList('dhikr');
+        appAlert('khatm_created');
+      } catch (e) {
+        errEl.textContent = khatmErr(e, 'ثبت درخواست انجام نشد. اینترنت را بررسی کنید و دوباره تلاش کنید.');
+        errEl.classList.remove('hidden');
+      } finally { btn.disabled = false; khatmdUpdatePreview(); }
     });
   } catch (e) { /* خطای این بخش نباید اجرای بقیهٔ اپ را متوقف کند */ }
 })();
@@ -20411,6 +20537,8 @@ var GS_KW = {
   'zakat-calc': 'زکات خمس محاسبه',
   'shariq': 'مسئله فتوا عالم پرسش مفتی سوال',
   'khatm': 'ختم مشارکت جزء قرآن',
+  'khatms': 'ختم‌ها ختم قرآن ختم ذکر',
+  'khatm-dhikr': 'ختم ذکر تکرار ذکر مشارکت',
   'feedback': 'تماس پیشنهاد انتقاد تیکت ارتباط گزارش مشکل',
   'fun': 'بازی مسابقه',
   'game-ayah': 'بازی آیه حدس',
@@ -20438,7 +20566,7 @@ var GS_KW = {
 var GS_EXTRA = [
   ['home', 'خانه', '\uD83C\uDFE0'], ['quran-list', 'قرآن', '\uD83D\uDCD7'], ['azan', 'اذان', '\uD83D\uDD4C'],
   ['qibla', 'قبله‌نما', '\uD83E\uDDED'], ['shariq', 'سوالات شرعی', '\u2753'], ['more', 'بیشتر', '\u2630'],
-  ['khatm', 'ختم قرآن', '\uD83D\uDCFF'], ['feedback', 'نظر و پشتیبانی', '\uD83D\uDCAC'], ['fun', 'سرگرمی', '\uD83C\uDFAE'],
+  ['khatm', 'ختم قرآن', '\uD83D\uDCFF'], ['khatm-dhikr', 'ختم ذکر', '\uD83D\uDCFF'], ['feedback', 'نظر و پشتیبانی', '\uD83D\uDCAC'], ['fun', 'سرگرمی', '\uD83C\uDFAE'],
   ['game-ayah', 'حدس آیه', '\uD83C\uDFAF'], ['contest', 'مسابقه و لیگ', '\uD83C\uDFC6'], ['ads', 'تبلیغات', '\uD83D\uDCE2'],
   ['activities', 'فعالیت‌های حوزه', '\uD83C\uDF1F'], ['ramadan-countdown', 'رمضان', '\uD83C\uDF19'], ['charity', 'کمک‌های مردمی', '\uD83E\uDD1D'],
   ['people', 'پرسنل و سفیران', '\uD83C\uDD94'],
